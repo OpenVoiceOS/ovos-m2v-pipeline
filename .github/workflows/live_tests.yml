@@ -1,0 +1,77 @@
+name: Live Model Tests
+
+on:
+  pull_request:
+    branches:
+      - dev
+      - main
+    paths:
+      - 'ovos_m2v_pipeline/**'
+      - 'tests/test_live_fixture.py'
+      - 'tests/fixtures/**'
+      - '.github/workflows/live_tests.yml'
+  workflow_dispatch:
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  live_tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-dev swig libssl-dev
+      - name: Install package + test deps
+        run: |
+          python -m pip install --upgrade pip uv
+          uv pip install --system -e .
+          uv pip install --system pytest pytest-timeout ovoscope
+      - name: Cache HuggingFace models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-models-${{ runner.os }}-m2v-distiluse-v1
+      - name: Run live fixture test
+        id: live_test
+        env:
+          OVOSCOPE_LIVE: "1"
+          LIVE_REPORT_PATH: ${{ github.workspace }}/live_test_report.md
+        continue-on-error: true
+        run: |
+          pytest tests/test_live_fixture.py -v --timeout=900
+      - name: Compose comment body
+        id: report
+        if: always()
+        run: |
+          if [ ! -s "${{ github.workspace }}/live_test_report.md" ]; then
+            {
+              echo "## Live fixture test — \`ovos-m2v-pipeline\`"
+              echo ""
+              echo "**Status:** ❌ FAIL — test crashed before producing a report; see workflow logs."
+            } > "${{ github.workspace }}/live_test_report.md"
+          fi
+          {
+            echo "body<<COMMENT_EOF"
+            cat "${{ github.workspace }}/live_test_report.md"
+            echo ""
+            echo "_Workflow: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})_"
+            echo "COMMENT_EOF"
+          } >> "$GITHUB_OUTPUT"
+      - name: Post / update PR comment
+        if: always() && github.event_name == 'pull_request'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: live-fixture-test
+          message: ${{ steps.report.outputs.body }}
+      - name: Fail job if live test failed
+        if: steps.live_test.outcome == 'failure'
+        run: exit 1

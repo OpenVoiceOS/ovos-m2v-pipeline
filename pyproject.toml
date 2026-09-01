@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ovos_m2v_pipeline"
+dynamic = ["version"]
+description = "Model2Vec intent engine for OVOS"
+readme = "README.md"
+license = { text = "Apache License 2.0" }
+authors = [{ name = "TigreGoticoLda", email = "jarbasai@mailfence.com" }]
+maintainers = [{ name = "OpenVoiceOS" }]
+
+requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Topic :: Text Processing :: Linguistic",
+    "License :: OSI Approved :: Apache Software License",
+]
+dependencies = [
+    # opm.pipeline entrypoints + the bus-client 2.x e2e stack need modern opm;
+    # the prerelease floor lets the resolver pick it without --pre.
+    "ovos-plugin-manager>=2.3.0a1,<3.0.0",
+    "ovos-bus-client>=2.5.1a1,<3.0.0",
+    "ovos-config",
+    "ovos-utils>=0.3.4,<1.0.0",
+    "ovos-spec-tools>=1.8.0a1",
+    "model2vec[inference]",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "pytest-cov",
+    "numpy",
+    # INTENT-4 consumer e2e stack floor (ovos.intent.register.* topics +
+    # E2EPipelineHarness namespace flags). Mirrors ovos-test-harness@dev.
+    "ovos-bus-client>=2.5.1a1,<3.0.0",
+    "ovos-spec-tools>=1.8.0a1",
+    "pandas>=1.5.0",
+    "scikit-learn>=1.0.0",
+    "pyyaml>=5.1",
+    "pyarrow>=10.0.0",
+]
+
+[project.urls]
+Homepage = "https://openvoiceos.org"
+Repository = "https://github.com/OpenVoiceOS/ovos-m2v-pipeline"
+Funding = "https://nlnet.nl/project/OpenVoiceOS"
+
+[project.entry-points."opm.pipeline"]
+ovos-m2v-pipeline = "ovos_m2v_pipeline:Model2VecIntentPipeline"
+ovos-m2v-prototype-pipeline = "ovos_m2v_pipeline:Model2VecPrototypePipeline"
+
+[tool.setuptools]
+packages = ["ovos_m2v_pipeline"]
+include-package-data = true
+
+[tool.setuptools.dynamic]
+version = { attr = "ovos_m2v_pipeline.version.__version__" }

@@ -1,0 +1,288 @@
+# Pinned source manifest for train/build_dataset.py.
+#
+# Every entry names an immutable revision. The builder fails loudly when a
+# revision cannot be resolved, so a moved branch can never silently change the
+# corpus. Bump a revision here, re-run the builder, and the manifest it writes
+# records exactly which revisions produced the outputs.
+
+version: 2
+
+# Local clones the git sources are read from. Override with --workspace.
+workspace: "~/AgentWorkspaces"
+
+git_sources:
+
+  - id: ovos-localize
+    kind: localize_jsonl
+    repo: https://github.com/OpenVoiceOS/ovos-localize
+    path: ovos/web/ovos-localize
+    revision: a88aae4442f5c616295e4500ed05e87ba16f3f22
+    files: "data/datasets/classification/*.jsonl"
+    license: "Apache-2.0 (OVOS skill locale files, community translations)"
+    columns:
+      lang: lang
+      skill_id: skill
+      intent: intent
+      utterance: text
+    notes: >
+      Keyed on intent FILE names, so `intent` carries a `.intent` / `.voc`
+      suffix that the label normaliser strips. `file_type: voc` rows are
+      Adapt keyword lists, not utterances, and are dropped.
+    exclude:
+      file_type: [voc]
+
+  - id: lang-support-tracker
+    kind: tracker_csv
+    repo: https://github.com/OpenVoiceOS/lang-support-tracker
+    path: ovos/tools/lang-support-tracker
+    revision: 92ac8cd2f99605b50c754824d5377dee2fff681c
+    files: "skills/intents_{lang}.csv"
+    langs: [ca, da, de, en, es, eu, fr, gl, it, nl, pt]
+    license: "Apache-2.0"
+    columns:
+      skill_id: domain
+      intent: intent
+      utterance: utterance
+      lang: "<from filename>"
+
+  # Pipeline-plugin families. Their locale `.intent` templates are expanded in
+  # place; `.voc` files are Adapt keyword lists and are never used as
+  # utterances.
+  - id: ocp-pipeline
+    kind: plugin_intents
+    family: ocp
+    pipeline_id: ocp
+    repo: https://github.com/OpenVoiceOS/ovos-ocp-pipeline-plugin
+    path: ovos/plugins/pipeline/ovos-ocp-pipeline-plugin
+    revision: f198b8584916e9d7a0c14a02cbdcf565427de571
+    files: "**/locale/*/*.intent"
+    license: "Apache-2.0"
+
+  - id: common-query-pipeline
+    kind: plugin_intents
+    family: common_query
+    pipeline_id: common_query
+    repo: https://github.com/OpenVoiceOS/ovos-common-query-pipeline-plugin
+    path: ovos/plugins/pipeline/ovos-common-query-pipeline-plugin
+    revision: 787594a3c6c1ee2adcd4980da01565bbc9cae20f
+    files: "**/locale/*/*.intent"
+    license: "Apache-2.0"
+    extra_intents: [common_query]
+    notes: >
+      `common_query` is not a resource file: it is the umbrella label the
+      pipeline itself answers under, mapped by the plugin to the
+      `common_query.question` topic. The repo's only `.intent` file belongs
+      to a test-fixture skill and is not a registration; test paths are
+      excluded on read.
+
+  - id: persona-pipeline
+    kind: plugin_intents
+    family: persona
+    pipeline_id: persona
+    repo: https://github.com/OpenVoiceOS/ovos-persona
+    path: ovos/plugins/pipeline/ovos-persona
+    revision: b9a2a880ffc49d77852b91b96e51ed8c2bb25235
+    files: "**/locale/*/*.intent"
+    license: "Apache-2.0"
+
+  - id: stop-pipeline
+    kind: plugin_intents
+    family: stop
+    pipeline_id: stop
+    repo: https://github.com/OpenVoiceOS/ovos-core
+    path: ovos/core/ovos-core
+    revision: 996b4483772491c0c7d19ae0c0496115446ee2ea
+    files: "ovos_core/intent_services/locale/*/*.intent"
+    license: "Apache-2.0"
+    notes: >
+      The stop pipeline ships inside ovos-core rather than a standalone plugin
+      repo; `stop.intent` carries the `stop:stop` umbrella label the plugin
+      already special-cases, `global_stop.intent` becomes `stop:global_stop`.
+
+hf_sources:
+
+  - id: gitlocalize-legacy
+    repo_id: OpenVoiceOS/OVOSGitLocalize-Intents
+    revision: 6f745da797a868b635adffc017f4c9bf5b00674a
+    file: ovos_gitlocalize.csv
+    license: "Apache-2.0 (OVOS community translations, GitLocalize export)"
+    columns:
+      lang: lang
+      skill_id: domain
+      intent: intent
+      utterance: sentence
+    notes: >
+      Legacy export, 95k rows over 17 languages. Every cell is quoted and
+      space-padded; the reader strips quotes and whitespace before mapping.
+
+  - id: music-queries-templates
+    repo_id: OpenVoiceOS/music_queries_templates
+    revision: ea676cef6c1a12c3a8979641ca1e2dccb77bebb5
+    file: music_templates.csv
+    license: "MIT"
+    constant_label: "ocp:play"
+    constant_lang: "en-US"
+    columns:
+      utterance: template
+    notes: >
+      OCP play queries as `{slot}` templates. Mirrored from
+      Jarbas/music_queries_templates at the same revision; the OpenVoiceOS
+      copy is the pinned one.
+
+  - id: common-query-intents
+    repo_id: Jarbas/ovos-common-query-intents
+    revision: 588655fdc7e979d745afa044413874977c91fd2a
+    file: common_query.csv
+    license: "unstated upstream; treated as Apache-2.0 with the rest of the OVOS corpus"
+    columns:
+      lang: lang
+      skill_id: domain
+      intent: intent
+      utterance: sentence
+
+  - id: weather-intents
+    repo_id: OpenVoiceOS/ovos-weather-intents
+    revision: 5c3b9844185af6f7b17852fa9004d6b33f8c1837
+    file: weather_intents_en.csv
+    license: "unstated upstream; treated as Apache-2.0 with the rest of the OVOS corpus"
+    constant_skill_id: "ovos-skill-weather.openvoiceos"
+    constant_lang: "en-US"
+    columns:
+      intent: intent
+      utterance: example
+
+  - id: llm-augmented
+    repo_id: Jarbas/ovos-llm-augmented-intents
+    revision: ee702b4cf27a10090e21c9f76ef2eddd9e935d10
+    file: augmented.csv
+    license: "unstated upstream; synthetic, LLM-generated"
+    columns:
+      lang: lang
+      skill_id: domain
+      intent: intent
+      utterance: sentence
+    notes: >
+      Synthetic balancing data. Resolves under the `Jarbas` namespace only;
+      it is not listed by `list_datasets(author="Jarbas")`, so resolve it by
+      exact id.
+
+# Golden sentences. Per the maintainer these JOIN the train/test split rather
+# than forming a pure holdout: they are stratified alongside every other row
+# and keep their provenance so a golden-only slice can still be scored.
+golden:
+  policy: stratified
+  provenance_column: source
+  shared:
+    path: knowledge/datasets/ovoscope/test_dataset.jsonl
+    default_lang: en-US
+  per_skill:
+    files: "test/end2end/golden_utterances*.jsonl"
+    lang_from_filename: true
+    default_lang: en-US
+  exclude:
+    needs_manual: true
+
+# Pinned skill refs, workspace-relative. These are the GROUND TRUTH for the
+# label vocabulary: the builder reads each repo's entry point and its
+# registered intents at this exact revision, and drops any corpus label the
+# refs do not attest. Regenerate after the Adapt->.intent PRs merge with
+# `--skill-ref-list <file>`, one `<repo-path> <sha>` pair per line.
+skill_refs:
+  refs:
+    ovos/ovos-skill-bandcamp: b5c27fdbb01d8ded0587cda69d6b227aa9d6e6b5
+    ovos/ovos-skill-news: 42223533719a646555fc89aeaa1b71c13bc96cfb
+    ovos/ovos-skill-pyradios: 2aca44d1e9a6aefe50896c78e29004245d38bc10
+    ovos/ovos-skill-somafm: 08a965254bd2322614cf426ea9520b63e15d3148
+    ovos/ovos-skill-soundcloud: 57828e2eae0541679320a0d58d18e5aab6bfb561
+    ovos/ovos-skill-spotify: 0ac415d68b9074f50da4e12ca835dab54edb3a1d
+    ovos/ovos-skill-tunein: 96cbcdecf2e97e533a9f794e2024959886046fb1
+    ovos/ovos-skill-youtube: 4ae86f60eb7cf4a494532e988eb27ddf0b807323
+    ovos/ovos-skill-youtube-music: f7ffb72a4bbd36ae5410f614e8037dfa250dc7c3
+    ovos/plugins/agents/ovos-skill-ddg: 6980bf45e82a52cea010be7c8837b1a77d950134
+    ovos/skills/adult/ovos-skill-hello-world: ef2dc297a4e018cfb882ff629e2ce977e5d4e632
+    ovos/skills/ovos-skill-alerts: 411bade969f22d4bb26eff8b00c6c2822fc0aa59
+    ovos/skills/ovos-skill-application-launcher: 516becae359f5b1bcb2adfa8bc699f420052ff45
+    ovos/skills/ovos-skill-audio-recording: c204ca979d91631c344153d711358e18664009a7
+    ovos/skills/ovos-skill-boot-finished: 68a8f431edad1cf602bea999be7da05dce45f40d
+    ovos/skills/ovos-skill-camera: 1ff1830382ec796f60ee8b7d1e3614fbcb705829
+    ovos/skills/ovos-skill-cave-adventure-game: 83286c197185134aa6e47578a5758c2860427835
+    ovos/skills/ovos-skill-cmd: f1ac067a348e3fe463148a42373380d17053ed01
+    ovos/skills/ovos-skill-color-picker: e00242fe7be60b6efe77eaf6ceddfa3c7550ad28
+    ovos/skills/ovos-skill-confucius-quotes: a0dad063b525a9a6c69622cda14ea036a2ea6cdd
+    ovos/skills/ovos-skill-count: ebbd94d8b09550fcb8b1a1a9fc560f620bb8938c
+    ovos/skills/ovos-skill-date-time: 37a61c288f415c3b805a9876f9e68e7d41cfc1d1
+    ovos/skills/ovos-skill-days-in-history: 91343301f48e28955ff75d01a5cf0fc2ed927d36
+    ovos/skills/ovos-skill-diagnostics: 8dcf1e80addb86b72530b9a275c3b76243ea5c6a
+    ovos/skills/ovos-skill-dictation: 780797d2c2d3b7afdf78ee4695cfe2f2d42a1c7a
+    ovos/skills/ovos-skill-easter-eggs: 907afef03a05d61947f33ff844d11d52960ea012
+    ovos/skills/ovos-skill-fallback-unknown: 5f3831197f2de72258922e8ed6d22b055d46e6fb
+    ovos/skills/ovos-skill-fuster-quotes: bbbeb98a0825d1ebb4cf30ec2d181e8a4e131df0
+    ovos/skills/ovos-skill-ggwave: 7739cc67d85748e182f1357bf4646bfed9c16936
+    ovos/skills/ovos-skill-hhgg-game: 2d0e7973ef61a9488cdfec69c82ccbba79a3a75a
+    ovos/skills/ovos-skill-homescreen: 0b177acac5b4af55fb0a40baaf2ce8348dd45b59
+    ovos/skills/ovos-skill-icanhazdadjokes: a5bdc80810559e424b5621198c84c20b1cbd64d2
+    ovos/skills/ovos-skill-ip: 4d2a8959b170fb944edc82b1ec828d9af8a2385c
+    ovos/skills/ovos-skill-iss-location: bb93444a7a889f89d3f61e9c9e41923caad5567b
+    ovos/skills/ovos-skill-laugh: 4d7d0e76cf48da0f6a2198d706d5a93e3b58f49f
+    ovos/skills/ovos-skill-mark1-ctrl: e7c6dc77f38bacdecfbf55cb802dda2fbcaa852f
+    ovos/skills/ovos-skill-moon-game: 09f1413981619d286257c4737f9a47e277525185
+    ovos/skills/ovos-skill-moviemaster: 9b9663c2b78bf0c95872e7c7fa5e73eb3ff220a9
+    ovos/skills/ovos-skill-naptime: a38cbbec54a42ac05f2866d6c2392f7a32ef3171
+    ovos/skills/ovos-skill-number-facts: 91e562e1955b3e82e99ac8887a469960a9dd1e0d
+    ovos/skills/ovos-skill-parrot: 1bf1462fc38bae4683974c870bebd38026d96f41
+    ovos/skills/ovos-skill-personal: 8f9f989a4e3638bd9e01e77d3795c944e9d5447c
+    ovos/skills/ovos-skill-planet-fall-game: 294d2324a0b2cad2743432644bca4827b3dc4f28
+    ovos/skills/ovos-skill-pokepedia: 9ed0cf43f1eb93d89fe31147c22b25a8cab70374
+    ovos/skills/ovos-skill-randomness: a97c7d9c6758bc5d53dc8d0b135b3ea2cb5f649e
+    ovos/skills/ovos-skill-screenshot: f3da539a31259da889804d1477c95fc6cad83015
+    ovos/skills/ovos-skill-speedtest: eeb0ea7b9fc5972cd8aa29e35da45da72e3a643d
+    ovos/skills/ovos-skill-spelling: 8956e35855aec3c26586dbadc77c8ba8fb18d784
+    ovos/skills/ovos-skill-starcross-game: dbdf43f6118e98a411440789f901c704f861a7fa
+    ovos/skills/ovos-skill-station-fall-game: 4438ac80985b0bffaad4a7fb55537a29dd3ae141
+    ovos/skills/ovos-skill-volume: 07f739d7be934c3bcec657efee1a5fc7cd3fe4aa
+    ovos/skills/ovos-skill-wallpapers: d9816f16fce9ec0634fa84202758a279a843589a
+    ovos/skills/ovos-skill-weather: d3ea0b1a87471744b62b4e79a90d6079f0e78399
+    ovos/skills/ovos-skill-white-house-adventure: f64f4128cabeebeb978ab3954f00f11a9d02ee14
+    ovos/skills/ovos-skill-wikihow: c44435dc81c34927137fb6dacb4736a130a0c065
+    ovos/skills/ovos-skill-wikipedia: 8cbcfd2a69f7c905abaee11ad394df2fbfbf7355
+    ovos/skills/ovos-skill-wolfie: 1271052155eedde2f0f69f689d510ccad0e20cef
+    ovos/skills/ovos-skill-word-of-the-day: caa26bdee9244925a72a5f984a2623be4846372f
+    ovos/skills/ovos-skill-wordnet: eec54c96aeaaf8d7c2787faa93f0e2a1d35d6855
+    ovos/skills/ovos-skill-zork0-game: 6ae8df93e1f3f92e908bc7f538f0013eea927c4c
+    ovos/skills/ovos-skill-zork2-game: 240e1d32ed138f182b270c6f04be195fb1973d7c
+    ovos/skills/ovos-skill-zork3-game: cee1fa2ff8c4038e7ef990a2d0e449f618da8272
+
+# Skill-id spellings older corpora use for a pipeline. Resolved to the
+# pipeline id before the registry lookup, since folding cannot bridge them.
+skill_id_aliases:
+  ovos-ocp-pipeline-plugin: ocp
+  ovos-common-query-pipeline-plugin: common_query
+  ovos-common-reading-pipeline-plugin: common_query
+  ovos-persona: persona
+  ovos-core: stop
+  ocp: ocp
+
+# Skill ids that must never reach the corpus.
+skill_blacklist:
+  - ovos-skill-local-media.openvoiceos
+  - ovos-skill-spotify.openvoiceos
+
+# Intent file names that are dialog or keyword resources, not intents.
+intent_blacklist:
+  - no_secondary_langs
+
+filters:
+  min_chars: 2
+  max_chars: 160
+  min_words: 1
+  # Word-salad guard: a row whose utterance is a bare unexpanded slot, or is
+  # only punctuation / digits, carries no intent signal.
+  drop_bare_slot: true
+  drop_non_alpha: true
+  # Labels with fewer than this many rows cannot be stratified into a split.
+  min_rows_per_label: 2
+
+split:
+  test_size: 0.2
+  seed: 42
+  stratify: label

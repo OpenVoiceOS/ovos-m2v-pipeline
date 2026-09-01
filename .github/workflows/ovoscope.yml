@@ -1,0 +1,24 @@
+name: E2E Tests (ovoscope)
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - 'ovos_m2v_pipeline/**'
+      - 'tests/test_ovoscope_e2e.py'
+      - 'tests/test_ovoscope_prototype_e2e.py'
+      - 'tests/end2end/**'
+      - '.github/workflows/ovoscope.yml'
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    uses: OpenVoiceOS/gh-automations/.github/workflows/ovoscope.yml@dev
+    with:
+      install_extras: "test"
+      test_path: "tests/test_ovoscope_prototype_e2e.py tests/end2end/"
+      require_m2v: true
+      # Validate against the unreleased ovoscope dev branch (E2EPipelineHarness)
+      # and the m2v pipeline from dev. Drop once ovoscope is released to PyPI
+      # with the harness.
+      pre_release: true
