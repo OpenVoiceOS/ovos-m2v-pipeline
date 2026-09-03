@@ -92,6 +92,20 @@ DEFAULT_MODELS: Dict[str, str] = {}
 #: (and without a `config["models"]` override) -- i.e. every language.
 DEFAULT_MULTILINGUAL = "OpenVoiceOS/ovos-m2v-intents-multilingual"
 
+#: `conf_high` / `conf_medium` / `conf_low` defaults for classifier mode,
+#: calibrated against softmax probabilities.
+_CLASSIFIER_CONF_DEFAULTS = {"conf_high": 0.7, "conf_medium": 0.5, "conf_low": 0.15}
+
+#: `conf_high` / `conf_medium` / `conf_low` defaults for prototype mode,
+#: calibrated against raw cosine similarities (unlike classifier mode's
+#: softmax probabilities, which cluster much closer to 1.0 for confident
+#: matches). Derived from `scripts/calibrate_prototype_thresholds.py`
+#: against the default multilingual model: matching utterances scored
+#: 0.52-0.96 (mean 0.79), non-matching utterances scored 0.25-0.55
+#: (mean 0.39, median 0.37). See that script's docstring and the PR that
+#: introduced these values for the full distribution.
+_PROTOTYPE_CONF_DEFAULTS = {"conf_high": 0.6, "conf_medium": 0.45, "conf_low": 0.3}
+
 
 def _resolve_model_id(config: Dict, lang: str) -> str:
     """Resolve the Model2Vec repo id to load for *lang*.
@@ -2406,6 +2420,18 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
     # Confidence-tier API
     # ------------------------------------------------------------------
 
+    def _default_conf(self, key: str) -> float:
+        """Mode-dependent fallback for an unset `conf_high`/`conf_medium`/`conf_low`.
+
+        Classifier mode scores are softmax probabilities; prototype mode
+        scores are raw cosine similarities, which cluster in a much lower
+        and narrower band (see `_PROTOTYPE_CONF_DEFAULTS`). Only used when
+        the key is absent from `self.config` -- an explicit user value
+        always wins regardless of mode.
+        """
+        defaults = _PROTOTYPE_CONF_DEFAULTS if self._mode == "prototype" else _CLASSIFIER_CONF_DEFAULTS
+        return defaults[key]
+
     def match_high(self, utterances: List[str], lang: str, message: Message) -> Optional[IntentHandlerMatch]:
         """
         Matches the most likely intent for a given list of utterances using Model2Vec.
@@ -2420,7 +2446,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         """
         if not utterances:
             return None
-        min_conf = self.config.get("conf_high", 0.7)
+        min_conf = self.config.get("conf_high", self._default_conf("conf_high"))
         LOG.debug(f"Matching intents via Model2Vec (min_conf: {min_conf}) - {utterances[0]}")
         for skill_id, label, prob, slots in self._match(utterances[0], message, lang):
             if prob < min_conf:
@@ -2450,7 +2476,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         """
         if not utterances:
             return None
-        min_conf = self.config.get("conf_medium", 0.5)
+        min_conf = self.config.get("conf_medium", self._default_conf("conf_medium"))
         LOG.debug(f"Matching intents via Model2Vec (min_conf: {min_conf}) - {utterances[0]}")
         for skill_id, label, prob, slots in self._match(utterances[0], message, lang):
             if prob < min_conf:
@@ -2480,7 +2506,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         """
         if not utterances:
             return None
-        min_conf = self.config.get("conf_low", 0.15)
+        min_conf = self.config.get("conf_low", self._default_conf("conf_low"))
         LOG.debug(f"Matching intents via Model2Vec (min_conf: {min_conf}) - {utterances[0]}")
         for skill_id, label, prob, slots in self._match(utterances[0], message, lang):
             if prob < min_conf:
