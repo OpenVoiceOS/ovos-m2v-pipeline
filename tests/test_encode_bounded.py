@@ -80,6 +80,8 @@ def test_padatious_labels_dealias_to_canonical():
     from ovos_m2v_pipeline import PrototypeIntentStore
     p.prototype_store = PrototypeIntentStore()
     p._prototype_k = None
+    p.entities = {}
+    p._prototype_cache_enabled = False
     p._handle_register_padatious(Message(
         "padatious:register_intent",
         {"name": "skill.test:go.intent", "samples": ["go to work"]}))

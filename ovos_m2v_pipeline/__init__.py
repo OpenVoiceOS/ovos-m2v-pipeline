@@ -1439,7 +1439,17 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             LOG.warning(f"rejecting registration: no valid template remains {ctx}")
             return
         reg_lang = message.data.get("lang")
-        cache_key = self._prototype_cache_key(raw_samples, lang=reg_lang)
+        # fill any ``{slot}`` placeholders (OVOS-INTENT-4 §7 entity hints, also
+        # used ad-hoc by some legacy skills) the same way the INTENT-4 template
+        # path does; entities registered so far are the only ones visible --
+        # there is no legacy-wire entity registration to wait on, so this is a
+        # one-shot fill just like the INTENT-4 path (neither re-expands on
+        # later entity registration).
+        sentences = self._expand_entities(sentences)
+        slots = {slot for s in raw_samples for slot in _SLOT_RE.findall(s)}
+        entity_values = {slot: self.entities[slot.lower()]
+                          for slot in slots if slot.lower() in self.entities}
+        cache_key = self._prototype_cache_key(raw_samples, entity_values, lang=reg_lang)
         try:
             n = self._add_prototypes(name, sentences, self._prototype_k, cache_key,
                                      lang=reg_lang)
