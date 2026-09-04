@@ -17,6 +17,7 @@ from ovos_plugin_manager.templates.pipeline import IntentHandlerMatch, Confidenc
 from ovos_config.locations import get_xdg_data_save_path
 from ovos_spec_tools import SpecMessage
 from ovos_spec_tools.context import gate_satisfied, context_slot_candidates
+from ovos_spec_tools.language import closest_lang, standardize_lang
 from itertools import islice
 
 from ovos_spec_tools.expansion import iter_expand
@@ -328,9 +329,22 @@ class PrototypeIntentStore:
 
     @property
     def labels(self) -> np.ndarray:
+        """The bare (un-partitioned) label of every stored prototype, in the
+        same order as :attr:`embeddings`.
+
+        A label registered with a language (see :meth:`add`) is stored
+        internally as a composite ``label\\x00lang`` key so per-language
+        partitions never collide; this view decomposes it back to the bare
+        label a caller registered, so ``labels`` / ``unique_labels`` are a
+        stable public surface independent of that internal partitioning.
+        """
         with self._lock:
             self._consolidate()
-            return self._labels
+            if not len(self._labels):
+                return self._labels
+            return np.array(
+                [self._decompose(str(l))[0] for l in self._labels], dtype=object
+            )
 
     @property
     def unique_labels(self) -> np.ndarray:
@@ -342,6 +356,34 @@ class PrototypeIntentStore:
     # ------------------------------------------------------------------
     # Mutation
     # ------------------------------------------------------------------
+
+    #: separator between a bare label (``skill_id:intent_name``) and its
+    #: registration language in the internal, per-language-partitioned
+    #: label the store actually keys on -- an embedded NUL, which cannot
+    #: occur in a bus-registered label or BCP-47 tag, so decomposition is
+    #: unambiguous.
+    _LANG_SEP = "\x00"
+
+    @classmethod
+    def _compose(cls, label: str, lang: Optional[str]) -> str:
+        """Build the internal per-language label stored/matched against.
+
+        ``lang=None`` returns *label* unchanged: callers that never pass a
+        language (offline ``build()``, direct tests) get the pre-partition
+        behaviour of one shared label space, exactly as before.
+        """
+        if lang is None:
+            return label
+        return f"{label}{cls._LANG_SEP}{standardize_lang(lang)}"
+
+    @classmethod
+    def _decompose(cls, internal_label: str) -> Tuple[str, Optional[str]]:
+        """Split an internal label back into ``(label, lang)``; ``lang`` is
+        ``None`` for a label that was never partitioned by language."""
+        if cls._LANG_SEP in internal_label:
+            label, _, lang = internal_label.partition(cls._LANG_SEP)
+            return label, lang
+        return internal_label, None
 
     def _add_anchors(self, label: str, anchors: np.ndarray) -> int:
         """Insert already-computed, already-normalised anchor embeddings for
@@ -390,6 +432,7 @@ class PrototypeIntentStore:
         random_state: int = 42,
         *,
         cache_key: Optional[str] = None,
+        lang: Optional[str] = None,
     ) -> int:
         """Embed *sentences* and add/replace prototypes for *label*.
 
@@ -406,10 +449,20 @@ class PrototypeIntentStore:
         result is persisted under *cache_key* afterwards. Callers that don't
         care about persistence (tests, offline ``build()``) simply omit it.
 
+        ``lang`` is the registration's BCP-47 tag. When given, *label*'s
+        prototypes are stored in that language's own partition (see
+        :meth:`_compose`) so that ``scores(..., lang=...)`` never lets a
+        different language's prototypes compete for the same query; the
+        on-disk cache entry (when caching is enabled) is likewise kept
+        per-language, distinct from a pre-partition cache entry for the same
+        *label*. ``None`` (the default) keeps the pre-partition behaviour of
+        one shared, language-agnostic label space.
+
         Returns the number of prototypes actually added.
         """
         if not sentences:
             return 0
+        internal_label = self._compose(label, lang)
         if self.cache is not None and cache_key is not None:
             # Prefer the live model's declared output dimension (e.g.
             # model2vec.StaticModel.dim); fall back to whatever dimension
@@ -429,10 +482,10 @@ class PrototypeIntentStore:
                     expected_dim = self._embeddings.shape[1]
                 elif self._pending:
                     expected_dim = self._pending[-1][0].shape[1]
-            cached = self.cache.load(label, cache_key, expected_dim=expected_dim)
+            cached = self.cache.load(label, cache_key, lang=lang, expected_dim=expected_dim)
             if cached is not None:
                 embeddings, _labels = cached
-                return self._add_anchors(label, embeddings)
+                return self._add_anchors(internal_label, embeddings)
         if len(sentences) > MAX_ENTITY_EXPANSIONS:
             # single choke point: whatever path materialized the samples
             # (entity slot-filling, padatious template expansion, inline
@@ -462,33 +515,39 @@ class PrototypeIntentStore:
         anchors = select_anchors(
             embs, self.strategy, k=k, random_state=random_state,
         ).astype(np.float32)
-        n_added = self._add_anchors(label, anchors)
+        n_added = self._add_anchors(internal_label, anchors)
         if self.cache is not None and cache_key is not None and n_added:
             self.cache.save(
                 label, cache_key, anchors,
                 np.array([label] * n_added, dtype=object),
+                lang=lang,
             )
         return n_added
 
     def remove(self, label: str) -> None:
-        """Remove all prototypes for *label* (and its on-disk cache entry,
+        """Remove all prototypes for *label*, across every language
+        partition it was registered under (and its on-disk cache entries,
         if caching is enabled -- otherwise a later restart would resurrect
-        it from the stale cache)."""
+        them from the stale cache). A caller that detaches an intent has no
+        reliable way to know which language(s) it was registered in, so
+        removal is unconditional over all of them."""
         if self.cache is not None:
             self.cache.remove(label)
         with self._lock:
-            if label not in self._label_set:
+            matching = {l for l in self._label_set
+                        if l == label or l.startswith(label + self._LANG_SEP)}
+            if not matching:
                 return
             self._consolidate()
             if len(self._labels):
-                mask = self._labels != label
+                mask = ~np.isin(self._labels, list(matching))
                 self._embeddings = self._embeddings[mask]
                 self._labels = self._labels[mask]
             # strip any not-yet-folded pending chunk(s) too: _consolidate()
             # may have failed (MemoryError) and left _pending untouched
             self._pending = [(c, l) for c, l in self._pending
-                              if not len(l) or l[0] != label]
-            self._label_set.discard(label)
+                              if not len(l) or l[0] not in matching]
+            self._label_set -= matching
 
     def remove_skill(self, skill_id: str) -> None:
         """Remove all prototypes whose label starts with ``<skill_id>:``
@@ -516,7 +575,8 @@ class PrototypeIntentStore:
     # Inference
     # ------------------------------------------------------------------
 
-    def scores(self, query_embedding: np.ndarray) -> Dict[str, float]:
+    def scores(self, query_embedding: np.ndarray,
+               lang: Optional[str] = None) -> Dict[str, float]:
         """Return the max cosine similarity per label.
 
         Deliberately does *not* call ``_consolidate()``: this runs on the
@@ -535,6 +595,18 @@ class PrototypeIntentStore:
         ----------
         query_embedding:
             Raw (unnormalised) embedding vector of shape ``(dim,)``.
+        lang:
+            The querying utterance's BCP-47 tag. When given, prototypes
+            registered under a *different* language partition (see
+            :meth:`add`) never compete for this query: the language
+            partition present in the store closest to *lang* (via
+            ``ovos_spec_tools.language.closest_lang``, same dialect-fallback
+            distance OVOS-INTENT-2 §2.2 uses elsewhere) is selected, and
+            only its prototypes -- plus any never-partitioned ones (``add()``
+            called without a ``lang``) -- are scored. ``None`` (the default)
+            disables the filter entirely, scoring every prototype regardless
+            of the language it was registered under, matching the
+            pre-partition behaviour.
         """
         with self._lock:
             if not len(self):
@@ -545,10 +617,31 @@ class PrototypeIntentStore:
         norm = np.linalg.norm(q)
         if norm > 0:
             q = q / norm
+
+        allowed_lang: Optional[str] = None
+        if lang is not None:
+            available_langs = {entry_lang
+                                for _, labels in sources
+                                for entry_lang in (self._decompose(str(l))[1]
+                                                    for l in labels)
+                                if entry_lang is not None}
+            if available_langs:
+                allowed_lang = closest_lang(lang, sorted(available_langs))
+
         out: Dict[str, float] = {}
         for embeddings, labels in sources:
+            orig_labels = np.empty(len(labels), dtype=object)
+            keep = np.ones(len(labels), dtype=bool)
+            for i, composite in enumerate(labels):
+                orig, entry_lang = self._decompose(str(composite))
+                orig_labels[i] = orig
+                if (lang is not None and entry_lang is not None
+                        and entry_lang != allowed_lang):
+                    keep[i] = False
+            if not keep.any():
+                continue
             for lbl, score in score_labels(
-                q, embeddings, labels,
+                q, embeddings[keep], orig_labels[keep],
                 self.strategy, top_k=self.top_k, tau=self.tau,
             ).items():
                 if lbl not in out or score > out[lbl]:
@@ -778,9 +871,10 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         self._model_load_failures: int = 0
         self._model_load_retry_at: Optional[float] = None
         #: registrations that arrived before the model finished loading:
-        #: (label, sentences, k, cache_key) tuples, encoded exactly once by
-        #: `_flush_pending_additions` when the deferred load completes.
-        self._pending_additions: List[Tuple[str, List[str], Optional[int], Optional[str]]] = []
+        #: (label, sentences, k, cache_key, lang) tuples, encoded exactly
+        #: once by `_flush_pending_additions` when the deferred load
+        #: completes.
+        self._pending_additions: List[Tuple[str, List[str], Optional[int], Optional[str], Optional[str]]] = []
         #: how long a match call waits for a cold-start model load before
         #: giving up on THIS utterance and warming up in the background.
         self._model_load_budget: float = float(self.config.get("model_load_budget", 0.5))
@@ -964,15 +1058,16 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         (see ``_load_model_now``); each entry is encoded exactly once.
         """
         pending, self._pending_additions = self._pending_additions, []
-        for label, sentences, k, cache_key in pending:
+        for label, sentences, k, cache_key, lang in pending:
             try:
                 self.prototype_store.add(self.model, label, sentences, k=k,
-                                         cache_key=cache_key)
+                                         cache_key=cache_key, lang=lang)
             except Exception as exc:
                 LOG.error(f"deferred prototype add failed for '{label}': {exc}")
 
     def _add_prototypes(self, label: str, sentences: List[str],
-                        k: Optional[int], cache_key: Optional[str]) -> int:
+                        k: Optional[int], cache_key: Optional[str],
+                        lang: Optional[str] = None) -> int:
         """Encode *sentences* now if the model is loaded, otherwise buffer
         the raw registration for ``_flush_pending_additions`` to encode once
         the deferred load completes."""
@@ -983,13 +1078,13 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         lock = getattr(self, "_model_lock", None)
         if lock is None:
             return self.prototype_store.add(self.model, label, sentences, k=k,
-                                            cache_key=cache_key)
+                                            cache_key=cache_key, lang=lang)
         with lock:
             if self.model is None:
-                self._pending_additions.append((label, list(sentences), k, cache_key))
+                self._pending_additions.append((label, list(sentences), k, cache_key, lang))
                 return len(sentences)
             return self.prototype_store.add(self.model, label, sentences, k=k,
-                                            cache_key=cache_key)
+                                            cache_key=cache_key, lang=lang)
 
     def _forget_pending(self, label: str) -> None:
         """Drop any buffered-but-unencoded registration for *label* (mirrors
@@ -1125,6 +1220,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
     def _prototype_cache_key(
         self, raw_samples: List[str],
         entity_values: Optional[Dict[str, List[str]]] = None,
+        lang: Optional[str] = None,
     ) -> Optional[str]:
         """Hash a registration's inputs into a prototype-cache key, or
         ``None`` when caching is disabled / there is nothing to hash.
@@ -1141,7 +1237,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                 {"k": self._prototype_k,
                  "strategy": self._prototype_strategy.value,
                  "max_expansions": MAX_ENTITY_EXPANSIONS},
-                raw_samples, entity_values,
+                raw_samples, entity_values, lang=lang,
             )
         except Exception as exc:
             LOG.warning(f"prototype cache: failed to compute cache key, "
@@ -1194,9 +1290,11 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             # zero valid templates -> the whole registration is malformed
             LOG.warning(f"rejecting registration: no valid template remains {ctx}")
             return
-        cache_key = self._prototype_cache_key(raw_samples)
+        reg_lang = message.data.get("lang")
+        cache_key = self._prototype_cache_key(raw_samples, lang=reg_lang)
         try:
-            n = self._add_prototypes(name, sentences, self._prototype_k, cache_key)
+            n = self._add_prototypes(name, sentences, self._prototype_k, cache_key,
+                                     lang=reg_lang)
         except Exception as exc:
             LOG.error(f"Failed to add prototypes for Padatious intent "
                       f"'{name}': {exc}")
@@ -1395,8 +1493,10 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         slots = {slot for s in samples for slot in _SLOT_RE.findall(s)}
         entity_values = {slot: self.entities[slot.lower()]
                           for slot in slots if slot.lower() in self.entities}
-        cache_key = self._prototype_cache_key(list(samples), entity_values)
-        n = self._add_prototypes(label, expanded, self._prototype_k, cache_key)
+        reg_lang = message.data.get("lang")
+        cache_key = self._prototype_cache_key(list(samples), entity_values, lang=reg_lang)
+        n = self._add_prototypes(label, expanded, self._prototype_k, cache_key,
+                                 lang=reg_lang)
         self.intents.add(label)
         self._store_context_gate(label, message)
         LOG.debug(f"Prototype store: added {n} prototype(s) for INTENT-4 template '{label}'")
@@ -1603,7 +1703,8 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                 frozenset(sess.blacklisted_skills or []))
 
     def _match(self, utterance: str,
-               message: Optional[Message] = None) -> Iterable[Tuple[str, str, float, Dict[str, Any]]]:
+               message: Optional[Message] = None,
+               lang: Optional[str] = None) -> Iterable[Tuple[str, str, float, Dict[str, Any]]]:
         """Yield ``(skill_id, label, score, slots)`` tuples sorted by score
         descending, where ``slots`` carries the OVOS-CONTEXT-1 §7
         context-supplied slot values for the label (empty when none apply).
@@ -1615,6 +1716,10 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             utterance: The utterance to match.
             message: The incoming bus message (used to read session.pipeline for
                      special-label gating, plus the session blacklists).
+            lang: The utterance's BCP-47 tag. In prototype mode, restricts
+                  candidates to the language partition of the store closest
+                  to it (see ``PrototypeIntentStore.scores``); unused in
+                  classifier mode, where the model is trained language-agnostic.
         """
         if not self._ensure_model():
             # cold start still warming up in the background (see
@@ -1622,7 +1727,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             # resumes automatically once the deferred load completes.
             return
         if self.prototype_store is not None:
-            candidates = self._match_prototype(utterance, message)
+            candidates = self._match_prototype(utterance, message, lang)
         else:
             candidates = self._match_classifier(utterance, message)
         # OVOS-CONTEXT-1 §6/§6.1 context gate + OVOS-INTENT-4 §6.1 blacklist +
@@ -1717,15 +1822,22 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                 yield skill_id, label, float(prob)
 
     def _match_prototype(self, utterance: str,
-                         message: Optional[Message] = None) -> Iterable[Tuple[str, str, float]]:
+                         message: Optional[Message] = None,
+                         lang: Optional[str] = None) -> Iterable[Tuple[str, str, float]]:
         """Cosine nearest-neighbour against the prototype store.
 
         Special labels (ocp:play, common_query:common_query, stop:stop) are
         only forwarded when the matching downstream pipeline is present in the
         caller's session, consistent with classifier mode.
+
+        ``lang``, the utterance's BCP-47 tag, restricts candidates to
+        prototypes registered in that language's partition of the store (see
+        ``PrototypeIntentStore.scores``) -- without it, prototypes registered
+        for one language would compete for utterances in every other
+        language sharing the same multilingual embedding space.
         """
         emb = self.model.encode([utterance], use_multiprocessing=False)[0]
-        label_scores = self.prototype_store.scores(emb)
+        label_scores = self.prototype_store.scores(emb, lang=lang)
         special = self._allowed_special_labels(message)
         for label, score in sorted(label_scores.items(), key=lambda x: x[1], reverse=True):
             LOG.debug(f"Match candidate: {label} - cosine: {score:.4f}")
@@ -1764,7 +1876,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             return None
         min_conf = self.config.get("conf_high", 0.7)
         LOG.debug(f"Matching intents via Model2Vec (min_conf: {min_conf}) - {utterances[0]}")
-        for skill_id, label, prob, slots in self._match(utterances[0], message):
+        for skill_id, label, prob, slots in self._match(utterances[0], message, lang):
             if prob < min_conf:
                 LOG.debug(f"discarding match: {label} - confidence < {min_conf}")
                 return None
@@ -1794,7 +1906,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             return None
         min_conf = self.config.get("conf_medium", 0.5)
         LOG.debug(f"Matching intents via Model2Vec (min_conf: {min_conf}) - {utterances[0]}")
-        for skill_id, label, prob, slots in self._match(utterances[0], message):
+        for skill_id, label, prob, slots in self._match(utterances[0], message, lang):
             if prob < min_conf:
                 LOG.debug(f"discarding match: {label} - confidence < {min_conf}")
                 return None
@@ -1824,7 +1936,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             return None
         min_conf = self.config.get("conf_low", 0.15)
         LOG.debug(f"Matching intents via Model2Vec (min_conf: {min_conf}) - {utterances[0]}")
-        for skill_id, label, prob, slots in self._match(utterances[0], message):
+        for skill_id, label, prob, slots in self._match(utterances[0], message, lang):
             if prob < min_conf:
                 LOG.debug(f"discarding match: {label} - confidence < {min_conf}")
                 return None
