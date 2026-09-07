@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.11.2a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.11.2a1) (2026-09-07)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.11.1a1...0.11.2a1)
+
+**Merged pull requests:**
+
+- fix: dataset builder locale merge, slot filling, registry gaps [\#112](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/112) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.11.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.11.1a1) (2026-09-07)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.11.0a1...0.11.1a1)
@@ -399,25 +407,13 @@
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.4...0.0.5a1)
 
-**Merged pull requests:**
-
-- Match levels [\#3](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/3) ([JarbasAl](https://github.com/JarbasAl))
-
 ## [0.0.4](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.4) (2025-05-15)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.4a1...0.0.4)
 
-**Merged pull requests:**
-
-- Release 0.0.4a1 [\#2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/2) ([github-actions[bot]](https://github.com/apps/github-actions))
-
 ## [0.0.4a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.4a1) (2025-05-15)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.3...0.0.4a1)
-
-**Merged pull requests:**
-
-- fix: update intent labels and default models [\#1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/1) ([JarbasAl](https://github.com/JarbasAl))
 
 ## [0.0.3](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.3) (2025-05-08)
 
