@@ -99,6 +99,23 @@ git_sources:
       repo; `stop.intent` carries the `stop:stop` umbrella label the plugin
       already special-cases, `global_stop.intent` becomes `stop:global_stop`.
 
+  - id: common-reading-pipeline
+    kind: plugin_intents
+    family: common_reading
+    pipeline_id: common_reading
+    repo: https://github.com/andlo/ovos-common-reading-pipeline-plugin
+    path: ovos/plugins/pipeline/ovos-common-reading-pipeline-plugin
+    revision: 8f9c29a985f6510a9aba5ea048df3125c6bc70e6
+    files: "locale/*/*.intent"
+    license: "GPL-3.0-or-later"
+    notes: >
+      A pipeline plugin in its own right (`opm.pipeline` entry point
+      `ovos-common-reading-pipeline-plugin=ovos_common_reading_pipeline_plugin:CommonReadingPipeline`),
+      not part of `common_query` -- the corpus's own `ReadContent` /
+      `ReadContentByCollection` / `ReadContentByType` labels never belonged
+      to the `common_query` registry they used to be aliased into, which is
+      why they were silently dropped as unresolved.
+
 hf_sources:
 
   - id: gitlocalize-legacy
@@ -257,7 +274,7 @@ skill_refs:
 skill_id_aliases:
   ovos-ocp-pipeline-plugin: ocp
   ovos-common-query-pipeline-plugin: common_query
-  ovos-common-reading-pipeline-plugin: common_query
+  ovos-common-reading-pipeline-plugin: common_reading
   ovos-persona: persona
   ovos-core: stop
   ocp: ocp
@@ -266,6 +283,12 @@ skill_id_aliases:
 skill_blacklist:
   - ovos-skill-local-media.openvoiceos
   - ovos-skill-spotify.openvoiceos
+  # OVOSHatchery/skill-ovos-homeassistant-vui: archived since 2023-05-16,
+  # not a maintained skill_refs entry -- corpus rows under
+  # skill-homeassistant.openvoiceos are dropped as a decision, not left as
+  # a silent unresolved-label gap. Undo this the day the skill is revived
+  # and given a skill_refs pin.
+  - skill-homeassistant.openvoiceos
 
 # Intent file names that are dialog or keyword resources, not intents.
 intent_blacklist:
