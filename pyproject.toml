@@ -54,6 +54,9 @@ Homepage = "https://openvoiceos.org"
 Repository = "https://github.com/OpenVoiceOS/ovos-m2v-pipeline"
 Funding = "https://nlnet.nl/project/OpenVoiceOS"
 
+[project.scripts]
+ovos-m2v-prototypes = "ovos_m2v_pipeline.cli:main"
+
 [project.entry-points."opm.pipeline"]
 ovos-m2v-pipeline = "ovos_m2v_pipeline:Model2VecIntentPipeline"
 ovos-m2v-prototype-pipeline = "ovos_m2v_pipeline:Model2VecPrototypePipeline"

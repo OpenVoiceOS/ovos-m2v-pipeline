@@ -825,6 +825,60 @@ class PrototypeIntentStore:
             strategy=strategy, top_k=top_k, tau=tau,
         )
 
+    # ------------------------------------------------------------------
+    # Prebuilt artifact export/import (see ovos_m2v_pipeline.prebuilt)
+    # ------------------------------------------------------------------
+
+    def export(
+        self,
+        out_dir: Union[str, Path],
+        *,
+        model_id: str,
+        model2vec_version: str,
+        cache_keys: Optional[Dict[str, str]] = None,
+        plugin_version: str = "",
+    ) -> Path:
+        """Export the store as a prebuilt, shareable artifact directory.
+
+        See ``ovos_m2v_pipeline.prebuilt.export_store`` for the artifact
+        layout and manifest fields. *cache_keys* maps each stored label to
+        the cache key its registration would compute live (see
+        ``compute_cache_key``), so a prebuilt entry is invalidated by the
+        exact same conditions as the on-disk registration cache.
+        """
+        from ovos_m2v_pipeline.prebuilt import export_store
+        return export_store(
+            self, out_dir, model_id=model_id,
+            model2vec_version=model2vec_version,
+            cache_keys=cache_keys, plugin_version=plugin_version,
+        )
+
+    @classmethod
+    def load_prebuilt(
+        cls,
+        path: Union[str, Path],
+        *,
+        model_id: str,
+        model2vec_version: str,
+        strategy: PrototypeStrategy = PrototypeStrategy.MAX_OVER_ALL,
+        top_k: int = 3,
+        tau: float = 0.1,
+    ) -> Tuple[Optional["PrototypeIntentStore"], Dict[str, str], str]:
+        """Load a prebuilt artifact, verifying it against the live model.
+
+        Returns ``(store_or_None, cache_keys, reason)``. ``store`` is
+        ``None`` when the artifact's manifest disagrees with the running
+        model (id, model2vec version, or embedding dimension) -- the
+        caller falls back to encoding from scratch in that case. *reason*
+        is a human-readable string for logging, always set (also on
+        success, e.g. "ok").
+        """
+        from ovos_m2v_pipeline.prebuilt import load_prebuilt_store
+        return load_prebuilt_store(
+            path, model_id=model_id, model2vec_version=model2vec_version,
+            strategy=strategy, top_k=top_k, tau=tau,
+        )
+
 
 def _parse_intent_file(path: str, ctx: str = "") -> List[str]:
     """Return expanded, non-empty, non-comment lines from a Padatious ``.intent`` file.
@@ -1039,6 +1093,47 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                 cache=cache,
             )
 
+            #: label -> cache key recorded by a loaded prebuilt artifact (see
+            #: ``prebuilt_prototypes`` below); a live registration whose own
+            #: computed cache key matches skips the encoder entirely, since
+            #: the artifact already carries that label's centroids.
+            self._prebuilt_cache_keys: Dict[str, str] = {}
+            #: True from construction until `_validate_prebuilt_dim` has run
+            #: against the real, loaded model -- see that method. A
+            #: registration's prebuilt-cache-key fast path is only trusted
+            #: once this is True, so registrations that arrive before the
+            #: model loads buffer and re-encode normally instead of risking
+            #: a dimension-mismatched artifact.
+            self._prebuilt_validated: bool = False
+            #: True while a prebuilt store is loaded but not yet validated
+            #: against the real model dimension (see `_validate_prebuilt_dim`).
+            self._prebuilt_active: bool = False
+            #: the artifact loaded from `prebuilt_prototypes`, held aside --
+            #: never installed as `self.prototype_store` directly. The live
+            #: store is the registration allow-list (see `_match_prototype`)
+            #: and must start exactly as empty as it would with no prebuilt
+            #: artifact at all; `_install_prebuilt_label` copies one label's
+            #: rows across only once a live registration actually earns them.
+            self._prebuilt_store: Optional[PrototypeIntentStore] = None
+            prebuilt_path = self.config.get("prebuilt_prototypes")
+            if prebuilt_path:
+                from ovos_m2v_pipeline.prebuilt import load_prebuilt_store
+                prebuilt_store, prebuilt_keys, reason = load_prebuilt_store(
+                    prebuilt_path, model_id=self._model_id,
+                    model2vec_version=self._model2vec_version,
+                    strategy=self._prototype_strategy,
+                    top_k=self._prototype_top_k, tau=self._prototype_tau,
+                )
+                if prebuilt_store is not None:
+                    self._prebuilt_store = prebuilt_store
+                    self._prebuilt_cache_keys = prebuilt_keys
+                    self._prebuilt_active = True
+                    LOG.info(f"prebuilt prototypes loaded from "
+                             f"'{prebuilt_path}': {reason}")
+                else:
+                    LOG.warning(f"prebuilt prototypes at '{prebuilt_path}' "
+                                f"not used: {reason}")
+
             self.bus.on("mycroft.ready", self._handle_ready_prototype)
             # Legacy registration topics (kept alongside OVOS-INTENT-4).
             self.bus.on("padatious:register_intent", self._handle_register_padatious)
@@ -1224,6 +1319,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                 self._model_load_retry_at = None
                 self._model_load_thread = None
                 if self.prototype_store is not None:
+                    self._validate_prebuilt_dim()
                     self._flush_pending_additions()
         except Exception:
             with self._model_lock:
@@ -1295,6 +1391,66 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                          "utterance, matching resumes once it is ready")
             return False
         return True
+
+    def _validate_prebuilt_dim(self) -> None:
+        """Confirm a loaded prebuilt artifact's embedding dimension matches
+        the real, now-loaded model.
+
+        ``load_prebuilt_store`` runs at construction time, before the model
+        (loaded on a background thread by ``_load_model_now``) exists to
+        compare against -- it can only check the artifact's own internal
+        manifest/npz consistency. A model retrained in place under the same
+        id and ``model2vec`` version can still change its output dimension,
+        and ``PrototypeIntentStore.scores`` has no dimension guard of its
+        own: every match against a mismatched store raises. Mirrors the
+        guard ``PrototypeCache.load(expected_dim=...)`` already applies to
+        the on-disk cache.
+
+        Must be called with ``self._model_lock`` held and ``self.model``
+        set, before any buffered or new registration can use
+        ``self._prebuilt_cache_keys`` (see the fast-path checks in
+        ``_handle_register_padatious`` / the INTENT-4 template handler).
+        """
+        if not self._prebuilt_active:
+            return
+        self._prebuilt_active = False
+        expected_dim = getattr(self.model, "dim", None)
+        if isinstance(expected_dim, int) and self._prebuilt_store is not None:
+            embeddings = self._prebuilt_store.embeddings
+            store_dim = embeddings.shape[1] if embeddings.ndim == 2 and len(embeddings) else 0
+            if store_dim and expected_dim != store_dim:
+                LOG.warning(
+                    f"prebuilt prototypes discarded: embedding dimension "
+                    f"mismatch (prebuilt {store_dim}, running model "
+                    f"{expected_dim}); every registration will re-encode"
+                )
+                self._prebuilt_store = None
+                self._prebuilt_cache_keys = {}
+        self._prebuilt_validated = True
+
+    def _install_prebuilt_label(self, label: str, lang: Optional[str]) -> int:
+        """Copy a held-aside prebuilt artifact's rows for *label*/*lang* into
+        the live store, in place of encoding.
+
+        Returns the number of prototype rows installed. ``0`` means the
+        artifact holds nothing under this exact internal (label, lang)
+        partition -- e.g. a stale label that no longer has a matching
+        registration, or a mismatched language -- and the caller must fall
+        back to the normal encode path. The caller is responsible for
+        already having confirmed the registration's own cache key matches
+        the artifact's recorded key for *label*; this only extracts rows,
+        it never itself decides whether they still apply.
+        """
+        if self._prebuilt_store is None:
+            return 0
+        internal_label = self.prototype_store._compose(label, lang)
+        embeddings = self._prebuilt_store.embeddings
+        if not len(embeddings):
+            return 0
+        mask = self._prebuilt_store._labels == internal_label
+        if not mask.any():
+            return 0
+        return self.prototype_store._add_anchors(internal_label, embeddings[mask])
 
     def _flush_pending_additions(self) -> None:
         """Encode every registration buffered while the model was loading.
@@ -1473,8 +1629,15 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         Never raises: a hashing failure just disables caching for this one
         registration (``add()`` still runs the normal encode path), it is
         never a reason to reject the registration itself.
+
+        Computed whenever there are samples to hash, independently of
+        ``prototype_cache`` (the on-disk cache is only consulted/written by
+        ``PrototypeIntentStore.add()`` when ``self.cache`` is set): a
+        loaded prebuilt artifact's cache keys (``self._prebuilt_cache_keys``)
+        are compared against this same key regardless of whether the live
+        on-disk cache is enabled.
         """
-        if not getattr(self, "_prototype_cache_enabled", False) or not raw_samples:
+        if not raw_samples:
             return None
         try:
             return compute_cache_key(
@@ -1551,6 +1714,19 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         entity_values = {slot: self.entities[slot.lower()]
                           for slot in slots if slot.lower() in self.entities}
         cache_key = self._prototype_cache_key(raw_samples, entity_values, lang=reg_lang)
+        if (cache_key is not None
+                and self._prebuilt_validated
+                and self._prebuilt_cache_keys.get(name) == cache_key
+                and self._install_prebuilt_label(name, reg_lang)):
+            # A prebuilt artifact already carries centroids for this exact
+            # registration (same model, same model2vec version, same raw
+            # templates/entities -- the identical condition that would make
+            # the on-disk PrototypeCache a hit). Skip the encoder entirely.
+            self.intents.add(name)
+            self._store_context_gate(name, message)
+            LOG.debug(f"prototype '{name}': using prebuilt centroids, "
+                      f"encoder not called")
+            return
         try:
             n = self._add_prototypes(name, sentences, self._prototype_k, cache_key,
                                      lang=reg_lang)
@@ -1760,6 +1936,16 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                           for slot in slots if slot.lower() in self.entities}
         reg_lang = message.data.get("lang")
         cache_key = self._prototype_cache_key(list(samples), entity_values, lang=reg_lang)
+        if (cache_key is not None
+                and self._prebuilt_validated
+                and self._prebuilt_cache_keys.get(label) == cache_key
+                and self._install_prebuilt_label(label, reg_lang)):
+            # See the matching shortcut in _handle_register_padatious.
+            self.intents.add(label)
+            self._store_context_gate(label, message)
+            LOG.debug(f"prototype '{label}': using prebuilt centroids, "
+                      f"encoder not called")
+            return
         n = self._add_prototypes(label, expanded, self._prototype_k, cache_key,
                                  lang=reg_lang)
         self.intents.add(label)

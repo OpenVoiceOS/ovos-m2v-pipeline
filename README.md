@@ -102,6 +102,89 @@ Configuration (under the same `intents.<entrypoint-name>` block as above):
 
 ---
 
+## Prebuilt prototypes (prototype mode)
+
+The prototype cache above still has to encode every label at least once, on
+the device that runs it. A Raspberry Pi (or anything else where the
+embedding model is the expensive part of boot) does not have to be that
+device: prototype-mode centroids can be built once, on a desktop, and shipped
+as a small artifact the Pi loads instead of encoding.
+
+Build the artifact with the `ovos-m2v-prototypes` command, without booting
+OVOS, from a skill's own `.intent` templates. `--skill-dir` discovers every
+`.intent` file under each `locale/<lang>/` directory the same way a live
+skill registration does -- flat (`locale/<lang>/foo.intent`) or nested under
+a resource subdirectory (`locale/<lang>/intents/foo.intent`, the layout most
+skills actually use) -- so the command below finds the same templates OVOS
+would load at runtime, regardless of which layout the skill picked.
+
+```bash
+ovos-m2v-prototypes export \
+  --out ./my-skill-prototypes \
+  --model OpenVoiceOS/ovos-m2v-intents-multilingual \
+  --skill-dir /path/to/my-skill \
+  --skill-id my-skill.openvoiceos
+```
+
+The output directory holds `prototypes.npz` (the L2-normalised centroid
+vectors) and `manifest.json` (the model id and revision, the `model2vec`
+version, the embedding dimension, the prototype strategy and its parameters,
+and a per-label cache key -- the same hash `prototype_cache` above uses to
+decide whether a registration's inputs have changed). Copy the directory to
+the target device, or publish it as a Hugging Face dataset repo, and point
+the pipeline at it:
+
+```json
+{
+  "intents": {
+    "ovos-m2v-prototype-pipeline": {
+      "model": "OpenVoiceOS/ovos-m2v-intents-multilingual",
+      "prebuilt_prototypes": "./my-skill-prototypes"
+    }
+  }
+}
+```
+
+`prebuilt_prototypes` also accepts a Hugging Face Hub repo id, fetched via
+`snapshot_download` into the same shared cache the embedding model itself
+uses. At boot, the artifact's manifest is checked against the running model's
+id and `model2vec` version before it is trusted; a mismatch is logged and
+ignored, and the pipeline falls back to encoding from scratch exactly as if
+`prebuilt_prototypes` were unset.
+
+The embedding model itself loads on a background thread and is not
+necessarily ready at boot, so the artifact's embedding dimension can only be
+checked against the *real* model once that load completes -- a model
+retrained in place under the same id and `model2vec` version can still ship
+a different output dimension. Until that check has run, a registration is
+buffered and encoded normally rather than trusting the artifact; once the
+model is ready, a dimension mismatch discards the artifact (with a warning)
+and every registration -- buffered or new -- falls back to encoding, the
+same as any other prebuilt-artifact miss. When a skill's registration hashes
+to the same cache key the artifact recorded for that label, and the
+dimension check has passed, `model.encode()` is never called for it; a
+registration whose inputs have since changed (a different template, a
+different registered entity value) is a plain miss and is encoded normally,
+on the device.
+
+The artifact only removes the one-time, per-label *registration* encode.
+Matching an incoming utterance still needs the embedding model at query
+time -- that step embeds the utterance itself, which no prebuilt artifact
+can skip. A device using `prebuilt_prototypes` still downloads and loads the
+Model2Vec model; it just never pays to encode the skills' own example
+utterances against it.
+
+A prebuilt artifact never widens which labels can match on its own: it only
+supplies vectors for a label at the moment a loaded skill registers that
+exact label with matching inputs, in place of the encode step registration
+would otherwise perform. A label the artifact carries but no loaded skill
+registers -- built for a skill that is not installed here, or kept from a
+skill that later renamed or dropped the intent -- never becomes matchable
+and never appears in the running store, exactly as if the artifact had never
+been built with that label at all.
+
+---
+
 ## Which entrypoint do I want?
 
 This plugin ships two `opm.pipeline` entrypoints. Both use the same
