@@ -1771,21 +1771,18 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
     # Confidence-tier API
     # ------------------------------------------------------------------
 
-    def match_high(self, utterances: List[str], lang: str, message: Message) -> Optional[IntentHandlerMatch]:
-        """
-        Matches the most likely intent for a given list of utterances using Model2Vec.
-
-        Args:
-            utterances: A list of utterances to match against the model.
-            lang: The language of the input utterance.
-            message: The incoming message containing additional context.
-
-        Returns:
-            An IntentHandlerMatch if a high-confidence match is found, None otherwise.
+    def _match_tier(self, tier: str, default_conf: float, utterances: List[str],
+                     lang: str, message: Message) -> Optional[IntentHandlerMatch]:
+        """Shared implementation behind ``match_high``/``match_medium``/
+        ``match_low``: look up ``conf_<tier>`` in config (falling back to
+        *default_conf*) and return the top ``_match`` candidate if it clears
+        that threshold. Factored out so subclasses (e.g. the m2v/nebulento
+        fusion engine, whose fused scores run structurally higher) can reuse
+        the tier logic while only overriding the defaults.
         """
         if not utterances:
             return None
-        min_conf = self.config.get("conf_high", 0.7)
+        min_conf = self.config.get(f"conf_{tier}", default_conf)
         LOG.debug(f"Matching intents via Model2Vec (min_conf: {min_conf}) - {utterances[0]}")
         for skill_id, label, prob, slots in self._match(utterances[0], message):
             if prob < min_conf:
@@ -1800,66 +1797,18 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             LOG.debug(f"Match candidate: {match}")
             return match
         return None
+
+    def match_high(self, utterances: List[str], lang: str, message: Message) -> Optional[IntentHandlerMatch]:
+        """Matches the most likely intent for a given list of utterances using Model2Vec."""
+        return self._match_tier("high", 0.7, utterances, lang, message)
 
     def match_medium(self, utterances: List[str], lang: str, message: Message) -> Optional[IntentHandlerMatch]:
-        """
-        Matches the most likely intent for a given list of utterances using Model2Vec.
-
-        Args:
-            utterances: A list of utterances to match against the model.
-            lang: The language of the input utterance.
-            message: The incoming message containing additional context.
-
-        Returns:
-            An IntentHandlerMatch if a medium-confidence match is found, None otherwise.
-        """
-        if not utterances:
-            return None
-        min_conf = self.config.get("conf_medium", 0.5)
-        LOG.debug(f"Matching intents via Model2Vec (min_conf: {min_conf}) - {utterances[0]}")
-        for skill_id, label, prob, slots in self._match(utterances[0], message):
-            if prob < min_conf:
-                LOG.debug(f"discarding match: {label} - confidence < {min_conf}")
-                return None
-            match = IntentHandlerMatch(
-                match_type=label,
-                match_data={"utterance": utterances[0], "confidence": prob, **slots},
-                skill_id=skill_id or "ovos-m2v-pipeline",
-                utterance=utterances[0]
-            )
-            LOG.debug(f"Match: {match}")
-            return match
-        return None
+        """Matches the most likely intent for a given list of utterances using Model2Vec."""
+        return self._match_tier("medium", 0.5, utterances, lang, message)
 
     def match_low(self, utterances: List[str], lang: str, message: Message) -> Optional[IntentHandlerMatch]:
-        """
-        Matches the most likely intent for a given list of utterances using Model2Vec.
-
-        Args:
-            utterances: A list of utterances to match against the model.
-            lang: The language of the input utterance.
-            message: The incoming message containing additional context.
-
-        Returns:
-            An IntentHandlerMatch if a low-confidence match is found, None otherwise.
-        """
-        if not utterances:
-            return None
-        min_conf = self.config.get("conf_low", 0.15)
-        LOG.debug(f"Matching intents via Model2Vec (min_conf: {min_conf}) - {utterances[0]}")
-        for skill_id, label, prob, slots in self._match(utterances[0], message):
-            if prob < min_conf:
-                LOG.debug(f"discarding match: {label} - confidence < {min_conf}")
-                return None
-            match = IntentHandlerMatch(
-                match_type=label,
-                match_data={"utterance": utterances[0], "confidence": prob, **slots},
-                skill_id=skill_id or "ovos-m2v-pipeline",
-                utterance=utterances[0]
-            )
-            LOG.debug(f"Match candidate: {match}")
-            return match
-        return None
+        """Matches the most likely intent for a given list of utterances using Model2Vec."""
+        return self._match_tier("low", 0.15, utterances, lang, message)
 
 
 class Model2VecPrototypePipeline(Model2VecIntentPipeline):

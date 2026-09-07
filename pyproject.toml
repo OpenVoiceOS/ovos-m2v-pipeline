@@ -35,6 +35,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+fusion = [
+    "nebulento>=0.1.1a1",
+]
 test = [
     "pytest",
     "pytest-cov",
@@ -47,6 +50,7 @@ test = [
     "scikit-learn>=1.0.0",
     "pyyaml>=5.1",
     "pyarrow>=10.0.0",
+    "nebulento>=0.1.1a1",
 ]
 
 [project.urls]
@@ -57,6 +61,7 @@ Funding = "https://nlnet.nl/project/OpenVoiceOS"
 [project.entry-points."opm.pipeline"]
 ovos-m2v-pipeline = "ovos_m2v_pipeline:Model2VecIntentPipeline"
 ovos-m2v-prototype-pipeline = "ovos_m2v_pipeline:Model2VecPrototypePipeline"
+ovos-m2v-nebulento-pipeline = "ovos_m2v_pipeline.fusion:Model2VecNebulentoFusionPipeline"
 
 [tool.setuptools]
 packages = ["ovos_m2v_pipeline"]
