@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.11.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.11.0a1) (2026-09-07)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.10.0a2...0.11.0a1)
+
+**Merged pull requests:**
+
+- feat: publish datasets and models to the Hub from the training tooling [\#114](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/114) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.10.0a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.10.0a2) (2026-09-07)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.10.0a1...0.10.0a2)
