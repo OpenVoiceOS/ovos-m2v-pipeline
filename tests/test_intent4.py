@@ -294,20 +294,26 @@ class TestIntent4Deregistration(unittest.TestCase):
         self.assertNotIn("engine", p.entities)
 
     def test_disable_then_enable(self):
+        """§8.5: disable/enable are session-scoped -- they never touch the
+        registration itself (``p.intents``), only the caller's session
+        suppression set."""
         p = _make_prototype_pipeline()
         self._register(p)
-        p._handle_intent4_disable(Message(
+        msg = Message(
             SpecMessage.INTENT_DISABLE.value,
             data={"skill_id": "music.skill", "intent_name": "play_music", "lang": "en-US"},
             context={"skill_id": "music.skill"},
-        ))
-        self.assertNotIn("music.skill:play_music", p.intents)
+        )
+        p._handle_intent4_disable(msg)
+        self.assertIn("music.skill:play_music", p.intents)
+        self.assertIn("music.skill:play_music", p._session_disabled_labels(msg))
         p._handle_intent4_enable(Message(
             SpecMessage.INTENT_ENABLE.value,
             data={"skill_id": "music.skill", "intent_name": "play_music", "lang": "en-US"},
             context={"skill_id": "music.skill"},
         ))
         self.assertIn("music.skill:play_music", p.intents)
+        self.assertNotIn("music.skill:play_music", p._session_disabled_labels(msg))
 
 
 class TestIntent4ContextGating(unittest.TestCase):
@@ -1044,11 +1050,13 @@ class TestSkillIdFromContext(unittest.TestCase):
                   "lang": "en-US", "samples": ["play music"]},
             context={"skill_id": "music.skill"}))
         self.assertIn("music.skill:play_music", p.intents)
-        p._handle_intent4_disable(Message(
+        disable_msg = Message(
             SpecMessage.INTENT_DISABLE.value,
             data={"skill_id": "music.skill", "intent_name": "play_music", "lang": "en-US"},
-            context={"skill_id": "admin.skill"}))
-        self.assertNotIn("music.skill:play_music", p.intents)
+            context={"skill_id": "admin.skill"})
+        p._handle_intent4_disable(disable_msg)
+        self.assertIn("music.skill:play_music", p.intents)
+        self.assertIn("music.skill:play_music", p._session_disabled_labels(disable_msg))
 
     def test_enable_is_cross_skill_by_design(self):
         p = _make_prototype_pipeline()
@@ -1057,16 +1065,17 @@ class TestSkillIdFromContext(unittest.TestCase):
             data={"skill_id": "music.skill", "intent_name": "play_music",
                   "lang": "en-US", "samples": ["play music"]},
             context={"skill_id": "music.skill"}))
-        p._handle_intent4_disable(Message(
+        disable_msg = Message(
             SpecMessage.INTENT_DISABLE.value,
             data={"skill_id": "music.skill", "intent_name": "play_music", "lang": "en-US"},
-            context={"skill_id": "music.skill"}))
-        self.assertNotIn("music.skill:play_music", p.intents)
+            context={"skill_id": "music.skill"})
+        p._handle_intent4_disable(disable_msg)
+        self.assertIn("music.skill:play_music", p._session_disabled_labels(disable_msg))
         p._handle_intent4_enable(Message(
             SpecMessage.INTENT_ENABLE.value,
             data={"skill_id": "music.skill", "intent_name": "play_music", "lang": "en-US"},
             context={"skill_id": "admin.skill"}))
-        self.assertIn("music.skill:play_music", p.intents)
+        self.assertNotIn("music.skill:play_music", p._session_disabled_labels(disable_msg))
 
     def test_register_ignores_differing_payload_even_with_enable_disable_exempt(self):
         """Sanity: the §8.5 enable/disable exemption must not leak into the

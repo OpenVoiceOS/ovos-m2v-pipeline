@@ -15,12 +15,10 @@ Each test emits the spec registration on the wire, sends a matching utterance,
 and asserts the intent dispatches ``<skill_id>:<intent_name>`` — proving
 spec-topic consumption.
 
-DIVERGENCE (real finding, ``test_spec_enable_rearms_intent`` is xfail): in
-prototype mode ``ovos.intent.disable`` drops the label's prototypes, and
-``ovos.intent.enable`` only restores *label tracking* — it cannot re-embed the
-samples, so a disabled-then-enabled intent does NOT match again (re-arming
-requires re-registration). This departs from INTENT-4 §8.5's "re-arm a
-previously disabled intent".
+``ovos.intent.enable``/``ovos.intent.disable`` are session-scoped (§8.5):
+disable suppresses the intent only for the caller's session, and enable
+lifts that suppression without touching the underlying registration, so a
+disabled-then-enabled intent matches again immediately.
 """
 import sys
 import threading
@@ -128,18 +126,25 @@ class TestIntent4Consume(unittest.TestCase):
             "lang": lang, "samples": samples,
         }, {"skill_id": SKILL_ID}))
 
-    def _emit(self, topic, intent_name=None, **extra):
+    def _emit(self, topic, intent_name=None, session_id=None, **extra):
         data = {"skill_id": SKILL_ID, "lang": "en-US"}
         if intent_name is not None:
             data["intent_name"] = intent_name
         data.update(extra)
-        self.mc.bus.emit(Message(topic, data, {"skill_id": SKILL_ID}))
+        context = {"skill_id": SKILL_ID}
+        if session_id is not None:
+            context["session"] = Session(session_id=session_id).serialize()
+        self.mc.bus.emit(Message(topic, data, context))
 
-    def _utterance(self, utterance):
+    def _utterance(self, utterance, session_id=None):
+        context = {}
+        if session_id is not None:
+            context["session"] = Session(session_id=session_id).serialize()
         return Message("recognizer_loop:utterance",
-                       {"utterances": [utterance], "lang": "en-US"}, {})
+                       {"utterances": [utterance], "lang": "en-US"}, context)
 
-    def _send_and_capture(self, utterance, expected_types, timeout=5.0):
+    def _send_and_capture(self, utterance, expected_types, timeout=5.0,
+                          session_id=None):
         got, done, failed = [], threading.Event(), threading.Event()
 
         def _on_match(msg):
@@ -154,7 +159,7 @@ class TestIntent4Consume(unittest.TestCase):
             self.mc.bus.on(t, _on_match)
         self.mc.bus.on("complete_intent_failure", _on_fail)
         try:
-            self.mc.bus.emit(self._utterance(utterance))
+            self.mc.bus.emit(self._utterance(utterance, session_id=session_id))
             done.wait(timeout=timeout)
         finally:
             for t in expected_types:
@@ -164,7 +169,7 @@ class TestIntent4Consume(unittest.TestCase):
             return None
         return got[0] if got else None
 
-    def _expect_no_match(self, utterance, timeout=2.0):
+    def _expect_no_match(self, utterance, timeout=2.0, session_id=None):
         failed = threading.Event()
 
         def _on_fail(_msg):
@@ -172,7 +177,7 @@ class TestIntent4Consume(unittest.TestCase):
 
         self.mc.bus.on("complete_intent_failure", _on_fail)
         try:
-            self.mc.bus.emit(self._utterance(utterance))
+            self.mc.bus.emit(self._utterance(utterance, session_id=session_id))
             failed.wait(timeout=timeout)
         finally:
             self.mc.bus.remove("complete_intent_failure", _on_fail)
@@ -225,8 +230,7 @@ class TestIntent4Consume(unittest.TestCase):
     # -- §8.5 disable / enable ------------------------------------------
 
     def test_spec_disable_suppresses_intent(self):
-        """Disable drops the label (and its prototypes) from the match-eligible
-        set, suppressing the intent (§8.5)."""
+        """Disable suppresses the intent for the caller's session (§8.5)."""
         self._register_template("lights", ["turn on the lights", "lights on"])
         self._emit(INTENT_DISABLE, "lights")
         self._expect_no_match("lights on now", timeout=3.0)
@@ -243,13 +247,6 @@ class TestIntent4Consume(unittest.TestCase):
             {"skill_id": ADMIN_SKILL_ID}))
         self._expect_no_match("lights on now", timeout=3.0)
 
-    @pytest.mark.xfail(
-        strict=False,
-        reason="INTENT-4 §8.5: 'ovos.intent.enable re-arms a previously disabled "
-               "intent' — in m2v prototype mode disable drops the prototypes and "
-               "enable only restores label tracking (cannot re-embed samples), so "
-               "the intent does not match again; re-arming requires re-registration.",
-    )
     def test_spec_enable_rearms_intent(self):
         self._register_template("lights", ["turn on the lights", "lights on"])
         self._emit(INTENT_DISABLE, "lights")
@@ -257,6 +254,33 @@ class TestIntent4Consume(unittest.TestCase):
         msg = self._send_and_capture("lights on now",
                                      expected_types=[f"{SKILL_ID}:lights"])
         self.assertIsNotNone(msg, "intent should match again after enable")
+
+    def test_spec_disable_is_session_scoped(self):
+        """§8.5: disable affects only registrations under the session_id read
+        from the disabling message's ``context.session.session_id`` -- a
+        disable carried by session A must not suppress the intent for
+        session B."""
+        self._register_template("lights", ["turn on the lights", "lights on"])
+        self._emit(INTENT_DISABLE, "lights", session_id="session-a")
+        self._expect_no_match("lights on now", session_id="session-a")
+        msg = self._send_and_capture(
+            "lights on now", expected_types=[f"{SKILL_ID}:lights"],
+            session_id="session-b")
+        self.assertIsNotNone(
+            msg, "session B must still match; disable was scoped to session A")
+
+    def test_spec_enable_rearms_intent_in_disabling_session(self):
+        """§8.5: enable re-arms the intent in the session it was disabled in,
+        without requiring re-registration, in prototype mode too."""
+        self._register_template("lights", ["turn on the lights", "lights on"])
+        self._emit(INTENT_DISABLE, "lights", session_id="session-a")
+        self._expect_no_match("lights on now", session_id="session-a")
+        self._emit(INTENT_ENABLE, "lights", session_id="session-a")
+        msg = self._send_and_capture(
+            "lights on now", expected_types=[f"{SKILL_ID}:lights"],
+            session_id="session-a")
+        self.assertIsNotNone(
+            msg, "intent should match again in session A after enable")
 
     # -- §11 negative: template engine ignores the keyword topic --------
 

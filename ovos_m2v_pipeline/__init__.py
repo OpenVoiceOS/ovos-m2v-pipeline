@@ -1029,6 +1029,15 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         #: has already been logged, so it logs once per label rather than
         #: once per match (mirrors `_intent4_frozen_warned`).
         self._label_map_warned: set = set()
+        #: OVOS-INTENT-4 §8.5 enable/disable suppression, keyed by
+        #: ``session.session_id`` -- the same key ``SessionManager`` uses to
+        #: index live sessions (§11.1: "every registration is session-keyed").
+        #: A label in ``self._disabled_by_session[session_id]`` is suppressed
+        #: from matching for that session only; registration data (``self.intents``,
+        #: the prototype store, context gates, slots, blacklist phrases) is left
+        #: untouched by disable/enable, since those describe what is REGISTERED,
+        #: not what is currently enabled for a given caller.
+        self._disabled_by_session: Dict[str, set] = {}
 
         mode = self.config.get("mode", "classifier")
         self._mode = mode
@@ -2056,36 +2065,44 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         LOG.debug(f"Model2Vec: deregistered all INTENT-4 registrations for skill '{skill_id}'")
 
     def _handle_intent4_disable(self, message: Message) -> None:
-        """Suppress an intent without losing its definition (§8.5).
+        """Suppress an intent for the caller's session, without losing its
+        definition (§8.5).
 
-        m2v keeps no separate enabled/disabled flag; suppression is realised
-        by dropping the label from the match-eligible set (and its prototypes),
-        mirroring deregistration. Re-enabling requires re-registration, which
-        is how skills re-arm intents on this engine.
+        Enable and disable are session-scoped like every other message in
+        §8.5 (§8.5: "they affect only registrations under the ``session_id``
+        read from ``context.session.session_id``"), so this only records the
+        label as suppressed for the caller's session; the registration itself
+        (``self.intents``, the prototype store, context gates, slots,
+        blacklist phrases) is left alone -- other sessions keep matching it.
+        A disable carried by the "default" session affects only the
+        device-local session.
         """
         label = self._intent4_control_label(message)
         if not label:
             return
-        if self.prototype_store is not None:
-            self.prototype_store.remove(label)
-            self._forget_pending(label)
-        self.intents.discard(label)
-        self._context_gates.pop(label, None)
-        self._intent_slots.pop(label, None)
-        self.excluded_keywords.pop(label, None)
-        LOG.debug(f"Model2Vec: disabled INTENT-4 intent '{label}'")
+        session_id = SessionManager.get(message).session_id
+        self._disabled_by_session.setdefault(session_id, set()).add(label)
+        LOG.debug(f"Model2Vec: disabled INTENT-4 intent '{label}' "
+                  f"for session '{session_id}'")
 
     def _handle_intent4_enable(self, message: Message) -> None:
-        """Re-arm a previously disabled intent (§8.5).
+        """Re-arm a previously disabled intent for the caller's session (§8.5).
 
-        In classifier mode the trained class is re-added to the eligible set.
-        In prototype mode the prototypes were dropped on disable and can only
-        be restored by re-registration, so this only restores label tracking.
+        Since disable never touched the registration (prototypes, tracked
+        label, gates, slots), enable simply drops the session's suppression --
+        matching resumes immediately, in prototype mode too.
         """
         label = self._intent4_control_label(message)
-        if label and label not in self.ignore_labels:
-            self.intents.add(label)
-            LOG.debug(f"Model2Vec: enabled INTENT-4 intent '{label}'")
+        if not label:
+            return
+        session_id = SessionManager.get(message).session_id
+        disabled = self._disabled_by_session.get(session_id)
+        if disabled:
+            disabled.discard(label)
+            if not disabled:
+                self._disabled_by_session.pop(session_id, None)
+        LOG.debug(f"Model2Vec: enabled INTENT-4 intent '{label}' "
+                  f"for session '{session_id}'")
 
     # ------------------------------------------------------------------
     # Matching
@@ -2158,6 +2175,17 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         return (frozenset(sess.blacklisted_intents or []),
                 frozenset(sess.blacklisted_skills or []))
 
+    def _session_disabled_labels(self, message: Optional[Message]) -> frozenset:
+        """Labels suppressed for the caller's session by ``ovos.intent.disable``
+        (§8.5), keyed by ``session.session_id`` (see ``_disabled_by_session``)."""
+        if message is None:
+            return frozenset()
+        try:
+            session_id = SessionManager.get(message).session_id
+        except Exception:
+            return frozenset()
+        return frozenset(self._disabled_by_session.get(session_id, ()))
+
     def _match(self, utterance: str,
                message: Optional[Message] = None,
                lang: Optional[str] = None) -> Iterable[Tuple[str, str, float, Dict[str, Any]]]:
@@ -2207,6 +2235,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             if (self._context_gates or self._intent_slots) else {}
         excluded = self._excluded_labels(utterance)
         blacklisted_intents, blacklisted_skills = self._session_blacklists(message)
+        disabled_labels = self._session_disabled_labels(message)
         for skill_id, label, score in candidates:
             # `ignore_intents` (deny-list) applied post-mapping against the
             # canonical label so it works uniformly across classifier and
@@ -2228,6 +2257,9 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                 continue
             if label in blacklisted_intents or skill_id in blacklisted_skills:
                 LOG.debug(f"discarding match: {label} - blacklisted in session")
+                continue
+            if label in disabled_labels:
+                LOG.debug(f"discarding match: {label} - disabled in session (§8.5)")
                 continue
             slots: Dict[str, Any] = {}
             slot_names = self._intent_slots.get(label)
