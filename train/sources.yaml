@@ -206,65 +206,65 @@ golden:
 # `--skill-ref-list <file>`, one `<repo-path> <sha>` pair per line.
 skill_refs:
   refs:
-    ovos/ovos-skill-bandcamp: b5c27fdbb01d8ded0587cda69d6b227aa9d6e6b5
-    ovos/ovos-skill-news: 42223533719a646555fc89aeaa1b71c13bc96cfb
-    ovos/ovos-skill-pyradios: 2aca44d1e9a6aefe50896c78e29004245d38bc10
-    ovos/ovos-skill-somafm: 08a965254bd2322614cf426ea9520b63e15d3148
-    ovos/ovos-skill-soundcloud: 57828e2eae0541679320a0d58d18e5aab6bfb561
-    ovos/ovos-skill-spotify: 0ac415d68b9074f50da4e12ca835dab54edb3a1d
-    ovos/ovos-skill-tunein: 96cbcdecf2e97e533a9f794e2024959886046fb1
-    ovos/ovos-skill-youtube: 4ae86f60eb7cf4a494532e988eb27ddf0b807323
-    ovos/ovos-skill-youtube-music: f7ffb72a4bbd36ae5410f614e8037dfa250dc7c3
+    ovos/ovos-skill-bandcamp: 54e617e51e6cd51abbeac86ac407ce479c533bbe
+    ovos/ovos-skill-news: ecacedec6719ef1a7d3bb5cab51e02541b3f17e4
+    ovos/ovos-skill-pyradios: 41f4dbe0b72dbbd8e2c773e429f7615ac88175e1
+    ovos/ovos-skill-somafm: 57f0926ade8c53f2898dcd42f09fa36e752ab38f
+    ovos/ovos-skill-soundcloud: d2580103cf729a88997000d57b88f7038b6f7ccd
+    ovos/ovos-skill-spotify: 844bad2e4951c5c6f3b40284672aed1293057c39
+    ovos/ovos-skill-tunein: 373ebbaaa2a19da53def90d10dd1eabdbeccded3
+    ovos/ovos-skill-youtube: d34620b0782c65921ab84376b8364e58da95ba70
+    ovos/ovos-skill-youtube-music: 0812227128ee80ebec502acce7b2924f5ec0cf66
     ovos/plugins/agents/ovos-skill-ddg: 6980bf45e82a52cea010be7c8837b1a77d950134
-    ovos/skills/adult/ovos-skill-hello-world: ef2dc297a4e018cfb882ff629e2ce977e5d4e632
-    ovos/skills/ovos-skill-alerts: 411bade969f22d4bb26eff8b00c6c2822fc0aa59
-    ovos/skills/ovos-skill-application-launcher: 516becae359f5b1bcb2adfa8bc699f420052ff45
-    ovos/skills/ovos-skill-audio-recording: c204ca979d91631c344153d711358e18664009a7
-    ovos/skills/ovos-skill-boot-finished: 68a8f431edad1cf602bea999be7da05dce45f40d
-    ovos/skills/ovos-skill-camera: 1ff1830382ec796f60ee8b7d1e3614fbcb705829
+    ovos/skills/adult/ovos-skill-hello-world: 2c31e2e0227571fd6885a802ecbda0cb87143c62
+    ovos/skills/ovos-skill-alerts: 610c20dfa454d58f2c0f5a146f2608d7381f4d2e
+    ovos/skills/ovos-skill-application-launcher: 14dbc1e69b27adeb2f35369d1e26929b2af71328
+    ovos/skills/ovos-skill-audio-recording: 24a9ddf8c5d55cb46e286a1b70b9b7499bacf5f1
+    ovos/skills/ovos-skill-boot-finished: bb13c4009f2085088ff70f1cfc7faa26c8691afe
+    ovos/skills/ovos-skill-camera: 243bdf63f8d0bde6687ba0349313639520c32e72
     ovos/skills/ovos-skill-cave-adventure-game: 83286c197185134aa6e47578a5758c2860427835
-    ovos/skills/ovos-skill-cmd: f1ac067a348e3fe463148a42373380d17053ed01
-    ovos/skills/ovos-skill-color-picker: e00242fe7be60b6efe77eaf6ceddfa3c7550ad28
-    ovos/skills/ovos-skill-confucius-quotes: a0dad063b525a9a6c69622cda14ea036a2ea6cdd
-    ovos/skills/ovos-skill-count: ebbd94d8b09550fcb8b1a1a9fc560f620bb8938c
-    ovos/skills/ovos-skill-date-time: 37a61c288f415c3b805a9876f9e68e7d41cfc1d1
-    ovos/skills/ovos-skill-days-in-history: 91343301f48e28955ff75d01a5cf0fc2ed927d36
-    ovos/skills/ovos-skill-diagnostics: 8dcf1e80addb86b72530b9a275c3b76243ea5c6a
-    ovos/skills/ovos-skill-dictation: 780797d2c2d3b7afdf78ee4695cfe2f2d42a1c7a
-    ovos/skills/ovos-skill-easter-eggs: 907afef03a05d61947f33ff844d11d52960ea012
-    ovos/skills/ovos-skill-fallback-unknown: 5f3831197f2de72258922e8ed6d22b055d46e6fb
-    ovos/skills/ovos-skill-fuster-quotes: bbbeb98a0825d1ebb4cf30ec2d181e8a4e131df0
+    ovos/skills/ovos-skill-cmd: f9adf1ed1fc8560cfcb6b9a71b12bfa57f537dd9
+    ovos/skills/ovos-skill-color-picker: 4207de342d9bd482710f7f2362f55f39bd563f8c
+    ovos/skills/ovos-skill-confucius-quotes: 761cc592e98bf6a863ddd60b28fb38b8e4fec1e0
+    ovos/skills/ovos-skill-count: 8fe55d637dba5e3e7e739aa1fadc472d4742453f
+    ovos/skills/ovos-skill-date-time: 00e18935713c73a9af6b1da58fd7a09290ad780c
+    ovos/skills/ovos-skill-days-in-history: a819637d6f55d761df1ad2775f6e9abcaf703fa8
+    ovos/skills/ovos-skill-diagnostics: 595d726dd9253b9dd3c8527ca5c908767b0069a5
+    ovos/skills/ovos-skill-dictation: 6b93626829d6b72e1cdcc73054be54d7d0f1a67f
+    ovos/skills/ovos-skill-easter-eggs: 178c379f6666f45d7cc5e32d4423047380a62c64
+    ovos/skills/ovos-skill-fallback-unknown: 3a7864f901e67f5f775b409fb6c0775f3cbbd040
+    ovos/skills/ovos-skill-fuster-quotes: 6016ba23add80775cf054c0de50706cd454c5029
     ovos/skills/ovos-skill-ggwave: 7739cc67d85748e182f1357bf4646bfed9c16936
     ovos/skills/ovos-skill-hhgg-game: 2d0e7973ef61a9488cdfec69c82ccbba79a3a75a
     ovos/skills/ovos-skill-homescreen: 0b177acac5b4af55fb0a40baaf2ce8348dd45b59
-    ovos/skills/ovos-skill-icanhazdadjokes: a5bdc80810559e424b5621198c84c20b1cbd64d2
-    ovos/skills/ovos-skill-ip: 4d2a8959b170fb944edc82b1ec828d9af8a2385c
-    ovos/skills/ovos-skill-iss-location: bb93444a7a889f89d3f61e9c9e41923caad5567b
-    ovos/skills/ovos-skill-laugh: 4d7d0e76cf48da0f6a2198d706d5a93e3b58f49f
-    ovos/skills/ovos-skill-mark1-ctrl: e7c6dc77f38bacdecfbf55cb802dda2fbcaa852f
+    ovos/skills/ovos-skill-icanhazdadjokes: 7b9dea719d53f2a241166b3198028984ff55f3be
+    ovos/skills/ovos-skill-ip: 37a262f7867199b2e0122ed1e47349126c0e30fa
+    ovos/skills/ovos-skill-iss-location: cf97bfc87cf6f5c7b85c197e1624cda8cedef6ca
+    ovos/skills/ovos-skill-laugh: e3d2562b9ac70438f4b35ef9806a7866ebac4f62
+    ovos/skills/ovos-skill-mark1-ctrl: a4bddd4fe256ce50d380c3b9c6257260a2bcf140
     ovos/skills/ovos-skill-moon-game: 09f1413981619d286257c4737f9a47e277525185
-    ovos/skills/ovos-skill-moviemaster: 9b9663c2b78bf0c95872e7c7fa5e73eb3ff220a9
-    ovos/skills/ovos-skill-naptime: a38cbbec54a42ac05f2866d6c2392f7a32ef3171
-    ovos/skills/ovos-skill-number-facts: 91e562e1955b3e82e99ac8887a469960a9dd1e0d
-    ovos/skills/ovos-skill-parrot: 1bf1462fc38bae4683974c870bebd38026d96f41
+    ovos/skills/ovos-skill-moviemaster: 3ad66079849900659d401cfb748453eaa76cb272
+    ovos/skills/ovos-skill-naptime: 70b15aefe47dd1657435e4f2d55383070d364b35
+    ovos/skills/ovos-skill-number-facts: e2d561941fd9fc8840a655a99517aa6ae1a444ee
+    ovos/skills/ovos-skill-parrot: 28474e7a30058920991f82a9b2b28f06ed2aacf5
     ovos/skills/ovos-skill-personal: 8f9f989a4e3638bd9e01e77d3795c944e9d5447c
     ovos/skills/ovos-skill-planet-fall-game: 294d2324a0b2cad2743432644bca4827b3dc4f28
-    ovos/skills/ovos-skill-pokepedia: 9ed0cf43f1eb93d89fe31147c22b25a8cab70374
-    ovos/skills/ovos-skill-randomness: a97c7d9c6758bc5d53dc8d0b135b3ea2cb5f649e
-    ovos/skills/ovos-skill-screenshot: f3da539a31259da889804d1477c95fc6cad83015
-    ovos/skills/ovos-skill-speedtest: eeb0ea7b9fc5972cd8aa29e35da45da72e3a643d
-    ovos/skills/ovos-skill-spelling: 8956e35855aec3c26586dbadc77c8ba8fb18d784
+    ovos/skills/ovos-skill-pokepedia: f9f97c4afac8459b9a96458361495873c34c2e8b
+    ovos/skills/ovos-skill-randomness: 40c424a150a44fafdc6ba325f8b298c8bc68926b
+    ovos/skills/ovos-skill-screenshot: 877aa3b2829beb19b354f9cd7bf688bdf8201268
+    ovos/skills/ovos-skill-speedtest: 81a3415f5f8ce22306623e029fe157ec13099a2d
+    ovos/skills/ovos-skill-spelling: 5471a7ba5a49a36b5a9b5c2e7827f412229284bf
     ovos/skills/ovos-skill-starcross-game: dbdf43f6118e98a411440789f901c704f861a7fa
     ovos/skills/ovos-skill-station-fall-game: 4438ac80985b0bffaad4a7fb55537a29dd3ae141
-    ovos/skills/ovos-skill-volume: 07f739d7be934c3bcec657efee1a5fc7cd3fe4aa
-    ovos/skills/ovos-skill-wallpapers: d9816f16fce9ec0634fa84202758a279a843589a
-    ovos/skills/ovos-skill-weather: d3ea0b1a87471744b62b4e79a90d6079f0e78399
+    ovos/skills/ovos-skill-volume: 5e0d3ec026215f4d27626a7708ee308a4c147da3
+    ovos/skills/ovos-skill-wallpapers: 47612a3d37c49840b65ccb77cad917eb8712907a
+    ovos/skills/ovos-skill-weather: 5e544d9285ddc7ba93809b7312a11d5427be6d54
     ovos/skills/ovos-skill-white-house-adventure: f64f4128cabeebeb978ab3954f00f11a9d02ee14
-    ovos/skills/ovos-skill-wikihow: c44435dc81c34927137fb6dacb4736a130a0c065
-    ovos/skills/ovos-skill-wikipedia: 8cbcfd2a69f7c905abaee11ad394df2fbfbf7355
-    ovos/skills/ovos-skill-wolfie: 1271052155eedde2f0f69f689d510ccad0e20cef
-    ovos/skills/ovos-skill-word-of-the-day: caa26bdee9244925a72a5f984a2623be4846372f
-    ovos/skills/ovos-skill-wordnet: eec54c96aeaaf8d7c2787faa93f0e2a1d35d6855
+    ovos/skills/ovos-skill-wikihow: d46cdb7e8a4a9de3c3619f24176ac9e83c71ad0a
+    ovos/skills/ovos-skill-wikipedia: ffb81b0fcb88c1740e2d42bbebac7d79d21b3776
+    ovos/skills/ovos-skill-wolfie: df96eedd4cdd27c9f231ae55bb83d66feb8db552
+    ovos/skills/ovos-skill-word-of-the-day: a462fe1bef6c0a466101f6dde74f05cd8eb3d186
+    ovos/skills/ovos-skill-wordnet: 1a22c5f024ab95b4cea68d66b5e9dbbdcae7781a
     ovos/skills/ovos-skill-zork0-game: 6ae8df93e1f3f92e908bc7f538f0013eea927c4c
     ovos/skills/ovos-skill-zork2-game: 240e1d32ed138f182b270c6f04be195fb1973d7c
     ovos/skills/ovos-skill-zork3-game: cee1fa2ff8c4038e7ef990a2d0e449f618da8272
