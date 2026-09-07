@@ -48,7 +48,9 @@ class TestConstructorIsCheap(unittest.TestCase):
         from ovos_m2v_pipeline import Model2VecIntentPipeline
         mock_model = MagicMock()
         with patch("ovos_m2v_pipeline.StaticModelPipeline") as MockSMP, \
-             patch("ovos_m2v_pipeline.Configuration", return_value={}):
+             patch("ovos_m2v_pipeline.Configuration", return_value={}), \
+             patch.object(Model2VecIntentPipeline, "_resolve_model_revision",
+                          lambda self, p: p):
             MockSMP.from_pretrained.return_value = mock_model
             pipeline = Model2VecIntentPipeline(
                 bus=FakeBus(),
@@ -64,6 +66,11 @@ class TestBufferedRegistrations(unittest.TestCase):
         patcher = patch.dict(sys.modules, {"model2vec": fake_m2v})
         patcher.start()
         self.addCleanup(patcher.stop)
+        revision_patcher = patch.object(
+            Model2VecIntentPipeline, "_resolve_model_revision",
+            lambda self, p: p)
+        revision_patcher.start()
+        self.addCleanup(revision_patcher.stop)
         with patch("ovos_m2v_pipeline.StaticModelPipeline"), \
              patch("ovos_m2v_pipeline.Configuration", return_value={}):
             pipeline = Model2VecIntentPipeline(
@@ -131,7 +138,9 @@ class TestConcurrentFirstLoad(unittest.TestCase):
             return mock_model
 
         with patch("ovos_m2v_pipeline.StaticModelPipeline") as MockSMP, \
-             patch("ovos_m2v_pipeline.Configuration", return_value={}):
+             patch("ovos_m2v_pipeline.Configuration", return_value={}), \
+             patch.object(Model2VecIntentPipeline, "_resolve_model_revision",
+                          lambda self, p: p):
             MockSMP.from_pretrained.side_effect = slow_from_pretrained
             pipeline = Model2VecIntentPipeline(
                 bus=FakeBus(), config={"model": "fake-model"})
@@ -203,7 +212,9 @@ class TestSuccessPathClearsThreadAndModelAtomically(unittest.TestCase):
                 self.release()
 
         with patch("ovos_m2v_pipeline.StaticModelPipeline") as MockSMP, \
-             patch("ovos_m2v_pipeline.Configuration", return_value={}):
+             patch("ovos_m2v_pipeline.Configuration", return_value={}), \
+             patch.object(Model2VecIntentPipeline, "_resolve_model_revision",
+                          lambda self, p: p):
             MockSMP.from_pretrained.side_effect = fake_from_pretrained
             pipeline = Model2VecIntentPipeline(
                 bus=FakeBus(), config={"model": "fake-model"})
@@ -254,7 +265,9 @@ class TestLoadRetryBackoff(unittest.TestCase):
 
         with patch("ovos_m2v_pipeline.StaticModelPipeline") as MockSMP, \
              patch("ovos_m2v_pipeline.Configuration", return_value={}), \
-             patch("ovos_m2v_pipeline.time.monotonic", side_effect=fake_monotonic):
+             patch("ovos_m2v_pipeline.time.monotonic", side_effect=fake_monotonic), \
+             patch.object(Model2VecIntentPipeline, "_resolve_model_revision",
+                          lambda self, p: p):
             MockSMP.from_pretrained = from_pretrained
             pipeline = Model2VecIntentPipeline(
                 bus=FakeBus(), config={"model": "fake-model"})

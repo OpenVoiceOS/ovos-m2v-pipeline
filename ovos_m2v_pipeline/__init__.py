@@ -42,6 +42,13 @@ _SLOT_RE = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
 _MODEL_LOAD_RETRY_BASE_S = 30.0
 _MODEL_LOAD_RETRY_CAP_S = 15 * 60.0
 
+#: Bound on the single "is the cached snapshot still current" Hub call in
+#: `_resolve_model_revision`. A blackholed or slow Hub must not block boot
+#: for the minutes that `huggingface_hub`'s own per-file connect/backoff
+#: would otherwise take -- this is a single request, so the whole probe
+#: costs at most this long.
+_HUB_REVISION_PROBE_TIMEOUT_S = 5.0
+
 # Labels that bypass the registered-intent check and are always matched
 _SPECIAL_LABELS = {"ocp:play", "common_query:common_query", "stop:stop"}
 
@@ -1074,22 +1081,105 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         if preload:
             self._ensure_model(background_ok=False)
 
+    def _cached_snapshot_if_current(self, repo_id: str) -> Optional[str]:
+        """Return the cached snapshot for ``repo_id`` if it is confirmed
+        current, else ``None``.
+
+        A pinned commit hash is content-addressed and immutable, so
+        ``snapshot_download`` already resolves it from cache with no Hub
+        contact at all -- this helper is only useful with no revision
+        pinned. Confirming a bare repo id's cached snapshot is still the
+        newest one otherwise costs a full ``snapshot_download`` etag round
+        trip per file, and on an unreachable Hub, huggingface_hub's own
+        per-file connect/backoff on top of that -- minutes, not seconds.
+        Instead this does one cheap ``HfApi.model_info`` call, bounded by
+        ``_HUB_REVISION_PROBE_TIMEOUT_S``, and compares its ``sha`` against
+        the cached snapshot's commit. Any failure (nothing cached yet, the
+        probe times out, the Hub is unreachable) returns ``None`` or the
+        cache as-is -- never blocks on the Hub.
+        """
+        import huggingface_hub
+        import huggingface_hub.utils
+        try:
+            cached = huggingface_hub.snapshot_download(
+                repo_id, repo_type="model", local_files_only=True)
+        except huggingface_hub.utils.LocalEntryNotFoundError:
+            return None  # nothing cached yet; a real download is unavoidable
+        cached_commit = Path(cached).name
+        try:
+            info = huggingface_hub.HfApi().model_info(
+                repo_id, timeout=_HUB_REVISION_PROBE_TIMEOUT_S)
+        except Exception:
+            # huggingface_hub's HTTP backend (requests, httpx, ...) and its
+            # exception types have moved before and will again; a probe
+            # that exists purely to avoid blocking boot must never itself
+            # become a way to block boot, so any failure here -- timeout,
+            # connection error, malformed response -- falls back to the
+            # cache exactly like an unreachable Hub does everywhere else
+            # in this method.
+            LOG.warning(f"Hub unreachable confirming '{repo_id}' is "
+                        f"current; using cached snapshot '{cached}'")
+            return cached
+        return cached if info.sha == cached_commit else None
+
     def _resolve_model_revision(self, model_path: str) -> str:
         """Resolve ``config["revision"]`` to a path ``from_pretrained`` accepts.
 
-        model2vec's ``from_pretrained`` takes no ``revision`` argument: it
-        resolves a repo id to a local folder via a bare
-        ``huggingface_hub.snapshot_download(repo_id)`` (always "latest").
-        Pinning a revision therefore means downloading that snapshot
-        ourselves and handing ``from_pretrained`` the resulting local path
-        instead of the repo id. A local path (already on disk) or an unset
-        ``revision`` skip this and are returned unchanged.
+        model2vec's ``from_pretrained`` does not talk to the Hub itself: it
+        resolves a repo id via ``maybe_get_cached_model_path``, which -- with
+        no revision pinned -- just returns the newest snapshot already on
+        disk BY MTIME, never checking whether the Hub has since moved on. A
+        stale local snapshot (e.g. from before a model was relabelled) is
+        then loaded forever, silently, with no way to tell from the logs.
+
+        So every repo-id load, pinned or not, is resolved through
+        ``huggingface_hub.snapshot_download`` ourselves and the resulting
+        local path handed to ``from_pretrained`` instead of the repo id:
+        pinned, it downloads that exact revision; unset, it is first
+        checked against the Hub with one bounded, cheap call
+        (``_cached_snapshot_if_current``) and only actually re-downloaded
+        when that call says the cache is stale. A local path (already on
+        disk) skips all of this and is returned unchanged. If the Hub
+        can't be reached (offline, network error) this falls back to
+        whatever snapshot is already cached, logging which one.
         """
-        revision = self.config.get("revision")
-        if not revision or Path(model_path).exists():
+        if Path(model_path).exists():
             return model_path
+        revision = self.config.get("revision")
         import huggingface_hub
-        return huggingface_hub.snapshot_download(model_path, repo_type="model", revision=revision)
+        import huggingface_hub.constants
+        import huggingface_hub.utils
+        import requests
+        pin = f" @ {revision}" if revision else ""
+        if huggingface_hub.constants.HF_HUB_OFFLINE:
+            resolved = huggingface_hub.snapshot_download(
+                model_path, repo_type="model", revision=revision,
+                local_files_only=True)
+            LOG.warning(f"HF_HUB_OFFLINE is set; using cached snapshot "
+                        f"'{resolved}' for '{model_path}'{pin} without "
+                        f"checking the Hub")
+            return resolved
+        if revision is None:
+            current = self._cached_snapshot_if_current(model_path)
+            if current is not None:
+                LOG.info(f"Resolved Model2Vec model '{model_path}' to "
+                         f"cached snapshot '{current}' (Hub confirmed "
+                         f"current)")
+                return current
+        try:
+            resolved = huggingface_hub.snapshot_download(
+                model_path, repo_type="model", revision=revision)
+        except (huggingface_hub.utils.HfHubHTTPError,
+                huggingface_hub.utils.HFValidationError,
+                ConnectionError, requests.exceptions.RequestException):
+            resolved = huggingface_hub.snapshot_download(
+                model_path, repo_type="model", revision=revision,
+                local_files_only=True)
+            LOG.warning(f"Hub unreachable resolving '{model_path}'{pin}; "
+                        f"using cached snapshot '{resolved}'")
+        LOG.info(f"Resolved Model2Vec model '{model_path}' to snapshot "
+                 f"'{resolved}'")
+        return resolved
 
     def _load_model_now(self) -> None:
         """Load ``self.model`` and drain any buffered prototype registrations.

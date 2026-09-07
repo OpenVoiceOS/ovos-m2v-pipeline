@@ -66,6 +66,7 @@ Any bare `StaticModel` on Hugging Face (or a local path) can be used as the embe
 | `conf_low` | `float` | `0.15` | Minimum score for a `match_low` result. |
 | `ignore_intents` | `list[str]` | `[]` | Intent labels to always discard, regardless of confidence. |
 | `timeout` | `int` | `1` | Seconds to wait for Adapt / Padatious manifest responses (classifier mode only). |
+| `revision` | `str` | unset | Git revision (commit SHA, branch, or tag) of the Hugging Face Hub `model` repo to load. Unset loads the latest snapshot the Hub serves: when a snapshot is already cached, this is checked with one short, bounded Hub call rather than a full re-download, so a relabelled or updated model is picked up automatically without adding meaningful startup delay. A pinned commit SHA is content-addressed and never contacts the Hub once cached. Ignored for a local path. When the Hub cannot be reached, or the check times out, the plugin falls back to the newest snapshot already cached on disk and logs a warning naming it. |
 
 ## Default model resolution
 
