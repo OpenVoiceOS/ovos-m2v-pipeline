@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.11.3a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.11.3a1) (2026-09-07)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.11.2a1...0.11.3a1)
+
+**Merged pull requests:**
+
+- fix: registration handlers take skill\_id from the message context [\#122](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/122) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.11.2a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.11.2a1) (2026-09-07)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.11.1a1...0.11.2a1)
@@ -398,10 +406,6 @@
 ## [0.0.5](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.5) (2025-05-22)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.5a1...0.0.5)
-
-**Merged pull requests:**
-
-- Release 0.0.5a1 [\#5](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/5) ([github-actions[bot]](https://github.com/apps/github-actions))
 
 ## [0.0.5a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.5a1) (2025-05-19)
 
