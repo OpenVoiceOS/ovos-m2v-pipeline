@@ -807,6 +807,20 @@ def push_dataset(out: Path, repo_id: str, dry_run: bool = False) -> None:
         print(f"[push] uploaded {f} -> {repo_id}")
 
 
+def min_test_rows(n_rows: int) -> int:
+    """Test rows a label with *n_rows* rows must get, if its templates allow.
+
+    A label with a handful of rows is exactly where a proportional split
+    rounds down to nothing: 20% of eight rows is one row, and stratifying on
+    templates rather than rows rounds it away entirely. A label with no test
+    rows is invisible in every evaluation the corpus feeds, so it silently
+    stops being measured while still occupying probability mass.
+    """
+    if n_rows < 5:
+        return 0
+    return 1 if n_rows < 10 else 2
+
+
 def template_split(df: pd.DataFrame, label_col: str, test_size: float, seed: int):
     """Stratified train/test split at the TEMPLATE level, not the row level.
 
@@ -816,6 +830,12 @@ def template_split(df: pd.DataFrame, label_col: str, test_size: float, seed: int
     key and is assigned to train or test as one unit, so no template's
     expansions straddle the split -- the failure mode that inflates held-out
     accuracy by letting a near-identical sentence leak across sides.
+
+    On top of the ratio, every label reaches :func:`min_test_rows` test rows
+    where its templates allow it: the smallest train-side template groups move
+    across until the floor is met, smallest first so the overall ratio moves
+    as little as possible. A label keeps at least one template in train, so a
+    label attested by a single template cannot reach the floor and keeps none.
     """
     from sklearn.model_selection import train_test_split
     group_cols = ["lang", "template"]
@@ -830,6 +850,27 @@ def template_split(df: pd.DataFrame, label_col: str, test_size: float, seed: int
                                        random_state=seed,
                                        stratify=splittable[label_col])
     train_keys = set(map(tuple, pd.concat([train_g, forced_train])[group_cols].values))
+    test_keys = set(map(tuple, test_g[group_cols].values))
+
+    label_of = dict(zip(map(tuple, groups[group_cols].values), groups[label_col]))
+    group_rows = df.groupby(group_cols).size().to_dict()
+    train_by_label = collections.defaultdict(list)
+    for key in train_keys:
+        train_by_label[label_of[key]].append(key)
+    test_rows = collections.Counter()
+    for key in test_keys:
+        test_rows[label_of[key]] += group_rows[key]
+
+    for label, n_rows in sorted(df[label_col].value_counts().items()):
+        floor = min_test_rows(int(n_rows))
+        # smallest first, and never the label's last train group
+        movable = sorted(train_by_label[label], key=lambda k: (group_rows[k], k))
+        while test_rows[label] < floor and len(movable) > 1:
+            key = movable.pop(0)
+            train_keys.discard(key)
+            test_keys.add(key)
+            test_rows[label] += group_rows[key]
+
     is_train = df[group_cols].apply(tuple, axis=1).isin(train_keys)
     return df[is_train], df[~is_train]
 
@@ -1115,6 +1156,9 @@ def main(argv=None):
     written[p.name] = sha256_file(p)
 
     report["outputs"] = written
+    test_rows = test["label"].value_counts()
+    report["labels_without_test_rows"] = sorted(
+        set(df["label"].unique()) - set(test_rows.index))
     report["golden_in_split"] = {
         "train": int(train["source"].str.startswith("golden:").sum()),
         "test": int(test["source"].str.startswith("golden:").sum()),

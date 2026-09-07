@@ -250,6 +250,23 @@ Brazilian sentences under the European locale. `es` shows no marker either
 way, which is an absence of evidence rather than evidence of a single dialect,
 so it stays bare too.
 
+## The train/test split
+
+The split is stratified by label at the TEMPLATE level: every row expanded
+from one `.intent` line carries the same `(lang, template)` key and moves to
+train or test as a unit, so a near-identical expansion can never leak across
+the two sides.
+
+A proportional split alone rounds a small label's test share down to nothing,
+and a label with no test rows is never measured again while it still occupies
+probability mass in the head. So on top of the ratio, a label with at least
+ten rows gets at least two test rows and a label with five to nine gets at
+least one, taking its smallest template groups first so the overall ratio
+barely moves. A label attested by a single template is the one case that
+cannot be honoured: its only group would have to straddle the split or leave
+the label untrained, so it keeps none and is listed in the manifest's
+`labels_without_test_rows`.
+
 ## Golden sentences
 
 The ovoscope corpus and each skill's `test/end2end/golden_utterances*.jsonl`
