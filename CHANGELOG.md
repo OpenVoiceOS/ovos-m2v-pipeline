@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.3a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.9.3a1) (2026-09-07)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.9.2a1...0.9.3a1)
+
+**Merged pull requests:**
+
+- fix: partition prototype store by language [\#93](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/93) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.9.2a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.9.2a1) (2026-09-07)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.9.1a1...0.9.2a1)
