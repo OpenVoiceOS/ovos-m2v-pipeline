@@ -399,10 +399,6 @@
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.5...0.0.6a1)
 
-**Merged pull requests:**
-
-- fix: compatibility with ovos-plugin-manager 1.X.X [\#6](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/6) ([JarbasAl](https://github.com/JarbasAl))
-
 ## [0.0.5](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.5) (2025-05-22)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.5a1...0.0.5)
