@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.7a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.9.7a1) (2026-09-07)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.9.6a1...0.9.7a1)
+
+**Merged pull requests:**
+
+- fix: validate model snapshot against the Hub when no revision is pinned [\#110](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/110) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.9.6a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.9.6a1) (2026-09-07)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.9.5a1...0.9.6a1)
@@ -245,6 +253,143 @@
 **Merged pull requests:**
 
 - chore\(deps\): update actions/setup-python action to v6 [\#27](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/27) ([renovate[bot]](https://github.com/apps/renovate))
+
+## [0.0.9](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.9) (2026-03-04)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.9a4...0.0.9)
+
+**Merged pull requests:**
+
+- Release 0.0.9a4 [\#28](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/28) ([github-actions[bot]](https://github.com/apps/github-actions))
+
+## [0.0.9a4](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.9a4) (2026-03-04)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.9a3...0.0.9a4)
+
+**Merged pull requests:**
+
+- chore\(deps\): update actions/checkout action to v6 [\#26](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/26) ([renovate[bot]](https://github.com/apps/renovate))
+- Add optional probability renormalization to intent matching [\#8](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/8) ([femelo](https://github.com/femelo))
+
+## [0.0.9a3](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.9a3) (2026-03-03)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.9a1...0.0.9a3)
+
+**Merged pull requests:**
+
+- Release 0.0.9a3 [\#25](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/25) ([github-actions[bot]](https://github.com/apps/github-actions))
+- docs: add docs [\#24](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/24) ([JarbasAl](https://github.com/JarbasAl))
+
+## [0.0.9a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.9a1) (2026-03-02)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.8...0.0.9a1)
+
+**Merged pull requests:**
+
+- Release 0.0.9a1 [\#23](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/23) ([github-actions[bot]](https://github.com/apps/github-actions))
+- chore\(deps\): update actions/checkout action to v6 [\#15](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/15) ([renovate[bot]](https://github.com/apps/renovate))
+
+## [0.0.8](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.8) (2026-03-02)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.8a3...0.0.8)
+
+**Merged pull requests:**
+
+- Release 0.0.8a3 [\#22](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/22) ([github-actions[bot]](https://github.com/apps/github-actions))
+
+## [0.0.8a3](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.8a3) (2026-03-02)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.8a2...0.0.8a3)
+
+**Merged pull requests:**
+
+- Update ovos-workshop version constraint to \<9.0.0 [\#21](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/21) ([JarbasAl](https://github.com/JarbasAl))
+
+## [0.0.8a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.8a2) (2025-12-19)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.8a1...0.0.8a2)
+
+**Merged pull requests:**
+
+- Release 0.0.8a2 [\#19](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/19) ([github-actions[bot]](https://github.com/apps/github-actions))
+- chore\(deps\): update actions/setup-python action to v6 [\#17](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/17) ([renovate[bot]](https://github.com/apps/renovate))
+
+## [0.0.8a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.8a1) (2025-12-18)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.7...0.0.8a1)
+
+**Merged pull requests:**
+
+- Release 0.0.8a1 [\#13](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/13) ([github-actions[bot]](https://github.com/apps/github-actions))
+- chore: Configure Renovate [\#12](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/12) ([renovate[bot]](https://github.com/apps/renovate))
+
+## [0.0.7](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.7) (2025-11-05)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.7a1...0.0.7)
+
+**Merged pull requests:**
+
+- Release 0.0.7a1 [\#11](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/11) ([github-actions[bot]](https://github.com/apps/github-actions))
+
+## [0.0.7a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.7a1) (2025-11-05)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.6...0.0.7a1)
+
+**Merged pull requests:**
+
+- Update ovos-plugin-manager version range [\#10](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/10) ([JarbasAl](https://github.com/JarbasAl))
+
+## [0.0.6](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.6) (2025-06-08)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.6a1...0.0.6)
+
+**Merged pull requests:**
+
+- Release 0.0.6a1 [\#7](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/7) ([github-actions[bot]](https://github.com/apps/github-actions))
+
+## [0.0.6a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.6a1) (2025-06-08)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.5...0.0.6a1)
+
+**Merged pull requests:**
+
+- fix: compatibility with ovos-plugin-manager 1.X.X [\#6](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/6) ([JarbasAl](https://github.com/JarbasAl))
+
+## [0.0.5](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.5) (2025-05-22)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.5a1...0.0.5)
+
+**Merged pull requests:**
+
+- Release 0.0.5a1 [\#5](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/5) ([github-actions[bot]](https://github.com/apps/github-actions))
+
+## [0.0.5a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.5a1) (2025-05-19)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.4...0.0.5a1)
+
+**Merged pull requests:**
+
+- Match levels [\#3](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/3) ([JarbasAl](https://github.com/JarbasAl))
+
+## [0.0.4](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.4) (2025-05-15)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.4a1...0.0.4)
+
+**Merged pull requests:**
+
+- Release 0.0.4a1 [\#2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/2) ([github-actions[bot]](https://github.com/apps/github-actions))
+
+## [0.0.4a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.4a1) (2025-05-15)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.3...0.0.4a1)
+
+**Merged pull requests:**
+
+- fix: update intent labels and default models [\#1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/1) ([JarbasAl](https://github.com/JarbasAl))
+
+## [0.0.3](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.3) (2025-05-08)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/be91243271ca0c4f88fcfa423d600462ed4baaa6...0.0.3)
 
 
 
