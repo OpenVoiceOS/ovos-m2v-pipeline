@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.11.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.11.1a1) (2026-09-07)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.11.0a1...0.11.1a1)
+
+**Merged pull requests:**
+
+- fix: builder alpha filter drops non-Latin-script rows under pandas 3.x [\#117](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/117) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.11.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.11.0a1) (2026-09-07)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.10.0a2...0.11.0a1)
