@@ -322,6 +322,13 @@ class PrototypeIntentStore:
         self._labels = None
         offset = old_n
         pending, self._pending = self._pending, []
+        # Sort chunks by label (descending, so popping from the end below
+        # yields ascending order) before folding them in: concurrent bus
+        # registrations append to _pending in whatever order their handler
+        # threads happened to finish, and without this the store's array
+        # order -- and therefore anything downstream that iterates it --
+        # would vary across otherwise-identical boots.
+        pending.sort(key=lambda cl: tuple(cl[1]), reverse=True)
         while pending:
             # pop (not iterate): each source chunk is dereferenced right
             # after its data is copied in, so at most one chunk plus the
@@ -1987,7 +1994,11 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         emb = self.model.encode([utterance], use_multiprocessing=False)[0]
         label_scores = self.prototype_store.scores(emb, lang=lang)
         special = self._allowed_special_labels(message)
-        for label, score in sorted(label_scores.items(), key=lambda x: x[1], reverse=True):
+        # secondary key on the label breaks ties deterministically: label
+        # registration order (a concurrent bus-executor race across boots,
+        # see PrototypeIntentStore._lock) must never decide the winner.
+        for label, score in sorted(label_scores.items(),
+                                    key=lambda x: (-x[1], x[0])):
             LOG.debug(f"Match candidate: {label} - cosine: {score:.4f}")
             if label in self.ignore_labels:
                 continue
