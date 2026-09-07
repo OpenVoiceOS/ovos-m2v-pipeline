@@ -30,9 +30,11 @@ from ovos_m2v_pipeline.strategies import (
     select_anchors,
     score_labels,
 )
-
-#: Regex matching ``{slot}`` placeholders in OVOS-INTENT-1 template samples.
-_SLOT_RE = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
+from ovos_m2v_pipeline.slots import (
+    SLOT_RE as _SLOT_RE,
+    MAX_ENTITY_EXPANSIONS,
+    expand_entities,
+)
 
 #: retry backoff for a deferred model load that raised: starts at 30s
 #: and doubles on each consecutive failure, capped at 15 minutes, so a
@@ -184,13 +186,6 @@ def _load_labels_manifest(model_path: str) -> Dict[str, Any]:
         return {}
     return data
 
-
-#: Upper bound on entity-filled samples generated per template. The
-#: cartesian product over registered entity values is unbounded input
-#: (auto-registered .entity files can carry thousands of values each);
-#: everything past this bound is a deterministic evenly-strided sample of
-#: the combination space.
-MAX_ENTITY_EXPANSIONS = 2000
 
 
 class PrototypeIntentStore:
@@ -1548,52 +1543,13 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         entity values (OVOS-INTENT-4 §7). Samples without placeholders, or whose
         entity is unregistered, are passed through with the placeholder left
         literal (entities are an optional hint, §7).
+
+        Delegates to :func:`ovos_m2v_pipeline.slots.expand_entities`, the
+        single implementation shared with ``train/build_dataset.py`` so the
+        training corpus and the runtime prototype encoder fill slots the
+        same way.
         """
-        if not self.entities:
-            return list(samples)
-        out: List[str] = []
-        for tmpl in samples:
-            slots = _SLOT_RE.findall(tmpl)
-            if not slots:
-                out.append(tmpl)
-                continue
-            slot_values: List[List[str]] = []
-            for slot in slots:
-                vals = self.entities.get(slot.lower())
-                slot_values.append(vals if vals else ["{" + slot + "}"])
-            # the cartesian product over large value sets explodes: two
-            # ~2000-value entities in one template is ~4M strings, all
-            # materialized and embedded on every registration — enough to
-            # swap out and OOM-kill a capped service. Engines own bounding
-            # unbounded entity data: take a deterministic, evenly-strided
-            # sample of the combination space instead.
-            sizes = [len(v) for v in slot_values]
-            total = 1
-            for n in sizes:
-                total *= n
-            if total > MAX_ENTITY_EXPANSIONS:
-                LOG.warning(
-                    f"template {tmpl!r} expands to {total} combinations; "
-                    f"sampling {MAX_ENTITY_EXPANSIONS} evenly")
-                step = (total - 1) / (MAX_ENTITY_EXPANSIONS - 1)
-                indices = {round(i * step) for i in range(MAX_ENTITY_EXPANSIONS)}
-                combos = []
-                for idx in sorted(indices):
-                    combo = []
-                    rem = idx
-                    for n in reversed(sizes):
-                        combo.append(rem % n)
-                        rem //= n
-                    combos.append(tuple(slot_values[d][c] for d, c in
-                                        enumerate(reversed(combo))))
-            else:
-                combos = itertools.product(*slot_values)
-            for combo in combos:
-                filled = tmpl
-                for slot, val in zip(slots, combo):
-                    filled = filled.replace("{" + slot + "}", val, 1)
-                out.append(filled.strip())
-        return out
+        return expand_entities(samples, self.entities)
 
     def _handle_intent4_register_template(self, message: Message) -> None:
         """Register a template intent (§6): bracket-expand + entity-fill the

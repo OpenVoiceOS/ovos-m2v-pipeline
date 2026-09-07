@@ -22,16 +22,26 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Dict, List
 
 import pandas as pd
 import yaml
+from ovos_spec_tools.expansion import iter_expand
+
+from ovos_m2v_pipeline.slots import expand_entities, MAX_ENTITY_EXPANSIONS
 
 HERE = Path(__file__).resolve().parent
+
+#: A training row is one example, not a live registration -- an evenly
+#: strided sample of this many entity-filled variants per template is
+#: enough to teach the classifier the slot is filled, without multiplying
+#: the corpus by an entity's full value count on every matching row.
+TEMPLATE_FILL_CAP = 3
 
 # ---------------------------------------------------------------- labels ----
 
 #: Pipeline-plugin families. Everything else is family ``skill``.
-PIPELINE_IDS = {"ocp", "common_query", "stop", "persona"}
+PIPELINE_IDS = {"ocp", "common_query", "stop", "persona", "common_reading"}
 
 #: Bare pipeline ids and legacy corpus spellings that must not gain the
 #: ``.openvoiceos`` suffix a real skill id carries.
@@ -84,18 +94,32 @@ _SUFFIX_RE = re.compile(r"\.(intent|voc)$")
 #: under the bare code - see docs/labels.md. `es`, `nl` and `pt` are
 #: deliberately absent: the corpus carries es-ES and es-419, nl-NL and nl-BE,
 #: pt-PT and pt-BR, and the tracker's bare `pt` rows are Brazilian-leaning.
+#: `an` (Aragonese) folds to `an-ES` because the corpus, like the other
+#: single-dialect entries here, has exactly one Aragonese locale directory
+#: to attest -- there is no `an-AR`/`an-FR` split to disambiguate.
 LANG_REGIONS = {"ca": "ca-ES", "da": "da-DK", "de": "de-DE", "en": "en-US",
                 "eu": "eu-ES", "fr": "fr-FR", "gl": "gl-ES", "it": "it-IT",
                 "an": "an-ES"}
+
+#: Language codes collapsed to one bucket regardless of region tag. Kabyle
+#: ships as both bare `kab` and `kab-DZ` across the corpus (the skills
+#: register under `kab`; `kab-DZ` is a duplicated code some `.intent`
+#: trees still carry) -- they denote the same language and must never be
+#: trained as two disjoint labels.
+LANG_MERGE = {"kab": "kab", "kab-dz": "kab"}
 
 
 def norm_lang(lang: str) -> str:
     """Return a full BCP-47 code; bare language subtags gain their corpus region."""
     lang = str(lang).strip().strip('"').strip()
+    if lang.lower() in LANG_MERGE:
+        return LANG_MERGE[lang.lower()]
     if lang in LANG_REGIONS:
         return LANG_REGIONS[lang]
     if "-" in lang:
         base, _, region = lang.partition("-")
+        if base.lower() in LANG_MERGE:
+            return LANG_MERGE[base.lower()]
         return f"{base.lower()}-{region.upper()}"
     return lang.lower()
 _SLOT_RE = re.compile(r"\{[^}]*\}")
@@ -367,6 +391,73 @@ def build_registry(cfg, ws):
     return labels, by_skill_fold, intents_by_skill
 
 
+def _entity_values(repo: Path, rev: str, path: str) -> List[str]:
+    """Values an ``.entity`` file at *path* attests, alternation-expanded.
+
+    Uses the same ``iter_expand`` the runtime calls in
+    ``_handle_intent4_register_entity`` on a live entity registration, so a
+    static ``.entity`` file yields the same value set a running skill would
+    register at match time.
+    """
+    values = []
+    try:
+        text = git_show(repo, rev, path)
+    except subprocess.CalledProcessError:
+        return values
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        try:
+            for v in iter_expand(line):
+                v = v.strip()
+                if v:
+                    values.append(v)
+        except Exception:
+            continue
+    return values
+
+
+def collect_entities(cfg, ws) -> Dict[str, List[str]]:
+    """Entity value-sets attested by the pinned refs, keyed by entity name.
+
+    Mirrors ``Model2VecIntentPipeline.entities``: one flat, skill-agnostic
+    dict, exactly what the runtime accumulates from every skill's own
+    ``ENTITY_REGISTER`` calls. Feeds :func:`ovos_m2v_pipeline.slots.expand_entities`
+    so the corpus builder fills ``{slot}`` templates the same way the
+    runtime prototype pipeline does.
+    """
+    entities: Dict[str, List[str]] = {}
+
+    def add(name: str, values: List[str]):
+        if not values:
+            return
+        bucket = entities.setdefault(name.lower(), [])
+        seen = set(bucket)
+        for v in values:
+            if v not in seen and len(bucket) < MAX_ENTITY_EXPANSIONS:
+                bucket.append(v)
+                seen.add(v)
+
+    for repo_name, rev in sorted(cfg["skill_refs"]["refs"].items()):
+        repo = ws / repo_name
+        for path in git_ls_all(repo, rev):
+            if path.split("/")[0] in {"test", "tests"}:
+                continue
+            if path.endswith(".entity"):
+                add(Path(path).stem, _entity_values(repo, rev, path))
+    for src in cfg["git_sources"]:
+        if src["kind"] != "plugin_intents":
+            continue
+        repo = ws / src["path"]
+        entity_glob = src["files"].replace(".intent", ".entity")
+        for path in git_ls(repo, src["revision"], entity_glob):
+            if path.split("/")[0] in {"test", "tests"}:
+                continue
+            add(Path(path).stem, _entity_values(repo, src["revision"], path))
+    return entities
+
+
 def reduce_skill_id(skill_id: str, by_skill_fold: dict, aliases: dict = {}):
     """Resolve a corpus skill id to a registered one, or None.
 
@@ -464,8 +555,9 @@ def read_localize(src, ws, rows, stats):
             if d.get("file_type") in drop_types:
                 stats["dropped_voc"] += 1
                 continue
+            utt = norm_utterance(d.get("text", ""))
             rows.append((norm_lang(d.get("lang") or "en-US"), make_label(d["skill"], d["intent"]),
-                         norm_utterance(d.get("text", "")), src["id"]))
+                         utt, src["id"], utt))
 
 
 def read_tracker(src, ws, rows, stats):
@@ -475,8 +567,9 @@ def read_tracker(src, ws, rows, stats):
         name = src["files"].format(lang=lang)
         text = git_show(repo, src["revision"], name)
         for r in csv.DictReader(io.StringIO(text)):
+            utt = norm_utterance(r["utterance"])
             rows.append((norm_lang(lang), make_label(r["domain"], r["intent"]),
-                         norm_utterance(r["utterance"]), src["id"]))
+                         utt, src["id"], utt))
 
 
 def read_plugin_intents(src, ws, rows, stats):
@@ -489,14 +582,20 @@ def read_plugin_intents(src, ws, rows, stats):
             continue
         stem = Path(name).stem
         lang = Path(name).parent.name
-        if not re.fullmatch(r"[a-z]{2}(-[a-z]{2})?", lang, re.I):
+        # ISO 639-2/3 language subtag (2-3 letters), optionally followed by
+        # a BCP-47 script (4 letters) and/or region (2 letters or 3 digits)
+        # subtag, e.g. `kab`, `zsm`, `cmn`, `sr-Latn`, `es-419`.
+        if not re.fullmatch(r"[a-z]{2,3}(-[a-z]{4})?(-([a-z]{2}|\d{3}))?",
+                            lang, re.I):
             raise SystemExit(
                 f"[{src['id']}] cannot read a locale from {name!r}; the "
                 f"`files` glob must select paths under a locale directory")
         label = make_label(pid, stem)
         for line in git_show(repo, src["revision"], name).splitlines():
+            template_key = f"{name}:{line.strip()}"
             for sent in expand_template(line):
-                rows.append((norm_lang(lang), label, norm_utterance(sent), src["id"]))
+                rows.append((norm_lang(lang), label, norm_utterance(sent), src["id"],
+                             template_key))
 
 
 def read_hf(src, rows, stats):
@@ -524,7 +623,7 @@ def read_hf(src, rows, stats):
         if not utt:
             unmappable.append(f"<empty utterance> {label}")
             continue
-        rows.append((norm_lang(lang or "en-US"), label, utt, src["id"]))
+        rows.append((norm_lang(lang or "en-US"), label, utt, src["id"], utt))
     stats["unmappable"][src["id"]] = unmappable
 
 
@@ -556,7 +655,7 @@ def read_golden(cfg, ws, rows, stats):
             if key in seen:
                 continue
             seen.add(key)
-            rows.append((lang, label, utt, source))
+            rows.append((lang, label, utt, source, utt))
             n += 1
         return n
 
@@ -582,6 +681,33 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def template_split(df: pd.DataFrame, label_col: str, test_size: float, seed: int):
+    """Stratified train/test split at the TEMPLATE level, not the row level.
+
+    Every row expanded from the same source template (an `.intent` line's
+    `(alt|alt)`/`[optional]`/`{slot}` expansions, or one already-atomic
+    utterance from the other readers) carries the same ``(lang, template)``
+    key and is assigned to train or test as one unit, so no template's
+    expansions straddle the split -- the failure mode that inflates held-out
+    accuracy by letting a near-identical sentence leak across sides.
+    """
+    from sklearn.model_selection import train_test_split
+    group_cols = ["lang", "template"]
+    groups = df[group_cols + [label_col]].drop_duplicates(subset=group_cols)
+    counts = groups[label_col].value_counts()
+    # a label attested by only one template group cannot be stratified across
+    # both sides; keep it whole in train rather than fail the split.
+    unsplittable = set(counts[counts < 2].index)
+    forced_train = groups[groups[label_col].isin(unsplittable)]
+    splittable = groups[~groups[label_col].isin(unsplittable)]
+    train_g, test_g = train_test_split(splittable, test_size=test_size,
+                                       random_state=seed,
+                                       stratify=splittable[label_col])
+    train_keys = set(map(tuple, pd.concat([train_g, forced_train])[group_cols].values))
+    is_train = df[group_cols].apply(tuple, axis=1).isin(train_keys)
+    return df[is_train], df[~is_train]
 
 
 def main(argv=None):
@@ -633,7 +759,8 @@ def main(argv=None):
     read_golden(cfg, ws, rows, stats)
     per_source_raw["golden"] = len(rows) - before
 
-    df = pd.DataFrame(rows, columns=["lang", "label", "utterance", "source"])
+    df = pd.DataFrame(rows, columns=["lang", "label", "utterance", "source", "template"],
+                      dtype=object)
     n_raw = len(df)
 
     # ---- blacklists
@@ -643,6 +770,37 @@ def main(argv=None):
                   + df["intent"].isin(cfg["intent_blacklist"]).sum())
     df = df[~df["skill_id"].isin(cfg["skill_blacklist"])]
     df = df[~df["intent"].isin(cfg["intent_blacklist"])]
+
+    # ---- fill {slot} placeholders the same way the runtime prototype
+    # pipeline does (ovos_m2v_pipeline.slots.expand_entities), from entity
+    # values attested by the pinned refs' `.entity` files. A row whose slot
+    # has no registered entity is left with the placeholder literal by
+    # `expand_entities` (entities are an optional hint, same as at runtime);
+    # such rows carry no natural-language signal and are dropped below,
+    # same treatment as `drop_bare_slot`. `expand_entities` bounds a single
+    # call at MAX_ENTITY_EXPANSIONS (2000) -- fine for one live registration,
+    # but every one of the corpus's already-expanded template rows calls it
+    # independently, so an entity with hundreds of values (e.g. `color`,
+    # `date`) would multiply the corpus by that count per row, per locale.
+    # `TEMPLATE_FILL_CAP` takes an evenly-strided sample of that result
+    # instead, keeping a bounded, deterministic number of fills per template.
+    entities = collect_entities(cfg, ws)
+    n_slot_templates = int(df["utterance"].str.contains("{", regex=False).sum())
+
+    def _fill(u):
+        if "{" not in u:
+            return [u]
+        filled = expand_entities([u], entities)
+        if len(filled) <= TEMPLATE_FILL_CAP:
+            return filled
+        step = (len(filled) - 1) / (TEMPLATE_FILL_CAP - 1)
+        return [filled[round(i * step)] for i in range(TEMPLATE_FILL_CAP)]
+
+    df = df.assign(utterance=df["utterance"].map(_fill))
+    df = df.explode("utterance", ignore_index=False)
+    still_literal = df["utterance"].str.contains("{", regex=False, na=False)
+    n_unfilled_slot = int(still_literal.sum())
+    df = df[~still_literal]
 
     # ---- content filters
     f = cfg["filters"]
@@ -672,12 +830,25 @@ def main(argv=None):
                            "canonical": canonical, "resolved_by": how})
     n_unresolved = int(sum(v["rows"] for v in unresolved.values()))
     df = df[df["label"].isin(resolution)]
-    df["label"] = df["label"].map(resolution)
+    df["label"] = df["label"].map(resolution).astype(object)
+
+    # ---- an unknown-registry drop is a coverage gap, not a hygiene detail:
+    # warn loudly per skill, with the row count, instead of only recording it
+    # in `unresolved_labels` where a dry run has to be read to notice it.
+    unknown_skill_rows = collections.Counter()
+    for label, info in unresolved.items():
+        if info["reason"] == "unknown-skill":
+            unknown_skill_rows[label.split(":", 1)[0]] += info["rows"]
+    for skill_id, n in sorted(unknown_skill_rows.items(), key=lambda kv: -kv[1]):
+        print(f"WARNING [registry] {skill_id!r} is not in skill_refs/"
+              f"skill_id_aliases; {n} corpus row(s) dropped unresolved",
+              file=sys.stderr)
 
     # ---- exact dedup on (utterance, label, lang)
     n_before = len(df)
     df = df.sort_values(["source", "label", "utterance"], kind="mergesort")
-    df["_k"] = df["label"] + "\x1f" + df["utterance"].str.lower() + "\x1f" + df["lang"]
+    df["_k"] = (df["label"].astype(str) + "\x1f" + df["utterance"].str.lower().astype(str)
+               + "\x1f" + df["lang"].astype(str))
     df = df[~df.duplicated("_k", keep="first")].drop(columns=["_k"])
     n_dedup = n_before - len(df)
 
@@ -693,7 +864,7 @@ def main(argv=None):
     # `ocp:media_stop` share phrasings), so they cannot be aliased away - one
     # is not a misspelling of the other. They are dropped, and the label
     # pairs are reported so the overlap can be fixed upstream in the skill.
-    key = df["utterance"].str.lower() + "\x1f" + df["lang"]
+    key = df["utterance"].str.lower().astype(str) + "\x1f" + df["lang"].astype(str)
     nlabels = df.groupby(key)["label"].transform("nunique")
     ambiguous_mask = nlabels > 1
     n_ambiguous_groups = int(key[ambiguous_mask].nunique())
@@ -709,7 +880,8 @@ def main(argv=None):
     else:
         residual = n_ambiguous_groups
     if not args.allow_ambiguous:
-        check = df.groupby(df["utterance"].str.lower() + "\x1f" + df["lang"])["label"].nunique()
+        check = df.groupby(df["utterance"].str.lower().astype(str) + "\x1f"
+                          + df["lang"].astype(str))["label"].nunique()
         if int((check > 1).sum()):
             raise SystemExit("ambiguity filter left residual groups; this is a bug")
 
@@ -717,6 +889,15 @@ def main(argv=None):
     counts = df["label"].value_counts()
     rare = sorted(counts[counts < f["min_rows_per_label"]].index)
     df = df[~df["label"].isin(rare)]
+
+    # ---- no row may ever reach the export with a literal `{slot}` in it.
+    # A regression in the entity-fill step above must fail the build loudly
+    # rather than silently ship bracket-syntax training rows again.
+    leftover = df[df["utterance"].str.contains("{", regex=False, na=False)]
+    if len(leftover):
+        raise SystemExit(
+            f"[slots] {len(leftover)} row(s) still contain a literal '{{' "
+            f"after entity-fill; this is a bug, e.g. {leftover['utterance'].iloc[0]!r}")
 
     report = {
         "rows_raw": n_raw,
@@ -729,6 +910,8 @@ def main(argv=None):
         "labels_per_family": df.groupby("family")["label"].nunique().to_dict(),
         "langs": int(df["lang"].nunique()),
         "dropped_blacklist": n_black,
+        "slot_templates_filled": n_slot_templates,
+        "dropped_unfilled_slot": n_unfilled_slot,
         "dropped_filters": n_filtered,
         "dropped_localize_voc": int(stats["dropped_voc"]),
         "dropped_exact_duplicates": int(n_dedup),
@@ -762,11 +945,11 @@ def main(argv=None):
         print()
         return 0
 
-    from sklearn.model_selection import train_test_split
     sp = cfg["split"]
-    train, test = train_test_split(df, test_size=sp["test_size"],
-                                   random_state=sp["seed"],
-                                   stratify=df[sp["stratify"]])
+    train, test = template_split(df, sp["stratify"], test_size=sp["test_size"],
+                                 seed=sp["seed"])
+    train = train.drop(columns=["template"])
+    test = test.drop(columns=["template"])
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     written = {}
