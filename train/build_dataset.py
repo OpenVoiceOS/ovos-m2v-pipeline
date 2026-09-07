@@ -18,6 +18,7 @@ import hashlib
 import io
 import json
 import os
+import random
 import re
 import subprocess
 import sys
@@ -140,16 +141,25 @@ def norm_utterance(text: str) -> str:
 
 # ------------------------------------------------------------ expansion ----
 
-def expand_template(line: str, cap: int = 64):
+def expand_template(line: str, cap: int = 64, vocab: dict = None):
     """Expand padatious template syntax into concrete sentences.
 
-    Handles ``(a|b)`` alternation and ``[optional]`` groups, and replaces
-    ``{slot}`` placeholders with the literal slot name so the sentence keeps
-    its shape without inventing entity values. Deterministic and capped.
+    Handles ``(a|b)`` alternation and ``[optional]`` groups, and expands
+    ``<name>`` inline vocabulary references (OVOS-INTENT-1 SS3.7) against
+    *vocab* - a slot-free ``.voc`` reference resolves at build time because
+    it never captures anything, unlike a ``{slot}``. An undefined reference
+    is left as literal text rather than dropped.
+
+    ``{slot}`` placeholders are left untouched so the sentence keeps its
+    shape without inventing entity values here; ``fill_slot_placeholders``
+    below fills a slot from the owning skill's own declared vocabulary
+    where one exists, once every source has been merged and every label
+    resolved to a skill id. Deterministic and capped.
     """
     line = line.strip()
     if not line or line.startswith("#"):
         return []
+    vocab = vocab or {}
     out = [""]
 
     def _flush(variants):
@@ -165,8 +175,8 @@ def expand_template(line: str, cap: int = 64):
     buf = ""
     while i < len(line):
         ch = line[i]
-        if ch in "([":
-            close = ")" if ch == "(" else "]"
+        if ch in "([<":
+            close = {"(": ")", "[": "]", "<": ">"}[ch]
             depth = 1
             j = i + 1
             while j < len(line) and depth:
@@ -176,14 +186,22 @@ def expand_template(line: str, cap: int = 64):
                     depth -= 1
                 j += 1
             inner = line[i + 1:j - 1]
+            if ch == "<" and inner.strip().lower() not in vocab:
+                # undefined vocabulary reference: keep it as literal text
+                buf += line[i:j]
+                i = j
+                continue
             out = [p + buf for p in out]
             buf = ""
-            variants = inner.split("|")
-            if ch == "[":
-                variants = variants + [""]
+            if ch == "<":
+                variants = vocab[inner.strip().lower()]
+            else:
+                variants = inner.split("|")
+                if ch == "[":
+                    variants = variants + [""]
             sub = []
             for v in variants:
-                sub.extend(expand_template(v, cap) or [""])
+                sub.extend(expand_template(v, cap, vocab) or [""])
             out = _flush(sub)
             i = j
             continue
@@ -415,6 +433,122 @@ def resolve_label(label: str, registry, by_skill_fold, intents_by_skill, aliases
     return None, "unknown-intent"
 
 
+# ----------------------------------------------------------- slot filling ----
+# ``{slot}`` placeholders keep the sentence shape but carry no lexical
+# content of their own. Filling one from the owning skill's own ``.entity``
+# file trains on real declared vocabulary rather than the literal word
+# "slot" - never a hand-picked stand-in, so a slot without a same-named
+# ``.entity`` in the skill's own repo is left as-is.
+#
+# A ``.voc`` file is never a fill source for a ``{slot}`` (OVOS-INTENT-2
+# resource roles): ``.voc`` backs ``voc_match``/``<name>`` inline matching,
+# which captures nothing, while a ``.entity`` backs a captured named slot.
+# A ``{slot}`` with no ``.entity`` but a same-named ``.voc`` is a closed
+# keyword set mis-modeled as a captured slot upstream - it is flagged for
+# the skill to fix, never filled from the ``.voc``.
+
+_SLOT_NAME_RE = re.compile(r"\{([^{}]*)\}")
+
+
+def load_declared_vocab(cfg, ws):
+    """Real declared vocabulary for every ``{slot}``, read from each pinned
+    skill repo's own ``.entity`` files, plus the set of ``.voc`` stems the
+    skill ships (never a fill source, only used to flag a mis-modeled slot).
+
+    Returns ``(entity_vocab, voc_stems)``:
+      - ``entity_vocab[skill_id][lang][slot_name] -> [values]``, keyed by
+        the ``.entity`` file's own stem. A slot is matched only by that
+        exact stem: there is no synonym table and no invented mapping.
+      - ``voc_stems[skill_id][lang] -> {slot_name, ...}``.
+    """
+    entity_vocab = collections.defaultdict(lambda: collections.defaultdict(dict))
+    voc_stems = collections.defaultdict(lambda: collections.defaultdict(set))
+    for repo_name, rev in sorted(cfg["skill_refs"]["refs"].items()):
+        repo = ws / repo_name
+        if not repo.is_dir():
+            continue
+        skill_id = skill_id_from_repo(repo, rev)
+        for name in git_ls(repo, rev, "**/locale/*/*.voc"):
+            m = re.search(r"/locale/([A-Za-z-]+)/", "/" + name)
+            lang = norm_lang(m.group(1)) if m else "en-US"
+            voc_stems[skill_id][lang].add(Path(name).stem.lower())
+        for name in git_ls(repo, rev, "**/locale/*/*.entity"):
+            m = re.search(r"/locale/([A-Za-z-]+)/", "/" + name)
+            lang = norm_lang(m.group(1)) if m else "en-US"
+            slot = Path(name).stem.lower()
+            values = [norm_utterance(v) for v in
+                      git_show(repo, rev, name).splitlines()
+                      if v.strip() and not v.strip().startswith("#")]
+            if values:
+                entity_vocab[skill_id][lang].setdefault(slot, []).extend(values)
+    return entity_vocab, voc_stems
+
+
+def fill_slot_placeholders(df, entity_vocab, voc_stems, cap: int = 3, seed: int = 2024):
+    """Expand rows carrying ``{slot}`` into up to *cap* variants per row,
+    each with every slot substituted by a value drawn from ``entity_vocab``.
+
+    A row is filled only if every one of its slots has a same-named
+    ``.entity`` in ``entity_vocab`` for that skill and language (falling
+    back to the skill's ``en-US`` vocabulary first). A slot backed only by
+    a same-named ``.voc`` is flagged as likely mis-modeled - a closed
+    keyword set exposed as a captured slot instead of ``<name>`` inline
+    matching - rather than filled from the ``.voc``. A slot with neither is
+    left exactly as-is, the pre-existing literal-placeholder behaviour.
+    Deterministic: a fixed seed and a per-row cap keep the corpus size
+    bounded and reproducible.
+
+    Returns ``(df, n_rows_filled, flagged_mismodeled, unmatched)``.
+    """
+    rng = random.Random(seed)
+    flagged = set()
+    unmatched = set()
+    out_rows = []
+    n_filled = 0
+    for row in df.to_dict("records"):
+        sentence = row["utterance"]
+        slot_names = list(dict.fromkeys(_SLOT_NAME_RE.findall(sentence)))
+        if not slot_names:
+            out_rows.append(row)
+            continue
+        skill_entities = entity_vocab.get(row["skill_id"], {})
+        lang_entities = skill_entities.get(row["lang"]) or skill_entities.get("en-US") or {}
+        skill_voc = voc_stems.get(row["skill_id"], {})
+        lang_voc = skill_voc.get(row["lang"]) or skill_voc.get("en-US") or set()
+        candidates = {}
+        for slot in slot_names:
+            slot_key = slot.lower().strip()
+            values = lang_entities.get(slot_key)
+            if not values:
+                if slot_key in lang_voc:
+                    flagged.add(f"{row['skill_id']}:{slot_key}")
+                else:
+                    unmatched.add(f"{row['skill_id']}:{slot_key}")
+                candidates = None
+                break
+            candidates[slot] = values
+        if candidates is None:
+            out_rows.append(row)
+            continue
+        seen = set()
+        tries = 0
+        while len(seen) < cap and tries < cap * 4:
+            tries += 1
+            filled = sentence
+            for slot, values in candidates.items():
+                filled = filled.replace("{" + slot + "}", rng.choice(values))
+            filled = re.sub(r"\s+", " ", filled).strip()
+            if filled in seen:
+                continue
+            seen.add(filled)
+            variant = dict(row)
+            variant["utterance"] = filled
+            out_rows.append(variant)
+            n_filled += 1
+    return (pd.DataFrame(out_rows, columns=df.columns), n_filled,
+            sorted(flagged), sorted(unmatched))
+
+
 # --------------------------------------------------------------- readers ----
 
 def git_show(repo: Path, rev: str, path: str) -> str:
@@ -483,6 +617,16 @@ def read_plugin_intents(src, ws, rows, stats):
     repo = ws / src["path"]
     assert_rev(repo, src["revision"], src["id"])
     pid = src["pipeline_id"]
+    voc_glob = src["files"].rsplit(".", 1)[0] + ".voc"
+    vocab_by_lang = {}
+    for voc_name in git_ls(repo, src["revision"], voc_glob):
+        lang = Path(voc_name).parent.name
+        name = Path(voc_name).stem.lower()
+        values = [l.strip() for l in git_show(repo, src["revision"], voc_name).splitlines()
+                 if l.strip() and not l.strip().startswith("#")]
+        if values:
+            vocab_by_lang.setdefault(lang, {})[name] = values
+
     for name in sorted(git_ls(repo, src["revision"], src["files"])):
         if name.split("/")[0] in {"test", "tests"}:
             # a plugin's own test skill is not a registration
@@ -494,8 +638,9 @@ def read_plugin_intents(src, ws, rows, stats):
                 f"[{src['id']}] cannot read a locale from {name!r}; the "
                 f"`files` glob must select paths under a locale directory")
         label = make_label(pid, stem)
+        vocab = vocab_by_lang.get(lang, {})
         for line in git_show(repo, src["revision"], name).splitlines():
-            for sent in expand_template(line):
+            for sent in expand_template(line, vocab=vocab):
                 rows.append((norm_lang(lang), label, norm_utterance(sent), src["id"]))
 
 
@@ -597,6 +742,13 @@ def main(argv=None):
     ap.add_argument("--allow-ambiguous", action="store_true",
                     help="keep rows whose (utterance, lang) carries several "
                          "labels instead of dropping them")
+    ap.add_argument("--fill-slots", action="store_true",
+                    help="expand {slot} placeholders using each skill's own "
+                         "declared .entity vocabulary instead of training on "
+                         "the literal placeholder text; a slot with no "
+                         "matching .entity keeps the current behaviour and "
+                         "is flagged in the manifest if a same-named .voc "
+                         "exists instead (a likely mis-modeled slot)")
     ap.add_argument("--dry-run", action="store_true",
                     help="report counts and write nothing")
     args = ap.parse_args(argv)
@@ -673,6 +825,16 @@ def main(argv=None):
     n_unresolved = int(sum(v["rows"] for v in unresolved.values()))
     df = df[df["label"].isin(resolution)]
     df["label"] = df["label"].map(resolution)
+    df["skill_id"] = df["label"].str.split(":").str[0]
+
+    # ---- slot filling: real declared vocabulary, opt-in (--fill-slots)
+    n_slot_filled = 0
+    slot_flagged = []
+    slot_unmatched = []
+    if args.fill_slots:
+        entity_vocab, voc_stems = load_declared_vocab(cfg, ws)
+        df, n_slot_filled, slot_flagged, slot_unmatched = fill_slot_placeholders(
+            df, entity_vocab, voc_stems)
 
     # ---- exact dedup on (utterance, label, lang)
     n_before = len(df)
@@ -755,6 +917,10 @@ def main(argv=None):
         "ambiguous_residual_groups": residual,
         "ambiguous_label_pairs": ambiguous_pairs,
         "split": cfg["split"],
+        "fill_slots_enabled": args.fill_slots,
+        "fill_slots_rows_added": n_slot_filled,
+        "fill_slots_flagged_mismodeled": slot_flagged[:100],
+        "fill_slots_unmatched": slot_unmatched[:40],
     }
 
     if args.dry_run:
