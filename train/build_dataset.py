@@ -99,7 +99,6 @@ def norm_lang(lang: str) -> str:
         return f"{base.lower()}-{region.upper()}"
     return lang.lower()
 _SLOT_RE = re.compile(r"\{[^}]*\}")
-_ALPHA_RE = re.compile(r"[^\W\d_]", re.UNICODE)
 
 
 def norm_intent(name: str) -> str:
@@ -690,7 +689,16 @@ def main(argv=None):
     if f["drop_bare_slot"]:
         keep &= ~u.str.fullmatch(r"\{[^}]*\}", na=False)
     if f["drop_non_alpha"]:
-        keep &= u.str.contains(_ALPHA_RE, na=False)
+        # `Series.str.contains` on a compiled pattern goes through pandas'
+        # accessor regex engine, which silently stops matching non-Latin
+        # scripts (Cyrillic, Greek, CJK, ...) once the column is promoted
+        # to pandas' `str` dtype (e.g. by an upstream `.explode()`) instead
+        # of staying `object` -- confirmed to zero out every Cyrillic row
+        # under pandas 3.x. `str.isalpha()` on each plain Python string,
+        # applied element-wise, is Unicode-aware by construction and never
+        # touches pandas' own regex engine, so the column's dtype cannot
+        # change the result.
+        keep &= u.map(lambda s: any(ch.isalpha() for ch in str(s)))
     n_filtered = int((~keep).sum())
     df = df[keep]
 
