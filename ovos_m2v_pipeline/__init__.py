@@ -20,7 +20,7 @@ from ovos_spec_tools.context import gate_satisfied, context_slot_candidates
 from ovos_spec_tools.language import closest_lang, standardize_lang
 from itertools import islice
 
-from ovos_spec_tools.expansion import iter_expand
+from ovos_spec_tools.expansion import iter_expand, strip_type_prefixes
 from ovos_utils.fakebus import FakeBus
 from ovos_utils.log import LOG
 
@@ -1428,6 +1428,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
 
         inline = message.data.get("samples") or []
         if inline:
+            inline = [strip_type_prefixes(s) for s in inline]
             raw_samples: List[str] = list(inline)
             sentences: List[str] = []
             for s in inline:
@@ -1438,8 +1439,10 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                     LOG.warning(f"skipping malformed template {s!r}: {exc} {ctx}")
         else:
             file_name: str = message.data.get("file_name", "")
-            raw_samples = _raw_intent_lines(file_name) if file_name else []
-            sentences = _parse_intent_file(file_name, ctx) if file_name else []
+            raw_samples = ([strip_type_prefixes(s) for s in _raw_intent_lines(file_name)]
+                           if file_name else [])
+            sentences = ([strip_type_prefixes(s) for s in _parse_intent_file(file_name, ctx)]
+                        if file_name else [])
 
         if not sentences:
             # zero valid templates -> the whole registration is malformed
@@ -1448,8 +1451,9 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         reg_lang = message.data.get("lang")
         # fill any ``{slot}`` placeholders (OVOS-INTENT-4 §7 entity hints, also
         # used ad-hoc by some legacy skills) the same way the INTENT-4 template
-        # path does; entities registered so far are the only ones visible --
-        # there is no legacy-wire entity registration to wait on, so this is a
+        # path does. Prototypes are embedded once, at registration time, and
+        # the store keeps no link back to `self.entities` to re-embed from --
+        # entities registered so far are the only ones visible, so this is a
         # one-shot fill just like the INTENT-4 path (neither re-expands on
         # later entity registration).
         sentences = self._expand_entities(sentences)
@@ -1610,6 +1614,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         if not samples:  # missing or empty -> malformed (§6.3)
             self._intent4_warn(topic, message, "samples missing or empty")
             return
+        samples = [strip_type_prefixes(s) for s in samples]
 
         blacklist = message.data.get("blacklist")
         if blacklist:  # §6.1 suppression phrases: drop matches containing these
@@ -1631,6 +1636,11 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             LOG.debug(f"Model2Vec: tracking INTENT-4 template label '{label}'")
             return
 
+        # Entities registered so far are the only ones visible here: the
+        # prototypes built below are embedded once, at registration time,
+        # and the store keeps no link back to `self.entities` to re-embed
+        # from later, so this is a one-shot fill just like the legacy-wire
+        # path (neither re-expands on a later `ovos.entity.register`).
         expanded: List[str] = []
         for s in self._expand_entities(list(samples)):
             if len(expanded) >= MAX_ENTITY_EXPANSIONS:
@@ -1680,10 +1690,14 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             self._context_gates.pop(label, None)
 
         # Parse declared slot names from the ORIGINAL samples, before entity
-        # expansion rewrites the ``{slot}`` placeholders into concrete values.
+        # expansion rewrites the ``{slot}`` placeholders into concrete
+        # values. Type prefixes (OVOS-INTENT-1 §3.4, e.g. ``{number:amount}``)
+        # are stripped first, same as the registration handlers, or
+        # `_SLOT_RE` (which never matches the colon) misses the slot
+        # entirely and OVOS-CONTEXT-1 §7 has nothing to fill.
         slot_names: List[str] = []
         for sample in message.data.get("samples") or []:
-            for slot in _SLOT_RE.findall(sample):
+            for slot in _SLOT_RE.findall(strip_type_prefixes(sample)):
                 if slot not in slot_names:
                     slot_names.append(slot)
         if slot_names:
