@@ -108,14 +108,31 @@ be passed to `train.py --base-model`.
 
 ## Publishing
 
+Both `build_dataset.py` and `train.py` can push their output straight to the
+Hub with `--push-to`, given a token in the `HF_TOKEN` environment variable
+(`huggingface-cli login` also works; either way, never put a token in a
+config file or a command line argument). Every upload is additive — it
+creates or updates the named files in one commit each and never deletes
+anything else already in the target repo.
+
 ```bash
-huggingface-cli login
-python -c "
-from model2vec.inference import StaticModelPipeline
-m = StaticModelPipeline.from_pretrained('train/model_mul_potion-base-32M')
-m.push_to_hub('YourOrg/your-model-name')
-"
+export HF_TOKEN=hf_...
+
+# corpus: train.parquet, train.jsonl, test.parquet, test.jsonl,
+# labels.json and manifest.json
+python train/build_dataset.py --push-to YourOrg/your-dataset-name
+
+# trained pipeline: everything train.py wrote to --out, including an
+# onnx/ subdirectory if one is present, plus a training_manifest.json
+# that records the dataset's own file hashes and the model2vec version
+# training ran with
+python train/train.py --push-to YourOrg/your-model-name
 ```
 
-Upload `labels.json` alongside the weights, then point the `model` key in your
-OVOS configuration at the new repo.
+Add `--dry-run` to either command to print what would be uploaded without
+touching the network — useful for checking a corpus or a model repo id
+before spending a real commit on it. `train.py --dry-run --push-to ...`
+still trains and writes `--out` locally; only the upload is skipped.
+
+Point the `model` key in your OVOS configuration at the new model repo once
+it is published.
