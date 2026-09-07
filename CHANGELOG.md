@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.2a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.9.2a1) (2026-09-07)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.9.1a1...0.9.2a1)
+
+**Merged pull requests:**
+
+- fix: model revision resolution runs inside the load retry path [\#101](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/101) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.9.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.9.1a1) (2026-09-06)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.9.0a1...0.9.1a1)
