@@ -131,8 +131,30 @@ python train/train.py --push-to YourOrg/your-model-name
 
 Add `--dry-run` to either command to print what would be uploaded without
 touching the network — useful for checking a corpus or a model repo id
-before spending a real commit on it. `train.py --dry-run --push-to ...`
-still trains and writes `--out` locally; only the upload is skipped.
+before spending a real commit on it. On `build_dataset.py`, `--dry-run`
+resolves and counts sources but writes nothing; on `train.py`, `--dry-run`
+skips fitting entirely and only prints the training summary, so `--push-to`
+combined with it never uploads or writes a model.
 
 Point the `model` key in your OVOS configuration at the new model repo once
 it is published.
+
+## Capping a skewed label
+
+Alias merges can leave a handful of labels with tens of thousands of rows next
+to labels with a few dozen. `train.py --max-per-label N` downsamples any label
+with more than `N` training rows to `N`, applied after the `--lang`/`--family`
+slice and before fitting; the test split is never touched. Sampling is
+stratified by `lang` within the label — a multilingual label keeps its
+language mix, with each language present getting a proportional share of `N`
+(at least one row per language when `N` allows) — and sorted by row content,
+not row position, before sampling. That means a given `--seed` (default `0`)
+selects the same rows for the same corpus content regardless of what order
+the rows arrive in — the sample is not sensitive to a shuffle or a re-export
+that reorders the parquet file. It does select different rows once the
+corpus content itself changes, e.g. after a rebuild that adds, drops or
+edits rows for that label. `train.py --max-per-label N --dry-run` prints the
+per-label row counts
+before and after the cap, together with the seed, without fitting; the same
+table and seed are written to `label_cap_report.json` next to the model, and
+folded into `metrics.json` when a model is actually trained.

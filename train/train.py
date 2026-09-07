@@ -39,6 +39,75 @@ def load(dataset: Path, lang: str | None, family: list[str] | None):
     return train, test
 
 
+def cap_per_label(train: pd.DataFrame, max_per_label: int, seed: int) -> tuple[pd.DataFrame, dict]:
+    """Downsample every label with more than *max_per_label* rows.
+
+    Sampling is stratified by ``lang`` within the label, so a multilingual
+    label keeps its language mix: each language present gets a proportional
+    share of the cap (largest-remainder rounding), with at least one row per
+    language when the cap allows it. Labels at or below the cap are left
+    untouched. Sampling is deterministic for a given *seed*.
+    """
+    before = train["label"].value_counts().to_dict()
+    parts = []
+    for label, group in train.groupby("label", sort=False):
+        if len(group) <= max_per_label:
+            parts.append(group)
+            continue
+        lang_counts = group["lang"].value_counts().sort_index()
+        alloc = {lang: 0 for lang in lang_counts.index}
+        remaining = max_per_label
+        if max_per_label >= len(lang_counts):
+            for lang in lang_counts.index:
+                alloc[lang] = 1
+            remaining -= len(lang_counts)
+        total = int(lang_counts.sum())
+        raw_share = {lang: remaining * (count / total) for lang, count in lang_counts.items()}
+        for lang, share in raw_share.items():
+            alloc[lang] += int(share)
+        leftover = remaining - sum(int(v) for v in raw_share.values())
+        by_remainder = sorted(raw_share.items(),
+                              key=lambda kv: (-(kv[1] - int(kv[1])), kv[0]))
+        i = 0
+        while leftover > 0 and by_remainder:
+            lang = by_remainder[i % len(by_remainder)][0]
+            alloc[lang] += 1
+            leftover -= 1
+            i += 1
+        # never allocate more than a language actually has
+        for lang in alloc:
+            alloc[lang] = min(alloc[lang], int(lang_counts[lang]))
+        shortfall = min(max_per_label, len(group)) - sum(alloc.values())
+        if shortfall > 0:
+            for lang in lang_counts.index:
+                room = int(lang_counts[lang]) - alloc[lang]
+                take = min(room, shortfall)
+                alloc[lang] += take
+                shortfall -= take
+                if shortfall <= 0:
+                    break
+        # sort by content, not position, so the same corpus samples the same
+        # rows for a given seed no matter what row order it arrives in
+        sampled = [group[group["lang"] == lang]
+                  .sort_values(["utterance", "source"], kind="stable")
+                  .reset_index(drop=True)
+                  .sample(n=k, random_state=seed)
+                  for lang, k in alloc.items() if k > 0]
+        parts.append(pd.concat(sampled))
+    capped = pd.concat(parts).reset_index(drop=True)
+    after = capped["label"].value_counts().to_dict()
+    return capped, {"max_per_label": max_per_label, "seed": seed, "before": before, "after": after}
+
+
+def print_cap_table(report: dict) -> None:
+    print(f"[cap] --max-per-label {report['max_per_label']} --seed {report['seed']}")
+    print(f"{'label':<40} {'before':>8} {'after':>8}")
+    for label in sorted(report["before"]):
+        before = report["before"][label]
+        after = report["after"].get(label, 0)
+        print(f"{label:<40} {before:>8} {after:>8}")
+
+
 def push_model(out: Path, dataset: Path, repo_id: str, dry_run: bool = False) -> None:
     """Upload the trained pipeline at *out* to a Hugging Face model repo.
 
@@ -78,7 +147,7 @@ def push_model(out: Path, dataset: Path, repo_id: str, dry_run: bool = False) ->
     print(f"[push] uploaded {out} -> {repo_id}")
 
 
-def main(argv=None):
+def build_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dataset", default=str(HERE / "dataset"),
@@ -89,30 +158,55 @@ def main(argv=None):
     ap.add_argument("--family", action="append", default=None,
                     help="restrict to a label family (repeatable)")
     ap.add_argument("--max-epochs", type=int, default=25)
+    ap.add_argument("--max-per-label", type=int, default=None,
+                    help="downsample any label with more rows than this to "
+                         "this many, stratified by lang, after the --lang/"
+                         "--family slice and before fitting")
+    ap.add_argument("--seed", type=int, default=0,
+                    help="random seed for --max-per-label sampling")
     ap.add_argument("--out", default=None)
     ap.add_argument("--push-to", default=None,
                     help="Hugging Face model repo id to upload the trained "
                          "pipeline to (e.g. OpenVoiceOS/ovos-m2v-intents-en); "
                          "combine with --dry-run to preview")
     ap.add_argument("--dry-run", action="store_true",
-                    help="with --push-to, print what would be uploaded "
-                         "instead of uploading it; training still runs")
-    args = ap.parse_args(argv)
+                    help="print the training summary (including the "
+                         "--max-per-label table, if given) without fitting "
+                         "or uploading")
+    return ap
+
+
+def main(argv=None):
+    args = build_arg_parser().parse_args(argv)
 
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
-    from model2vec.train import StaticModelForClassification
-    from sklearn.metrics import (accuracy_score, classification_report,
-                                 cohen_kappa_score, f1_score,
-                                 matthews_corrcoef)
 
     dataset = Path(args.dataset)
     train, test = load(dataset, args.lang, args.family)
     tag = args.lang or "mul"
     out = Path(args.out or HERE / f"model_{tag}_{args.base_model.split('/')[-1]}")
 
+    cap_report = None
+    if args.max_per_label is not None:
+        train, cap_report = cap_per_label(train, args.max_per_label, args.seed)
+        print_cap_table(cap_report)
+
     LOG.info(f"{len(train)} train / {len(test)} test rows, "
              f"{train['label'].nunique()} labels, base={args.base_model}")
+
+    if args.dry_run:
+        if cap_report:
+            out.mkdir(parents=True, exist_ok=True)
+            (out / "label_cap_report.json").write_text(
+                json.dumps(cap_report, indent=2), encoding="utf-8")
+        return 0
+
+    from model2vec.train import StaticModelForClassification
+    from sklearn.metrics import (accuracy_score, classification_report,
+                                 cohen_kappa_score, f1_score,
+                                 matthews_corrcoef)
+
     clf = StaticModelForClassification.from_pretrained(model_name=args.base_model)
     clf.fit(train["utterance"].tolist(), train["label"].tolist(),
             max_epochs=args.max_epochs)
@@ -136,6 +230,8 @@ def main(argv=None):
         "cohen_kappa": cohen_kappa_score(y_true, y_pred),
         "mcc": matthews_corrcoef(y_true, y_pred),
     }
+    if cap_report:
+        metrics["label_cap"] = cap_report
     (out / "metrics.json").write_text(
         json.dumps(metrics, indent=2), encoding="utf-8")
     (out / "classification_report.txt").write_text(
