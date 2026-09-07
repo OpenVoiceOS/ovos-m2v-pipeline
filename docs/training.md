@@ -58,8 +58,9 @@ duplicates that were collapsed, the revisions actually used, and the sha256 of
 each output. Two runs from the same pins produce the same shas.
 
 Each row carries `lang`, `label`, `utterance`, `source`, `skill_id` and
-`family`. `source` is the provenance tag — `golden:` rows come from a skill's
-own end-to-end corpus.
+`family`. `source` is the provenance tag: `golden:` rows come from a skill's
+own end-to-end corpus, `skill-intents:` rows from the `.intent` templates that
+skill ships.
 
 `labels.json` is the manifest the pipeline reads beside a model (m2v#73). Ship
 it with the model so the plugin can restrict matching to the label set the
@@ -96,7 +97,18 @@ summary the corpus comes from the ovos-localize classification export and the
 lang-support tracker CSVs, the legacy GitLocalize export, the OCP music query
 templates, the common-query and weather intent corpora, an LLM-augmented
 balancing set, the locale intent files of the OCP, common-query, persona and
-stop pipelines, and the golden end-to-end corpora of the pinned skills.
+stop pipelines, the `locale/<lang>/**/*.intent` templates of the pinned skills
+themselves, and their golden end-to-end corpora.
+
+The skills' own locale trees are what the runtime loads, so they are the only
+source that attests every locale a skill supports; the external exports carry
+only the languages a translation round happened to reach. Both layouts skills
+use are read, a top-level `locale/` and a `<package>/locale/`, at any depth
+beneath the locale directory. Templates expand the same way the pipeline
+plugins' do, and their `{slot}` placeholders are filled from the entity values
+the same pinned revisions attest. These rows are ordinary training data rather
+than golden: a `.intent` line is a template a skill ships, not a sentence
+checked against a live registration.
 
 ## Distilling a new base model
 

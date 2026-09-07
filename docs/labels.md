@@ -57,7 +57,7 @@ and derived from the part before the colon:
 
 | family | label prefix | source of the intents |
 |---|---|---|
-| `skill` | `<skill_id>` | the skill's own locale files and golden corpus |
+| `skill` | `<skill_id>` | the skill's own locale files (`skill-intents:` rows) and golden corpus |
 | `ocp` | `ocp:` | ovos-ocp-pipeline-plugin locale intents, music query templates |
 | `common_query` | `common_query:` | ovos-common-query-pipeline-plugin, the common-query question corpus |
 | `stop` | `stop:` | the stop pipeline's locale intents in ovos-core |

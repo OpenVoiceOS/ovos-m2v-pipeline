@@ -38,6 +38,12 @@ HERE = Path(__file__).resolve().parent
 #: the corpus by an entity's full value count on every matching row.
 TEMPLATE_FILL_CAP = 3
 
+#: Sentences one padatious template line may expand to. A template with
+#: several alternation groups multiplies out combinatorially; past this many
+#: variants the extra sentences are near-duplicates that only reweight the
+#: corpus toward the skill that happens to write the longest templates.
+TEMPLATE_EXPANSION_CAP = 64
+
 # ---------------------------------------------------------------- labels ----
 
 #: Pipeline-plugin families. Everything else is family ``skill``.
@@ -239,7 +245,7 @@ def norm_utterance(text: str) -> str:
 
 # ------------------------------------------------------------ expansion ----
 
-def expand_template(line: str, cap: int = 64):
+def expand_template(line: str, cap: int = TEMPLATE_EXPANSION_CAP):
     """Expand padatious template syntax into concrete sentences.
 
     Handles ``(a|b)`` alternation and ``[optional]`` groups, and replaces
@@ -673,6 +679,55 @@ def read_plugin_intents(src, ws, rows, stats):
                              template_key))
 
 
+#: A locale directory under a skill's `locale/` root: an ISO 639-2/3 subtag,
+#: optionally with a BCP-47 script and/or region subtag.
+_LOCALE_DIR_RE = re.compile(r"[a-z]{2,3}(-[a-z]{4})?(-([a-z]{2}|\d{3}))?$", re.I)
+
+_SKILL_LOCALE_RE = re.compile(r"(?:^|.*/)locale/([^/]+)/(?:.*/)?[^/]+\.intent$")
+
+
+def read_skill_intents(cfg, ws, rows, stats):
+    """Templates from the `.intent` files the pinned skills themselves ship.
+
+    The external corpora are translations of a snapshot; a skill's own
+    `locale/<lang>/` tree is what the runtime loads, so it is the only source
+    that attests every locale a skill actually supports. Both layouts skills
+    use are read -- a top-level `locale/` and a `<package>/locale/` -- at any
+    depth beneath the locale directory, and the locale name is normalised
+    through :func:`norm_lang`, so a tree carrying `kab-DZ` merges with one
+    carrying `kab` instead of training as a second language.
+
+    Templates expand exactly as the pipeline plugins' do; `{slot}` fills come
+    later, from the entity values the same pinned refs attest.
+    """
+    for repo_name, rev in sorted(cfg["skill_refs"]["refs"].items()):
+        repo = ws / repo_name
+        assert_rev(repo, rev, f"skill:{repo_name}")
+        skill_id = skill_id_from_repo(repo, rev)
+        source = f"skill-intents:{repo_name.rsplit('/', 1)[-1]}"
+        for name in sorted(git_ls_all(repo, rev)):
+            if name.split("/")[0] in {"test", "tests"}:
+                continue
+            m = _SKILL_LOCALE_RE.match(name)
+            if not m:
+                continue
+            if not _LOCALE_DIR_RE.fullmatch(m.group(1)):
+                stats["skill_intents_bad_locale"] += 1
+                print(f"WARNING [skill-intents] {repo_name}: {name!r} is not "
+                      f"under a locale directory; skipped", file=sys.stderr)
+                continue
+            lang = norm_lang(m.group(1))
+            label = make_label(skill_id, Path(name).stem)
+            for line in git_show(repo, rev, name).splitlines():
+                sents = expand_template(line)
+                if len(sents) >= TEMPLATE_EXPANSION_CAP:
+                    stats["skill_intents_capped_templates"] += 1
+                template_key = f"{repo_name}/{name}:{line.strip()}"
+                for sent in sents:
+                    rows.append((lang, label, norm_utterance(sent), source,
+                                 template_key))
+
+
 def read_hf(src, rows, stats):
     from huggingface_hub import hf_hub_download
     path = hf_hub_download(src["repo_id"], src["file"], repo_type="dataset",
@@ -870,6 +925,9 @@ def main(argv=None):
         read_hf(src, rows, stats)
         per_source_raw[src["id"]] = len(rows) - before
     before = len(rows)
+    read_skill_intents(cfg, ws, rows, stats)
+    per_source_raw["skill-intents"] = len(rows) - before
+    before = len(rows)
     read_golden(cfg, ws, rows, stats)
     per_source_raw["golden"] = len(rows) - before
 
@@ -1037,6 +1095,7 @@ def main(argv=None):
         "dropped_unfilled_slot": n_unfilled_slot,
         "dropped_filters": n_filtered,
         "dropped_localize_voc": int(stats["dropped_voc"]),
+        "skill_intent_templates_capped": int(stats["skill_intents_capped_templates"]),
         "dropped_exact_duplicates": int(n_dedup),
         "dropped_unresolved_labels": n_unresolved,
         "dropped_rare_labels": {"labels": len(rare), "examples": rare[:40]},

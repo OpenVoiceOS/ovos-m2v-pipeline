@@ -126,4 +126,6 @@ def test_pre_rename_corpus_rows_resolve_to_the_registered_intent(tmp_path):
     counts = df["label"].value_counts().to_dict()
     for _repo, corpus_id, old, skill_id, new in RENAMES:
         assert f"{corpus_id}:{old}" not in counts
-        assert counts[f"{skill_id}:{new}"] == 2, counts
+        # the two aliased corpus rows, plus the one line the skill's own
+        # `locale/en-US/<new>.intent` fixture ships
+        assert counts[f"{skill_id}:{new}"] == 3, counts
