@@ -152,6 +152,84 @@ class TestConcurrentFirstLoad(unittest.TestCase):
         self.assertIs(pipeline.model, mock_model)
 
 
+class TestSuccessPathClearsThreadAndModelAtomically(unittest.TestCase):
+    """``_ensure_model`` checks ``self.model is not None`` before it ever
+    looks at ``_model_load_thread``, so a successful ``_load_model_now``
+    must make both visible under the same lock acquisition. If the thread
+    handle were cleared in a separate locked block from the ``self.model``
+    assignment, a concurrent caller landing in the gap between the two
+    would see "no thread in flight, no model loaded" and spawn a second
+    loader for a load that already succeeded."""
+
+    def test_concurrent_caller_never_sees_thread_cleared_before_model_set(self):
+        from ovos_m2v_pipeline import Model2VecIntentPipeline
+
+        mock_model = MagicMock()
+        load_calls = []
+
+        def fake_from_pretrained(path):
+            load_calls.append(path)
+            return mock_model
+
+        class WideningRLock:
+            """Real lock, but on the specific release that would clear
+            ``_model_load_thread`` while ``self.model`` is still ``None``,
+            pauses just long enough for a second caller to observe that
+            window if the two updates are not made atomically."""
+
+            def __init__(self, pipeline):
+                self._native = threading.RLock()
+                self._pipeline = pipeline
+                self._widened = False
+
+            def acquire(self, *a, **k):
+                return self._native.acquire(*a, **k)
+
+            def release(self):
+                if (not self._widened
+                        and self._pipeline._model_load_thread is None
+                        and self._pipeline.model is None):
+                    self._widened = True
+                    self._native.release()
+                    time.sleep(0.2)
+                    return
+                self._native.release()
+
+            def __enter__(self):
+                self.acquire()
+                return self
+
+            def __exit__(self, *a):
+                self.release()
+
+        with patch("ovos_m2v_pipeline.StaticModelPipeline") as MockSMP, \
+             patch("ovos_m2v_pipeline.Configuration", return_value={}):
+            MockSMP.from_pretrained.side_effect = fake_from_pretrained
+            pipeline = Model2VecIntentPipeline(
+                bus=FakeBus(), config={"model": "fake-model"})
+            pipeline._model_lock = WideningRLock(pipeline)
+
+            results = []
+
+            def caller():
+                results.append(pipeline._ensure_model(background_ok=False))
+
+            t1 = threading.Thread(target=caller)
+            t1.start()
+            # give t1 time to enter _load_model_now and reach the point
+            # where the fake load has "completed" and is about to make it
+            # visible
+            time.sleep(0.05)
+            t2 = threading.Thread(target=caller)
+            t2.start()
+            t1.join(timeout=5)
+            t2.join(timeout=5)
+
+        self.assertTrue(all(results))
+        self.assertEqual(len(load_calls), 1)
+        self.assertIs(pipeline.model, mock_model)
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -212,3 +290,43 @@ class TestLoadRetryBackoff(unittest.TestCase):
             # further calls reuse the now-loaded model, no more loader calls
             self.assertTrue(pipeline._ensure_model(background_ok=False))
             self.assertEqual(from_pretrained.call_count, 3)
+
+
+class TestRevisionResolutionFailure(unittest.TestCase):
+    """Resolving a pinned ``revision`` is a network round trip performed
+    before ``from_pretrained`` is even called; a bad revision or a
+    transient hub failure there must be treated like any other load
+    failure (logged, counted, backed off, retried) rather than escaping
+    the loader thread and leaving it permanently dead."""
+
+    def test_resolution_failure_is_logged_and_retried(self):
+        from ovos_m2v_pipeline import Model2VecIntentPipeline
+
+        mock_model = MagicMock()
+        resolve = MagicMock(
+            side_effect=[RuntimeError("bad revision"), "fake-model"])
+
+        with patch("ovos_m2v_pipeline.StaticModelPipeline") as MockSMP, \
+             patch("ovos_m2v_pipeline.Configuration", return_value={}), \
+             patch.object(Model2VecIntentPipeline, "_resolve_model_revision", resolve), \
+             patch("ovos_m2v_pipeline.LOG") as mock_log:
+            MockSMP.from_pretrained.return_value = mock_model
+            pipeline = Model2VecIntentPipeline(
+                bus=FakeBus(),
+                config={"model": "fake-model", "revision": "does-not-exist"})
+
+            self.assertFalse(pipeline._ensure_model(background_ok=False))
+            mock_log.exception.assert_called_once()
+
+            self.assertIsNone(pipeline.model)
+            self.assertIsNone(pipeline._model_load_thread)
+            self.assertEqual(pipeline._model_load_failures, 1)
+            self.assertIsNotNone(pipeline._model_load_retry_at)
+
+            # cause cleared and backoff elapsed: a later `_ensure_model` call
+            # must spawn a fresh attempt (proving the thread reference was
+            # actually cleared) and that attempt must load the model.
+            pipeline._model_load_retry_at = None
+            self.assertTrue(pipeline._ensure_model(background_ok=False))
+            self.assertIs(pipeline.model, mock_model)
+            self.assertEqual(resolve.call_count, 2)

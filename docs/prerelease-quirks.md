@@ -3,6 +3,12 @@
 Behavior changes since the last stable release, newest first. This file is
 reset at each stable release.
 
+## 0.9.1a1
+
+In 0.9.1a1, when the `revision` config key is set, a failure to download the pinned snapshot (an unknown revision, or the Hub unreachable) escapes the deferred model loader before its retry path. The loader thread handle is never released, the failure counter stays at zero and no retry is armed, so every later load attempt reports the model as unavailable and intent matching stays dead until the process restarts. No log line reports the cause.
+
+Fixed in 0.9.2a1: the snapshot resolution runs inside the loader's retry path, so the failure is logged, the backoff is armed and a later attempt loads the model once the cause clears. Deployments on 0.9.1a1 that set `revision` should upgrade; leaving `revision` unset avoids the path.
+
 ## 0.8.2a2
 
 - The default model changed from the deprecated

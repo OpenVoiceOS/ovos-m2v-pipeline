@@ -903,13 +903,30 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         cause (e.g. a network blip) clears.
         """
         start = time.monotonic()
-        model_path = self._resolve_model_revision(self._model_path)
         try:
+            # Resolving the revision does its own network round trip; a bad
+            # revision or a transient hub failure must hit the same
+            # failure-accounting path as a `from_pretrained` failure below.
+            model_path = self._resolve_model_revision(self._model_path)
             if self._mode == "prototype":
                 from model2vec import StaticModel
                 model = StaticModel.from_pretrained(model_path)
             else:
                 model = StaticModelPipeline.from_pretrained(model_path)
+            # `_ensure_model` checks `self.model is not None` before it
+            # ever looks at `_model_load_thread`, so the thread handle
+            # must not be cleared until `self.model` is visible under the
+            # same lock acquisition -- otherwise a concurrent caller can
+            # land in the gap between the two and observe "no thread in
+            # flight, no model loaded", spawning a second loader for the
+            # load that just succeeded.
+            with self._model_lock:
+                self.model = model
+                self._model_load_failures = 0
+                self._model_load_retry_at = None
+                self._model_load_thread = None
+                if self.prototype_store is not None:
+                    self._flush_pending_additions()
         except Exception:
             with self._model_lock:
                 self._model_load_failures += 1
@@ -918,18 +935,19 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                     _MODEL_LOAD_RETRY_CAP_S,
                 )
                 self._model_load_retry_at = time.monotonic() + backoff
-                self._model_load_thread = None
                 self._warmup_logged = False
             LOG.exception(f"failed to load deferred Model2Vec model "
                           f"'{self._model_path}' (attempt {self._model_load_failures}); "
                           f"retrying in {backoff:.0f}s")
             return
-        with self._model_lock:
-            self.model = model
-            self._model_load_failures = 0
-            self._model_load_retry_at = None
-            if self.prototype_store is not None:
-                self._flush_pending_additions()
+        finally:
+            # Safety net for a `BaseException` that skips the `except`
+            # above: `self._model_load_thread` must never survive this
+            # call. On the success path it is already `None` by the time
+            # this runs (cleared above in the same locked block as the
+            # `self.model` assignment), so this is a no-op there.
+            with self._model_lock:
+                self._model_load_thread = None
         LOG.info(f"Model2Vec model '{self._model_path}' loaded in "
                  f"{time.monotonic() - start:.2f}s (deferred load)")
 
