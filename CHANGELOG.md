@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.10.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.10.0a1) (2026-09-07)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.9.7a1...0.10.0a1)
+
+**Merged pull requests:**
+
+- feat: export and load prebuilt prototype centroids [\#105](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/105) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.9.7a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.9.7a1) (2026-09-07)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.9.6a1...0.9.7a1)
