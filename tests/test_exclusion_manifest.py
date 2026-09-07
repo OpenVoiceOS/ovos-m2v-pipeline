@@ -5,6 +5,7 @@ language is a worklist item (add an `.entity` file, or rework the
 template) instead of an unexplained hole in the record.
 """
 import json
+import re
 import os
 import subprocess
 import sys
@@ -32,6 +33,9 @@ def git_repo(path: Path, files: dict) -> str:
                           check=True, capture_output=True, text=True).stdout.strip()
 
 
+# fr-FR fixture row naming two distinct unfillable slots
+FR_ROUTE_TEMPLATE = "trajet de {origin} vers {dest}"
+
 @pytest.fixture
 def built(tmp_path):
     pytest.importorskip("pandas")
@@ -48,6 +52,9 @@ def built(tmp_path):
         "pkg/locale/en-US/location.entity": "paris\nlondon\n",
         "pkg/locale/de-DE/search.intent":
             "suche nach {query}\nfinde {query}\n",
+        # fr-FR: one row names two distinct unfillable slots -- it must be
+        # attributed to exactly one reason bucket, not counted once per slot.
+        "pkg/locale/fr-FR/route.intent": FR_ROUTE_TEMPLATE + "\n",
     })
 
     cfg = {
@@ -117,3 +124,39 @@ def test_exclusions_json_records_the_absent_language(built):
     en = excl["languages"]["en-US"]
     assert en["rows_kept"] > 0
     assert en["rows_dropped_unfilled_slot"] == 0
+
+
+def test_exclusion_manifest_arithmetic_closes_for_every_language(built):
+    """`{location}` has two registered values, so en-US's two raw template
+    rows explode into four filled rows -- more rows kept than raw rows
+    before the fill. `rows_before` must be counted at the same
+    (post-explode) granularity as `rows_kept`, or `rows_dropped` goes
+    negative here, which is worse than not reporting a count at all.
+    """
+    excl = json.loads((built / "exclusions.json").read_text())
+    for lang, e in excl["languages"].items():
+        assert e["rows_before"] == e["rows_kept"] + e["rows_dropped"], lang
+        assert e["rows_dropped"] >= 0, lang
+        assert (sum(r["rows"] for r in e["unfilled_slot_reasons"])
+                == e["rows_dropped_unfilled_slot"]), lang
+
+    en = excl["languages"]["en-US"]
+    assert en["rows_before"] == 4
+    assert en["rows_kept"] == 4
+    assert en["rows_dropped"] == 0
+
+
+def test_two_slot_row_attributed_once_not_per_slot(built):
+    """One dropped row naming both `{origin}` and `{dest}` must count once
+    towards `rows_dropped_unfilled_slot`, and its reasons must sum to that
+    same one, not two.
+    """
+    excl = json.loads((built / "exclusions.json").read_text())
+    fr = excl["languages"]["fr-FR"]
+    assert fr["rows_dropped_unfilled_slot"] == 1
+    assert sum(r["rows"] for r in fr["unfilled_slot_reasons"]) == 1
+    assert len(fr["unfilled_slot_reasons"]) == 1
+    # the one bucket names BOTH slots: fixing only `dest` would drop the
+    # same row again on `origin`, and the manifest must say so up front
+    fixture_slots = sorted(re.findall(r"\{(\w+)\}", FR_ROUTE_TEMPLATE))
+    assert fr["unfilled_slot_reasons"][0]["slot"] == "+".join(fixture_slots)

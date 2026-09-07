@@ -812,11 +812,6 @@ def main(argv=None):
     df = df[~df["skill_id"].isin(cfg["skill_blacklist"])]
     df = df[~df["intent"].isin(cfg["intent_blacklist"])]
 
-    # Row count per language before any exclusion, for exclusions.json: a
-    # language that ends at zero rows must stay on the record, not vanish
-    # as if nobody had ever added it.
-    rows_before_by_lang = df["lang"].value_counts().to_dict()
-
     # ---- fill {slot} placeholders the same way the runtime prototype
     # pipeline does (ovos_m2v_pipeline.slots.expand_entities), from entity
     # values attested by the pinned refs' `.entity` files. A row whose slot
@@ -844,11 +839,27 @@ def main(argv=None):
 
     df = df.assign(utterance=df["utterance"].map(_fill))
     df = df.explode("utterance", ignore_index=False)
+
+    # Row count per language before any exclusion, for exclusions.json: a
+    # language that ends at zero rows must stay on the record, not vanish
+    # as if nobody had ever added it. Counted here, after the template-fill
+    # explode, so it is at the same row granularity as everything it is
+    # later compared against (`rows_kept` etc.) -- one raw templated row can
+    # explode into many filled rows, and counting "before" pre-explode made
+    # `rows_dropped` go negative for template-heavy languages.
+    rows_before_by_lang = df["lang"].value_counts().to_dict()
+
     still_literal = df["utterance"].str.contains("{", regex=False, na=False)
     n_unfilled_slot = int(still_literal.sum())
 
     # Named per (lang, skill_id, slot): exactly which entity was missing,
     # for every row this drops -- exclusions.json's per-language reason.
+    # Each dropped row is attributed to exactly one (skill_id, slot) pair
+    # (its first slot name in sorted order) so the per-group counts sum to
+    # `rows_dropped_unfilled_slot` instead of over-counting rows that carry
+    # more than one distinct slot placeholder: the row lands in one bucket
+    # whose `slot` names every unfilled slot, joined by "+", so the
+    # worklist a maintainer reads from the manifest is complete.
     unfilled_reasons = collections.Counter()
     unfilled_rows_by_lang = collections.Counter()
     for lang, label, utt in zip(df.loc[still_literal, "lang"],
@@ -856,8 +867,15 @@ def main(argv=None):
                                 df.loc[still_literal, "utterance"]):
         unfilled_rows_by_lang[lang] += 1
         skill_id = label.split(":", 1)[0]
-        for slot in set(_SLOT_NAME_RE.findall(utt)):
-            unfilled_reasons[(lang, skill_id, slot)] += 1
+        slots = sorted(set(_SLOT_NAME_RE.findall(utt)))
+        if not slots:
+            # `{...}` present but its content is not a valid slot
+            # identifier (e.g. a hyphen, a leading digit, non-ASCII
+            # letters) -- still name the row's own bracket, so every
+            # dropped row lands in exactly one reason bucket and the
+            # per-language sum keeps matching `rows_dropped_unfilled_slot`.
+            slots = sorted(set(m.strip("{}") for m in _SLOT_RE.findall(utt))) or ["<unnamed>"]
+        unfilled_reasons[(lang, skill_id, "+".join(slots))] += 1
 
     df = df[~still_literal]
 
