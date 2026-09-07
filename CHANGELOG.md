@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.10.0a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.10.0a2) (2026-09-07)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.10.0a1...0.10.0a2)
+
+**Merged pull requests:**
+
+- ci: allow prerelease ovoscope in live\_tests [\#115](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/115) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.10.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.10.0a1) (2026-09-07)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.9.7a1...0.10.0a1)
