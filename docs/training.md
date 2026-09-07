@@ -100,6 +100,36 @@ templates, the common-query and weather intent corpora, an LLM-augmented
 balancing set, the locale intent files of the OCP, common-query, persona and
 stop pipelines, and the golden end-to-end corpora of the pinned skills.
 
+## Semantic evaluation set
+
+The train/test split is by template, so both halves are expansions of the same
+`.intent` lines. A score on the test half therefore says how well the model
+memorised those lines, not whether it understands the intent behind them. The
+semantic evaluation set answers the second question.
+
+`train/eval/en-US.jsonl` holds ten or more utterances per label, written from
+each skill's own intent definition rather than expanded from it. Each row
+carries `lang`, `label`, `utterance`, `kind` and a short `note` saying what the
+row tests. Registers vary on purpose: terse, polite, indirect, with filler, and
+with realistic slot values where the intent takes a slot. Rows marked
+`near-miss` read like a sibling intent but carry the label that is actually
+correct, which is where a classifier trained on templates fails first — a
+temperature question that must land on `temperature` rather than `weather`.
+Every line is machine-written and is meant to be replaced by a better human one.
+
+`train/validate_eval.py` is the gate. It fails when an evaluation utterance
+also appears in the corpus, when a label is missing or unknown, when a label
+carries fewer than eight rows, or when an utterance is repeated:
+
+```bash
+python train/validate_eval.py --corpus /path/to/built/corpus
+```
+
+To add a language, write `train/eval/<lang>.jsonl` in the same shape, one entry
+per label in that language's own idiom — a translation of the English lines
+inherits English phrasing and tests less than it appears to — then run the
+validator against a corpus built for that language.
+
 ## Distilling a new base model
 
 If you want to start from a Sentence Transformer with no Model2Vec distillate
