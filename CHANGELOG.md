@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.12.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.12.0a1) (2026-09-07)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.11.3a2...0.12.0a1)
+
+**Merged pull requests:**
+
+- feat\(train\): deterministic per-label cap stratified by language [\#127](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/127) ([JarbasAl](https://github.com/JarbasAl))
+
+## [0.11.3a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.11.3a2) (2026-09-07)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.11.3a1...0.11.3a2)
+
 ## [0.11.3a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.11.3a1) (2026-09-07)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.11.2a1...0.11.3a1)
@@ -317,7 +329,6 @@
 **Merged pull requests:**
 
 - chore\(deps\): update actions/checkout action to v6 [\#26](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/26) ([renovate[bot]](https://github.com/apps/renovate))
-- Add optional probability renormalization to intent matching [\#8](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/8) ([femelo](https://github.com/femelo))
 
 ## [0.0.9a3](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.9a3) (2026-03-03)
 
@@ -390,10 +401,6 @@
 ## [0.0.6](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.6) (2025-06-08)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.6a1...0.0.6)
-
-**Merged pull requests:**
-
-- Release 0.0.6a1 [\#7](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/7) ([github-actions[bot]](https://github.com/apps/github-actions))
 
 ## [0.0.6a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.6a1) (2025-06-08)
 
