@@ -34,7 +34,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip uv
           uv pip install --system -e .
-          uv pip install --system pytest pytest-timeout ovoscope
+          uv pip install --system --prerelease=allow pytest pytest-timeout ovoscope
       - name: Cache HuggingFace models
         uses: actions/cache@v4
         with:
