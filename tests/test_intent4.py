@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 from ovos_bus_client.message import Message
 from ovos_spec_tools import SpecMessage
+from ovos_spec_tools.context import context_slot_candidates
 
 
 def _make_prototype_pipeline(config=None):
@@ -798,6 +799,115 @@ class TestPadatiousLegacyEntityExpansion(unittest.TestCase):
         self.assertNotEqual(key_en_no_entity, key_en_with_entity)
         # lang changed, entity values fixed
         self.assertNotEqual(key_en_with_entity, key_pt_with_entity)
+
+
+class TestTypedSlotPrefixAndExpansionOrder(unittest.TestCase):
+    """OVOS-INTENT-1 §3.4 lets a slot placeholder carry a type prefix
+    (``{type:name}``); §4.1 requires an engine that does not implement
+    typed slots to treat it exactly like the untyped ``{name}`` form. m2v
+    is such an engine. ``iter_expand`` already normalizes a typed
+    placeholder for the encoded text, so the load-bearing effect of
+    stripping the prefix on the raw samples is ``entity_values`` (and
+    through it the prototype cache key): computed from the RAW, unexpanded
+    samples via a slot regex that never matches the colon, so a typed
+    placeholder's referenced entity is invisible to both without the
+    strip."""
+
+    def _cache_key_entity_values(self, p):
+        captured = {}
+        orig = p._prototype_cache_key
+        def spy(raw_samples, entity_values, lang=None):
+            captured["entity_values"] = entity_values
+            return orig(raw_samples, entity_values, lang=lang)
+        p._prototype_cache_key = spy
+        return captured
+
+    def test_typed_slot_entity_values_on_intent4_wire(self):
+        p = _make_prototype_pipeline({"prototype_cache": False})
+        p._handle_intent4_register_entity(Message(
+            SpecMessage.ENTITY_REGISTER.value,
+            data={"skill_id": "alarm.skill", "entity_name": "amount",
+                  "lang": "en-US", "samples": ["5", "10"]}))
+        captured = self._cache_key_entity_values(p)
+
+        p._handle_intent4_register_template(Message(
+            SpecMessage.INTENT_REGISTER_TEMPLATE.value,
+            data={"skill_id": "alarm.skill", "intent_name": "set_timer",
+                  "lang": "en-US",
+                  "samples": ["set a timer for {number:amount} minutes"]},
+            context={"skill_id": "alarm.skill"}))
+
+        self.assertIn("alarm.skill:set_timer", p.intents)
+        self.assertEqual({k: sorted(v) for k, v in captured["entity_values"].items()},
+                         {"amount": ["10", "5"]})
+
+    def test_typed_slot_entity_values_on_legacy_wire(self):
+        p = _make_prototype_pipeline({"prototype_cache": False})
+        p._handle_intent4_register_entity(Message(
+            SpecMessage.ENTITY_REGISTER.value,
+            data={"skill_id": "alarm.skill", "entity_name": "amount",
+                  "lang": "en-US", "samples": ["5", "10"]}))
+        captured = self._cache_key_entity_values(p)
+
+        p._handle_register_padatious(Message(
+            "padatious:register_intent",
+            data={"name": "alarm.skill:set_timer", "lang": "en-US",
+                  "samples": ["set a timer for {number:amount} minutes"]},
+            context={"skill_id": "alarm.skill"}))
+
+        self.assertIn("alarm.skill:set_timer", p.intents)
+        self.assertEqual({k: sorted(v) for k, v in captured["entity_values"].items()},
+                         {"amount": ["10", "5"]})
+
+
+class TestTypedSlotContextFill(unittest.TestCase):
+    """OVOS-CONTEXT-1 §7: a typed placeholder (``{number:amount}``) must be
+    declared under its bare name, same as an untyped ``{amount}``, or the
+    slot can never be filled from live context on either wire."""
+
+    def test_intent_slots_declared_on_intent4_wire(self):
+        p = _make_prototype_pipeline({"prototype_cache": False})
+        p._handle_intent4_register_template(Message(
+            SpecMessage.INTENT_REGISTER_TEMPLATE.value,
+            data={"skill_id": "alarm.skill", "intent_name": "set_timer",
+                  "lang": "en-US",
+                  "samples": ["set a timer for {number:amount} minutes"]},
+            context={"skill_id": "alarm.skill"}))
+        self.assertEqual(p._intent_slots.get("alarm.skill:set_timer"), ["amount"])
+
+    def test_intent_slots_declared_on_legacy_wire(self):
+        p = _make_prototype_pipeline({"prototype_cache": False})
+        p._handle_register_padatious(Message(
+            "padatious:register_intent",
+            data={"name": "alarm.skill:set_timer", "lang": "en-US",
+                  "samples": ["set a timer for {number:amount} minutes"]},
+            context={"skill_id": "alarm.skill"}))
+        self.assertEqual(p._intent_slots.get("alarm.skill:set_timer"), ["amount"])
+
+    def test_context_slot_candidates_on_intent4_wire(self):
+        p = _make_prototype_pipeline({"prototype_cache": False})
+        p._handle_intent4_register_template(Message(
+            SpecMessage.INTENT_REGISTER_TEMPLATE.value,
+            data={"skill_id": "alarm.skill", "intent_name": "set_timer",
+                  "lang": "en-US",
+                  "samples": ["set a timer for {number:amount} minutes"]},
+            context={"skill_id": "alarm.skill"}))
+        slot_names = p._intent_slots.get("alarm.skill:set_timer")
+        slots = context_slot_candidates({"amount": {"value": "5"}}, slot_names,
+                                        owner_id="alarm.skill")
+        self.assertEqual(slots.get("amount"), "5")
+
+    def test_context_slot_candidates_on_legacy_wire(self):
+        p = _make_prototype_pipeline({"prototype_cache": False})
+        p._handle_register_padatious(Message(
+            "padatious:register_intent",
+            data={"name": "alarm.skill:set_timer", "lang": "en-US",
+                  "samples": ["set a timer for {number:amount} minutes"]},
+            context={"skill_id": "alarm.skill"}))
+        slot_names = p._intent_slots.get("alarm.skill:set_timer")
+        slots = context_slot_candidates({"amount": {"value": "5"}}, slot_names,
+                                        owner_id="alarm.skill")
+        self.assertEqual(slots.get("amount"), "5")
 
 
 if __name__ == "__main__":
