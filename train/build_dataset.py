@@ -124,6 +124,9 @@ def norm_lang(lang: str) -> str:
     return lang.lower()
 _SLOT_RE = re.compile(r"\{[^}]*\}")
 _ALPHA_RE = re.compile(r"[^\W\d_]", re.UNICODE)
+#: Named slot, e.g. the `query` in `{query}` -- used to name the exact
+#: entity an unfilled row was missing, for `exclusions.json`.
+_SLOT_NAME_RE = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
 
 
 def norm_intent(name: str) -> str:
@@ -771,6 +774,11 @@ def main(argv=None):
     df = df[~df["skill_id"].isin(cfg["skill_blacklist"])]
     df = df[~df["intent"].isin(cfg["intent_blacklist"])]
 
+    # Row count per language before any exclusion, for exclusions.json: a
+    # language that ends at zero rows must stay on the record, not vanish
+    # as if nobody had ever added it.
+    rows_before_by_lang = df["lang"].value_counts().to_dict()
+
     # ---- fill {slot} placeholders the same way the runtime prototype
     # pipeline does (ovos_m2v_pipeline.slots.expand_entities), from entity
     # values attested by the pinned refs' `.entity` files. A row whose slot
@@ -800,6 +808,19 @@ def main(argv=None):
     df = df.explode("utterance", ignore_index=False)
     still_literal = df["utterance"].str.contains("{", regex=False, na=False)
     n_unfilled_slot = int(still_literal.sum())
+
+    # Named per (lang, skill_id, slot): exactly which entity was missing,
+    # for every row this drops -- exclusions.json's per-language reason.
+    unfilled_reasons = collections.Counter()
+    unfilled_rows_by_lang = collections.Counter()
+    for lang, label, utt in zip(df.loc[still_literal, "lang"],
+                                df.loc[still_literal, "label"],
+                                df.loc[still_literal, "utterance"]):
+        unfilled_rows_by_lang[lang] += 1
+        skill_id = label.split(":", 1)[0]
+        for slot in set(_SLOT_NAME_RE.findall(utt)):
+            unfilled_reasons[(lang, skill_id, slot)] += 1
+
     df = df[~still_literal]
 
     # ---- content filters
@@ -899,6 +920,35 @@ def main(argv=None):
             f"[slots] {len(leftover)} row(s) still contain a literal '{{' "
             f"after entity-fill; this is a bug, e.g. {leftover['utterance'].iloc[0]!r}")
 
+    # ---- exclusions.json: a language that ends at zero rows is
+    # indistinguishable from one nobody ever added it unless the drop is
+    # named. Every language that had at least one row before the
+    # unfilled-slot exclusion gets its own entry -- before/kept/dropped
+    # counts, plus the exact (skill id, slot) that caused each unfilled
+    # drop -- even when it ends at zero and disappears from every other
+    # report field.
+    rows_after_by_lang = df["lang"].value_counts().to_dict()
+    exclusions_by_lang = {}
+    for lang, before in sorted(rows_before_by_lang.items()):
+        kept = int(rows_after_by_lang.get(lang, 0))
+        reasons = sorted(
+            ({"skill_id": skill_id, "slot": slot, "rows": n}
+             for (l, skill_id, slot), n in unfilled_reasons.items() if l == lang),
+            key=lambda r: (-r["rows"], r["skill_id"], r["slot"]))
+        exclusions_by_lang[lang] = {
+            "rows_before": int(before),
+            "rows_kept": kept,
+            "rows_dropped": int(before) - kept,
+            "rows_dropped_unfilled_slot": int(unfilled_rows_by_lang.get(lang, 0)),
+            "unfilled_slot_reasons": reasons,
+        }
+    languages_absent_from_output = sorted(
+        lang for lang, excl in exclusions_by_lang.items() if excl["rows_kept"] == 0)
+    exclusions = {
+        "languages": exclusions_by_lang,
+        "languages_absent_from_output": languages_absent_from_output,
+    }
+
     report = {
         "rows_raw": n_raw,
         "rows_final": len(df),
@@ -938,6 +988,7 @@ def main(argv=None):
         "ambiguous_residual_groups": residual,
         "ambiguous_label_pairs": ambiguous_pairs,
         "split": cfg["split"],
+        "exclusions": exclusions,
     }
 
     if args.dry_run:
@@ -973,6 +1024,10 @@ def main(argv=None):
                        "families": {lbl: family_of(lbl) for lbl in labels}}
     p = out / "labels.json"
     p.write_text(json.dumps(manifest_labels, indent=2, ensure_ascii=False), encoding="utf-8")
+    written[p.name] = sha256_file(p)
+
+    p = out / "exclusions.json"
+    p.write_text(json.dumps(exclusions, indent=2, ensure_ascii=False), encoding="utf-8")
     written[p.name] = sha256_file(p)
 
     report["outputs"] = written
