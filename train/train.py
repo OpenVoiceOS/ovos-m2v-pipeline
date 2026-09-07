@@ -12,6 +12,7 @@ Training is on hold until the Adapt-to-`.intent` refactors merge; see
 import argparse
 import json
 import logging
+import os
 import shutil
 from pathlib import Path
 
@@ -38,6 +39,45 @@ def load(dataset: Path, lang: str | None, family: list[str] | None):
     return train, test
 
 
+def push_model(out: Path, dataset: Path, repo_id: str, dry_run: bool = False) -> None:
+    """Upload the trained pipeline at *out* to a Hugging Face model repo.
+
+    Uploads the whole *out* tree (`skops`/safetensors/config.json at the
+    root, `onnx/` alongside if present -- the layout the published
+    `OpenVoiceOS/ovos-m2v-intents-*` repos already use) plus a
+    `training_manifest.json` recording the dataset's own per-file sha256
+    (read back from `dataset/manifest.json`, written by `build_dataset.py`)
+    and the `model2vec` version training ran with, so a published model
+    always names the exact corpus and library version that produced it.
+    `upload_folder` creates or updates files in one commit and never
+    deletes anything else already in the repo. The token comes from the
+    `HF_TOKEN` environment variable, never hardcoded.
+    """
+    import model2vec
+
+    dataset_manifest = json.loads((dataset / "manifest.json").read_text(encoding="utf-8"))
+    training_manifest = {
+        "dataset_shas": dataset_manifest.get("outputs", {}),
+        "model2vec_version": model2vec.__version__,
+    }
+    (out / "training_manifest.json").write_text(
+        json.dumps(training_manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    if dry_run:
+        print(f"[push] would upload {out} -> model repo {repo_id!r} (dry run):")
+        for p in sorted(out.rglob("*")):
+            if p.is_file():
+                print(f"  {p.relative_to(out)} ({p.stat().st_size} bytes)")
+        return
+
+    from huggingface_hub import HfApi
+    api = HfApi(token=os.environ.get("HF_TOKEN"))
+    api.create_repo(repo_id, repo_type="model", exist_ok=True)
+    api.upload_folder(folder_path=str(out), repo_id=repo_id, repo_type="model",
+                      commit_message=f"train: {out.name}")
+    print(f"[push] uploaded {out} -> {repo_id}")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -50,6 +90,13 @@ def main(argv=None):
                     help="restrict to a label family (repeatable)")
     ap.add_argument("--max-epochs", type=int, default=25)
     ap.add_argument("--out", default=None)
+    ap.add_argument("--push-to", default=None,
+                    help="Hugging Face model repo id to upload the trained "
+                         "pipeline to (e.g. OpenVoiceOS/ovos-m2v-intents-en); "
+                         "combine with --dry-run to preview")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="with --push-to, print what would be uploaded "
+                         "instead of uploading it; training still runs")
     args = ap.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO,
@@ -102,6 +149,8 @@ def main(argv=None):
         (out / "metrics.json").write_text(
             json.dumps(metrics, indent=2), encoding="utf-8")
     print(json.dumps(metrics, indent=2))
+    if args.push_to:
+        push_model(out, dataset, args.push_to, dry_run=args.dry_run)
     return 0
 
 

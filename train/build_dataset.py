@@ -584,6 +584,41 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+#: Files a dataset build writes to `--out`; the exact set `push_dataset`
+#: uploads to the Hub, additively, one commit per file.
+DATASET_FILES = ("train.parquet", "train.jsonl", "test.parquet", "test.jsonl",
+                 "labels.json", "manifest.json")
+
+
+def push_dataset(out: Path, repo_id: str, dry_run: bool = False) -> None:
+    """Upload the corpus at *out* to a Hugging Face dataset repo.
+
+    Additive: `upload_file` creates or updates exactly the named path in one
+    commit each and never touches or deletes anything else in the repo. The
+    token comes from the `HF_TOKEN` environment variable, never hardcoded.
+    """
+    if dry_run:
+        print(f"[push] would upload to dataset repo {repo_id!r} (dry run):")
+        for f in DATASET_FILES:
+            p = out / f
+            size = f"{p.stat().st_size} bytes" if p.is_file() else "not built yet"
+            print(f"  {f} ({size})")
+        return
+
+    missing = [f for f in DATASET_FILES if not (out / f).is_file()]
+    if missing:
+        raise SystemExit(f"[push] {out} is missing {missing}; run the build first")
+
+    from huggingface_hub import HfApi
+    api = HfApi(token=os.environ.get("HF_TOKEN"))
+    api.create_repo(repo_id, repo_type="dataset", exist_ok=True)
+    for f in DATASET_FILES:
+        api.upload_file(path_or_fileobj=str(out / f), path_in_repo=f,
+                        repo_id=repo_id, repo_type="dataset",
+                        commit_message=f"update {f}")
+        print(f"[push] uploaded {f} -> {repo_id}")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -599,6 +634,10 @@ def main(argv=None):
                          "labels instead of dropping them")
     ap.add_argument("--dry-run", action="store_true",
                     help="report counts and write nothing")
+    ap.add_argument("--push-to", default=None,
+                    help="Hugging Face dataset repo id to upload --out to "
+                         "after the build (e.g. OpenVoiceOS/ovos-m2v-intents); "
+                         "additive, combine with --dry-run to preview")
     args = ap.parse_args(argv)
 
     cfg = yaml.safe_load(Path(args.sources).read_text(encoding="utf-8"))
@@ -760,6 +799,8 @@ def main(argv=None):
     if args.dry_run:
         json.dump(report, sys.stdout, indent=2, ensure_ascii=False, sort_keys=False)
         print()
+        if args.push_to:
+            push_dataset(Path(args.out), args.push_to, dry_run=True)
         return 0
 
     from sklearn.model_selection import train_test_split
@@ -802,6 +843,8 @@ def main(argv=None):
     print(json.dumps({k: report[k] for k in
                       ("rows_final", "labels", "langs", "outputs")},
                      indent=2))
+    if args.push_to:
+        push_dataset(out, args.push_to, dry_run=False)
     return 0
 
 
