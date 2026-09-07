@@ -51,7 +51,8 @@ def _padatious_msg(samples, name="test_skill:demo.intent",
                    skill_id="test_skill", lang="en-US"):
     return Message("padatious:register_intent",
                    data={"name": name, "samples": samples,
-                         "skill_id": skill_id, "lang": lang})
+                         "skill_id": skill_id, "lang": lang},
+                   context={"skill_id": skill_id})
 
 
 class TestParseIntentFile(unittest.TestCase):
@@ -126,7 +127,8 @@ class TestRegisterPadatious(unittest.TestCase):
             msg = Message("padatious:register_intent",
                           data={"name": "test_skill:demo",
                                 "skill_id": "test_skill", "lang": "en-US",
-                                "file_name": path})
+                                "file_name": path},
+                          context={"skill_id": "test_skill"})
             with patch("ovos_m2v_pipeline.LOG.warning") as warn:
                 pipeline._handle_register_padatious(msg)
         self.assertIn("test_skill:demo", pipeline.intents)
@@ -154,7 +156,8 @@ class TestIntent4Registration(unittest.TestCase):
         return Message("ovos.intent.register.template",
                        data={"skill_id": "test_skill",
                              "intent_name": "demo",
-                             "lang": lang, "samples": samples})
+                             "lang": lang, "samples": samples},
+                       context={"skill_id": "test_skill"})
 
     def test_malformed_template_skipped_valid_indexed(self):
         pipeline = _make_prototype_pipeline()

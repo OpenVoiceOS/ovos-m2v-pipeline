@@ -53,6 +53,7 @@ INTENT_DISABLE = str(SpecMessage.INTENT_DISABLE)
 INTENT_ENABLE = str(SpecMessage.INTENT_ENABLE)
 
 SKILL_ID = "intent4_m2v.skill"
+ADMIN_SKILL_ID = "admin.skill"
 
 # Deterministic orthogonal directions for the mock encoder (cosine 0 between
 # distinct keys, 1.0 for identical inputs).
@@ -228,6 +229,18 @@ class TestIntent4Consume(unittest.TestCase):
         set, suppressing the intent (§8.5)."""
         self._register_template("lights", ["turn on the lights", "lights on"])
         self._emit(INTENT_DISABLE, "lights")
+        self._expect_no_match("lights on now", timeout=3.0)
+
+    def test_spec_disable_is_cross_skill_by_design(self):
+        """§8.5 exemption: the payload skill_id names the TARGET intent's
+        skill, context skill_id names the source requesting the control
+        action, and the two MAY differ. An admin skill disabling another
+        skill's intent must suppress it."""
+        self._register_template("lights", ["turn on the lights", "lights on"])
+        self.mc.bus.emit(Message(
+            INTENT_DISABLE,
+            {"skill_id": SKILL_ID, "intent_name": "lights", "lang": "en-US"},
+            {"skill_id": ADMIN_SKILL_ID}))
         self._expect_no_match("lights on now", timeout=3.0)
 
     @pytest.mark.xfail(

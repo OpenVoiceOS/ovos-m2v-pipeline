@@ -1647,6 +1647,26 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                         f"registration will re-encode: {exc}")
             return None
 
+    @staticmethod
+    def _resolve_skill_id(message: Message, topic: str) -> str:
+        """Resolve the producing skill_id per OVOS-INTENT-4 §3.2:
+        ``message.context["skill_id"]`` is the authoritative attribution.
+        A ``message.data["skill_id"]`` that differs is logged and ignored,
+        never trusted; a missing context value resolves to "" so callers
+        drop the registration."""
+        ctx_id = message.context.get("skill_id", "")
+        data_id = message.data.get("skill_id", "")
+        if not ctx_id:
+            LOG.warning(f"{topic}: missing skill_id in message.context "
+                        f"(OVOS-INTENT-4 §3.2); dropping")
+            return ""
+        if data_id and data_id != ctx_id:
+            LOG.warning(
+                f"{topic}: message.data['skill_id']={data_id!r} differs from "
+                f"authoritative message.context['skill_id']={ctx_id!r} "
+                f"(OVOS-INTENT-4 §3.2); using context value")
+        return ctx_id
+
     def _handle_ready_prototype(self, message: Message) -> None:
         LOG.info(
             f"Model2Vec prototype store ready: {len(self.prototype_store)} prototypes "
@@ -1670,7 +1690,9 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         if not name or name in self.ignore_labels                 or f"{name}.intent" in self.ignore_labels:
             return
 
-        skill_id = message.data.get("skill_id") or message.context.get("skill_id")
+        skill_id = self._resolve_skill_id(message, message.msg_type)
+        if not skill_id:
+            return
         ctx = (f"[skill_id={skill_id!r} name={name!r} "
                f"lang={message.data.get('lang')!r} topic={message.msg_type}]")
 
@@ -1753,7 +1775,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             LOG.debug(f"Prototype store: removed prototypes for '{name}'")
 
     def _handle_detach_skill(self, message: Message) -> None:
-        skill_id: str = message.data.get("skill_id") or message.context.get("skill_id", "")
+        skill_id: str = self._resolve_skill_id(message, message.msg_type)
         if skill_id:
             self.prototype_store.remove_skill(skill_id)
             self._forget_pending_skill(skill_id)
@@ -1793,11 +1815,34 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
     @staticmethod
     def _intent4_label(message: Message) -> str:
         """Build the internal ``<skill_id>:<intent_name>`` label from §3.2 fields."""
-        skill_id = message.data.get("skill_id") or message.context.get("skill_id", "")
+        skill_id = Model2VecIntentPipeline._resolve_skill_id(message, message.msg_type)
         intent_name = message.data.get("intent_name", "")
         if not skill_id or not intent_name:
             return ""
         return f"{skill_id}:{intent_name}"
+
+    @staticmethod
+    def _intent4_control_label(message: Message) -> str:
+        """Build the ``<skill_id>:<intent_name>`` label for ``ovos.intent.enable``
+        / ``ovos.intent.disable`` (§8.5).
+
+        These are control messages, not ownership claims, and are exempt from
+        the §3.2 identity check: ``message.data["skill_id"]`` names the
+        **target** intent's skill, while ``message.context["skill_id"]``
+        names the **source** requesting the control action, and the two MAY
+        differ (cross-skill control, e.g. an admin UI or a conflict-resolving
+        skill suppressing another skill's intent, is the point of §8.5).
+        """
+        target_skill_id = message.data.get("skill_id", "")
+        intent_name = message.data.get("intent_name", "")
+        if not target_skill_id or not intent_name:
+            return ""
+        source_skill_id = message.context.get("skill_id", "")
+        if source_skill_id and source_skill_id != target_skill_id:
+            LOG.debug(f"{message.msg_type}: cross-skill control "
+                      f"source={source_skill_id!r} target={target_skill_id!r} "
+                      f"(OVOS-INTENT-4 §3.2/§8.5 exemption)")
+        return f"{target_skill_id}:{intent_name}"
 
     def _intent4_warn(self, topic: str, message: Message, reason: str) -> None:
         """Log a malformed-registration rejection at WARN (§5.3 / §6.3 / §7.2)."""
@@ -1844,7 +1889,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
 
         # Classifier mode is frozen: only gate the (already trained) label.
         if self.prototype_store is None:
-            skill_id = message.data.get("skill_id") or message.context.get("skill_id", "")
+            skill_id = self._resolve_skill_id(message, topic)
             if skill_id and skill_id not in self._intent4_frozen_warned:
                 self._intent4_frozen_warned.add(skill_id)
                 LOG.warning(
@@ -1995,7 +2040,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
 
     def _handle_intent4_deregister_skill(self, message: Message) -> None:
         """Remove every intent and entity owned by a skill (§8.4)."""
-        skill_id: str = message.data.get("skill_id") or message.context.get("skill_id", "")
+        skill_id: str = self._resolve_skill_id(message, message.msg_type)
         if not skill_id:
             return
         if self.prototype_store is not None:
@@ -2018,7 +2063,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         mirroring deregistration. Re-enabling requires re-registration, which
         is how skills re-arm intents on this engine.
         """
-        label = self._intent4_label(message)
+        label = self._intent4_control_label(message)
         if not label:
             return
         if self.prototype_store is not None:
@@ -2037,7 +2082,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         In prototype mode the prototypes were dropped on disable and can only
         be restored by re-registration, so this only restores label tracking.
         """
-        label = self._intent4_label(message)
+        label = self._intent4_control_label(message)
         if label and label not in self.ignore_labels:
             self.intents.add(label)
             LOG.debug(f"Model2Vec: enabled INTENT-4 intent '{label}'")

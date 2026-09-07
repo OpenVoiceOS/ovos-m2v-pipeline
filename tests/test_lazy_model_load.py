@@ -86,7 +86,8 @@ class TestBufferedRegistrations(unittest.TestCase):
 
         pipeline._handle_register_padatious(Message(
             "padatious:register_intent",
-            {"name": "skill.test:go.intent", "samples": ["go to work"]}))
+            {"name": "skill.test:go.intent", "samples": ["go to work"]},
+            context={"skill_id": "skill.test"}))
 
         # buffered: label already tracked, but nothing was encoded yet
         self.assertIn("skill.test:go", pipeline.intents)
@@ -112,7 +113,8 @@ class TestBufferedRegistrations(unittest.TestCase):
 
         pipeline._handle_register_padatious(Message(
             "padatious:register_intent",
-            {"name": "skill.test:go.intent", "samples": ["go to work"]}))
+            {"name": "skill.test:go.intent", "samples": ["go to work"]},
+            context={"skill_id": "skill.test"}))
         self.assertEqual(len(pipeline._pending_additions), 1)
 
         pipeline._handle_detach_intent(Message(
