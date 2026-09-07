@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.4a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.9.4a1) (2026-09-07)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.9.3a1...0.9.4a1)
+
+**Merged pull requests:**
+
+- fix: prototype ranking and store are deterministic across boots \(\#102\) [\#104](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/104) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.9.3a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.9.3a1) (2026-09-07)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.9.2a1...0.9.3a1)
