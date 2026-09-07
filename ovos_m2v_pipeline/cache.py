@@ -46,6 +46,7 @@ def compute_cache_key(
     params: Dict[str, Any],
     raw_samples: List[str],
     entity_values: Optional[Dict[str, List[str]]] = None,
+    lang: Optional[str] = None,
 ) -> str:
     """Hash the inputs of a prototype registration into a cache key.
 
@@ -55,6 +56,13 @@ def compute_cache_key(
     NOT stable in iteration order across runs -- sorting both here is what
     makes the key reproducible across restarts for otherwise-identical
     inputs.
+
+    ``lang`` is the registration's BCP-47 tag (``None`` for a caller that
+    does not partition by language). It is folded into the hash -- on top
+    of the on-disk path already being per-language (see
+    ``PrototypeCache._path``) -- so that two registrations that differ only
+    in language never hash to the same key even if their raw inputs happen
+    to collide.
     """
     payload = {
         "model_id": model_id,
@@ -62,6 +70,7 @@ def compute_cache_key(
         "params": params,
         "samples": sorted(raw_samples),
         "entities": {k: sorted(v) for k, v in sorted((entity_values or {}).items())},
+        "lang": lang,
     }
     blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
@@ -104,13 +113,25 @@ class PrototypeCache:
         safe = _UNSAFE_RE.sub("_", skill_id) or "_"
         return self.cache_dir / safe
 
-    def _path(self, label: str) -> Path:
+    def _path(self, label: str, lang: Optional[str] = None) -> Path:
         skill_id, intent_name = self._split_label(label)
         safe_intent = _UNSAFE_RE.sub("_", intent_name) or "_"
+        if lang:
+            # a distinct filename per language partition: a bare (no-lang)
+            # path collides between e.g. an en-US and a pt-PT registration
+            # of the same label, and a partitioned entry must never be read
+            # back as a hit for the other language's registration. A cache
+            # written before per-language partitioning existed used the
+            # bare, lang-less filename -- it is simply never looked up
+            # again once a caller passes `lang`, so it is ignored rather
+            # than misread as belonging to whichever language asks first.
+            safe_lang = _UNSAFE_RE.sub("_", lang) or "_"
+            safe_intent = f"{safe_intent}@{safe_lang}"
         return self._skill_dir(skill_id) / f"{safe_intent}.npz"
 
     def load(
-        self, label: str, key: str, expected_dim: Optional[int] = None,
+        self, label: str, key: str, lang: Optional[str] = None,
+        expected_dim: Optional[int] = None,
     ) -> Optional[Tuple[np.ndarray, np.ndarray]]:
         """Return ``(embeddings, labels)`` for *label* if the cached entry's
         key matches and (when *expected_dim* is given) its embedding
@@ -126,7 +147,7 @@ class PrototypeCache:
         indistinguishable from a valid hit and would poison the live store
         with wrong-dimension vectors.
         """
-        path = self._path(label)
+        path = self._path(label, lang)
         if not path.exists():
             return None
         try:
@@ -148,11 +169,12 @@ class PrototypeCache:
                 f"(cached {embeddings.shape}, current model dim "
                 f"{expected_dim}); discarding stale entry and re-encoding"
             )
-            self.remove(label)
+            self.remove(label, lang)
             return None
         return embeddings, labels
 
-    def save(self, label: str, key: str, embeddings: np.ndarray, labels: np.ndarray) -> None:
+    def save(self, label: str, key: str, embeddings: np.ndarray, labels: np.ndarray,
+              lang: Optional[str] = None) -> None:
         """Persist *embeddings*/*labels* for *label* under *key*.
 
         A failure to write (e.g. read-only filesystem) is logged and
@@ -160,7 +182,7 @@ class PrototypeCache:
         registration to have succeeded.
         """
         try:
-            path = self._path(label)
+            path = self._path(label, lang)
             path.parent.mkdir(parents=True, exist_ok=True)
             np.savez(
                 path,
@@ -171,10 +193,26 @@ class PrototypeCache:
         except OSError as exc:
             LOG.warning(f"prototype cache: failed to persist entry for {label!r}: {exc}")
 
-    def remove(self, label: str) -> None:
-        """Delete the cached entry for *label*, if any."""
+    def remove(self, label: str, lang: Optional[str] = None) -> None:
+        """Delete the cached entry for *label*, if any.
+
+        With *lang* given, only that language partition's entry is removed.
+        Without it, every entry for *label* is removed -- the bare
+        (pre-partition) file, if any, plus every ``<intent>@<lang>.npz``
+        partition -- since a caller removing a whole label (e.g. skill
+        detach) has no reliable way to know which language(s) it was
+        registered under.
+        """
         try:
-            self._path(label).unlink(missing_ok=True)
+            if lang is not None:
+                self._path(label, lang).unlink(missing_ok=True)
+                return
+            skill_id, intent_name = self._split_label(label)
+            safe_intent = _UNSAFE_RE.sub("_", intent_name) or "_"
+            skill_dir = self._skill_dir(skill_id)
+            (skill_dir / f"{safe_intent}.npz").unlink(missing_ok=True)
+            for p in skill_dir.glob(f"{safe_intent}@*.npz"):
+                p.unlink(missing_ok=True)
         except OSError as exc:
             LOG.warning(f"prototype cache: failed to remove entry for {label!r}: {exc}")
 
