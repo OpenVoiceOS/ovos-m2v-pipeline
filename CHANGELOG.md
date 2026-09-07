@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.5a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.9.5a1) (2026-09-07)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.9.4a1...0.9.5a1)
+
+**Merged pull requests:**
+
+- fix: expand entity placeholders on legacy-wire registrations in prototype mode [\#92](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/92) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.9.4a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.9.4a1) (2026-09-07)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.9.3a1...0.9.4a1)
