@@ -67,6 +67,9 @@ Any bare `StaticModel` on Hugging Face (or a local path) can be used as the embe
 | `ignore_intents` | `list[str]` | `[]` | Intent labels to always discard, regardless of confidence. |
 | `timeout` | `int` | `1` | Seconds to wait for Adapt / Padatious manifest responses (classifier mode only). |
 | `revision` | `str` | unset | Git revision (commit SHA, branch, or tag) of the Hugging Face Hub `model` repo to load. Unset loads the latest snapshot the Hub serves: when a snapshot is already cached, this is checked with one short, bounded Hub call rather than a full re-download, so a relabelled or updated model is picked up automatically without adding meaningful startup delay. A pinned commit SHA is content-addressed and never contacts the Hub once cached. Ignored for a local path. When the Hub cannot be reached, or the check times out, the plugin falls back to the newest snapshot already cached on disk and logs a warning naming it. |
+| `prototype_cache` | `bool` | `true` | Enable/disable the on-disk prototype cache (prototype mode only). See [Prototype cache](../README.md#prototype-cache-prototype-mode). |
+| `prototype_cache_dir` | `str` | `{XDG_DATA_HOME}/mycroft/m2v_prototypes/` | Override the on-disk prototype cache directory (prototype mode only). |
+| `prebuilt_prototypes` | `str` | unset | Path to a directory, or a Hugging Face Hub repo id, holding a prebuilt prototype artifact built with `ovos-m2v-prototypes export` (prototype mode only). See [Prebuilt prototypes](../README.md#prebuilt-prototypes-prototype-mode). |
 
 ## Default model resolution
 
