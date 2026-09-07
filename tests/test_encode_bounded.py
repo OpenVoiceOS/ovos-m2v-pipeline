@@ -84,7 +84,8 @@ def test_padatious_labels_dealias_to_canonical():
     p._prototype_cache_enabled = False
     p._handle_register_padatious(Message(
         "padatious:register_intent",
-        {"name": "skill.test:go.intent", "samples": ["go to work"]}))
+        {"name": "skill.test:go.intent", "samples": ["go to work"]},
+        context={"skill_id": "skill.test"}))
     assert "skill.test:go" in p.intents
     assert "skill.test:go.intent" not in p.intents
     # detach with the suffixed name removes the canonical entry

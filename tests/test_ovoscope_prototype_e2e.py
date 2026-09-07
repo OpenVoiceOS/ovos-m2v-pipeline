@@ -114,9 +114,11 @@ class _PrototypeE2EBase(unittest.TestCase):
     def _register_padatious(self, name: str, samples: list[str]):
         """Synchronously seed the prototype store via the bus event the
         real Padatious skill would fire."""
+        skill_id = name.split(":", 1)[0]
         self.mc.bus.emit(Message(
             "padatious:register_intent",
             data={"name": name, "samples": samples},
+            context={"skill_id": skill_id},
         ))
 
     def _utterance_msg(self, utterance: str,

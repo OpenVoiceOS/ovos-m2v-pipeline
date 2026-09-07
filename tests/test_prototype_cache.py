@@ -135,7 +135,8 @@ class TestPrototypeCacheInvalidationOnRemoval(unittest.TestCase):
             p1 = _make_pipeline(tmp)
             _register(p1, ["turn on the lights"])
 
-            p1.bus.emit(Message("detach_skill", {"skill_id": "test_skill"}))
+            p1.bus.emit(Message("detach_skill", {"skill_id": "test_skill"},
+                                context={"skill_id": "test_skill"}))
 
             # restart after removal: nothing on disk any more -> re-encode
             p2 = _make_pipeline(tmp)
@@ -206,22 +207,26 @@ class TestPrototypeCacheKeyDeterminism(unittest.TestCase):
             p1.bus.emit(Message(
                 SpecMessage.ENTITY_REGISTER.value,
                 {"entity_name": "media", "samples": ["jazz", "rock", "blues"],
-                 "skill_id": "test_skill", "lang": "en-US"}))
+                 "skill_id": "test_skill", "lang": "en-US"},
+                context={"skill_id": "test_skill"}))
             p1.bus.emit(Message(
                 SpecMessage.INTENT_REGISTER_TEMPLATE.value,
                 {"skill_id": "test_skill", "intent_name": "play",
-                 "samples": ["play {media}"], "lang": "en-US"}))
+                 "samples": ["play {media}"], "lang": "en-US"},
+                context={"skill_id": "test_skill"}))
             self.assertTrue(p1.model.encode.called)
 
             p2 = _make_pipeline(tmp)
             p2.bus.emit(Message(
                 SpecMessage.ENTITY_REGISTER.value,
                 {"entity_name": "media", "samples": ["blues", "jazz", "rock"],
-                 "skill_id": "test_skill", "lang": "en-US"}))
+                 "skill_id": "test_skill", "lang": "en-US"},
+                context={"skill_id": "test_skill"}))
             p2.bus.emit(Message(
                 SpecMessage.INTENT_REGISTER_TEMPLATE.value,
                 {"skill_id": "test_skill", "intent_name": "play",
-                 "samples": ["play {media}"], "lang": "en-US"}))
+                 "samples": ["play {media}"], "lang": "en-US"},
+                context={"skill_id": "test_skill"}))
             p2.model.encode.assert_not_called()
 
 
@@ -312,7 +317,8 @@ class TestPrototypeCacheSkillPrefixCollision(unittest.TestCase):
                       name="skill_extra:demo", skill_id="skill_extra")
             self.assertEqual(p.model.encode.call_count, 2)
 
-            p.bus.emit(Message("detach_skill", {"skill_id": "skill"}))
+            p.bus.emit(Message("detach_skill", {"skill_id": "skill"},
+                               context={"skill_id": "skill"}))
 
             # restart: "skill" must re-encode (its cache was removed), but
             # "skill_extra" must still hit its untouched cache entry

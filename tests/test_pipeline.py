@@ -696,7 +696,7 @@ class TestPrototypeBusHandlers(unittest.TestCase):
             p._handle_register_padatious(Message("padatious:register_intent", data={
                 "name": "skill_a:greet.intent",
                 "file_name": "/fake/greet.intent",
-            }))
+            }, context={"skill_id": "skill_a"}))
         self.assertIn("skill_a:greet", p.prototype_store.unique_labels)
         self.assertIn("skill_a:greet", p.intents)
 
@@ -707,13 +707,13 @@ class TestPrototypeBusHandlers(unittest.TestCase):
             p._handle_register_padatious(Message("padatious:register_intent", data={
                 "name": "skill_a:greet.intent",
                 "file_name": "/fake/greet.intent",
-            }))
+            }, context={"skill_id": "skill_a"}))
         with patch("ovos_m2v_pipeline._parse_intent_file", return_value=["v2"]):
             p.model.encode.side_effect = lambda sents, **kw: np.eye(len(sents), 4, dtype=np.float32)
             p._handle_register_padatious(Message("padatious:register_intent", data={
                 "name": "skill_a:greet.intent",
                 "file_name": "/fake/greet.intent",
-            }))
+            }, context={"skill_id": "skill_a"}))
         self.assertEqual((p.prototype_store.labels == "skill_a:greet").sum(), 1)
 
     def test_handle_register_padatious_inline_samples(self):
@@ -722,7 +722,7 @@ class TestPrototypeBusHandlers(unittest.TestCase):
         p._handle_register_padatious(Message("padatious:register_intent", data={
             "name": "skill_a:greet.intent",
             "samples": ["hello", "hi"],
-        }))
+        }, context={"skill_id": "skill_a"}))
         self.assertIn("skill_a:greet", p.prototype_store.unique_labels)
         self.assertIn("skill_a:greet", p.intents)
 
@@ -733,7 +733,7 @@ class TestPrototypeBusHandlers(unittest.TestCase):
         p._handle_register_padatious(Message("padatious:register_intent", data={
             "name": "skill_a:lights.intent",
             "samples": ["(turn on|switch on) the lights"],
-        }))
+        }, context={"skill_id": "skill_a"}))
         # Two expanded variants should both be embedded
         n_protos = (p.prototype_store.labels == "skill_a:lights").sum()
         self.assertEqual(n_protos, 2)
@@ -798,12 +798,15 @@ class TestPrototypeBusHandlers(unittest.TestCase):
         for name in ("skill_a:intent_x", "skill_a:intent_y"):
             with patch("ovos_m2v_pipeline._parse_intent_file", return_value=["example"]):
                 p._handle_register_padatious(Message("padatious:register_intent",
-                                                     data={"name": name, "file_name": "/fake/x.intent"}))
+                                                     data={"name": name, "file_name": "/fake/x.intent"},
+                                                     context={"skill_id": "skill_a"}))
         with patch("ovos_m2v_pipeline._parse_intent_file", return_value=["keep"]):
             p._handle_register_padatious(Message("padatious:register_intent",
-                                                 data={"name": "skill_b:intent", "file_name": "/fake/b.intent"}))
+                                                 data={"name": "skill_b:intent", "file_name": "/fake/b.intent"},
+                                                 context={"skill_id": "skill_b"}))
 
-        p._handle_detach_skill(Message("detach_skill", data={"skill_id": "skill_a"}))
+        p._handle_detach_skill(Message("detach_skill", data={"skill_id": "skill_a"},
+                                       context={"skill_id": "skill_a"}))
         for label in ("skill_a:intent_x", "skill_a:intent_y"):
             self.assertNotIn(label, p.prototype_store.unique_labels)
             self.assertNotIn(label, p.intents)
