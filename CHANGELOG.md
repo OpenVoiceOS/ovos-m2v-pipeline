@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.3a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.12.3a1) (2026-09-08)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.12.2a2...0.12.3a1)
+
+**Merged pull requests:**
+
+- fix: entities belong to the registering skill \(OVOS-INTENT-4 §7, §8.3\) [\#139](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/139) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.12.2a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.12.2a2) (2026-09-08)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.12.2a1...0.12.2a2)
@@ -390,11 +398,6 @@
 ## [0.0.8a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.8a2) (2025-12-19)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.8a1...0.0.8a2)
-
-**Merged pull requests:**
-
-- Release 0.0.8a2 [\#19](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/19) ([github-actions[bot]](https://github.com/apps/github-actions))
-- chore\(deps\): update actions/setup-python action to v6 [\#17](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/17) ([renovate[bot]](https://github.com/apps/renovate))
 
 ## [0.0.8a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.8a1) (2025-12-18)
 
