@@ -14,16 +14,10 @@ mock encoder so no model download is needed and cosine scoring is exact.
 Each test emits the spec registration on the wire, sends a matching utterance,
 and asserts the intent dispatches ``<skill_id>:<intent_name>`` — proving
 spec-topic consumption.
-
-DIVERGENCE (real finding, ``test_spec_enable_rearms_intent`` is xfail): in
-prototype mode ``ovos.intent.disable`` drops the label's prototypes, and
-``ovos.intent.enable`` only restores *label tracking* — it cannot re-embed the
-samples, so a disabled-then-enabled intent does NOT match again (re-arming
-requires re-registration). This departs from INTENT-4 §8.5's "re-arm a
-previously disabled intent".
 """
 import sys
 import threading
+from time import monotonic
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -154,8 +148,20 @@ class TestIntent4Consume(unittest.TestCase):
             self.mc.bus.on(t, _on_match)
         self.mc.bus.on("complete_intent_failure", _on_fail)
         try:
-            self.mc.bus.emit(self._utterance(utterance))
-            done.wait(timeout=timeout)
+            # A pipeline whose model is still loading answers "no match" for
+            # the utterance in front of it and picks up once the load
+            # finishes, so a single emit turns a cold start into a false
+            # negative. Re-emit until the deadline: an utterance that truly
+            # matches nothing still returns None, it just takes the full
+            # budget to say so.
+            deadline = monotonic() + timeout
+            while True:
+                self.mc.bus.emit(self._utterance(utterance))
+                done.wait(timeout=0.5)
+                if got or monotonic() >= deadline:
+                    break
+                failed.clear()
+                done.clear()
         finally:
             for t in expected_types:
                 self.mc.bus.remove(t, _on_match)
@@ -188,6 +194,25 @@ class TestIntent4Consume(unittest.TestCase):
                                      expected_types=[f"{SKILL_ID}:lights"])
         self.assertIsNotNone(msg, "expected match from spec registration")
         self.assertEqual(msg.msg_type, f"{SKILL_ID}:lights")
+
+    def test_match_survives_a_model_that_is_still_loading(self):
+        """A pipeline whose model has not finished loading answers no match
+        and picks up once the load completes. The utterance in front of it
+        must not become a permanent false negative for the run."""
+        self._register_template("lights", ["turn on the lights", "lights on"])
+        real = self.pipeline._ensure_model
+        ready_at = monotonic() + 1.5
+
+        def still_loading(*args, **kwargs):
+            return False if monotonic() < ready_at else real(*args, **kwargs)
+
+        self.pipeline._ensure_model = still_loading
+        try:
+            msg = self._send_and_capture("lights on now",
+                                         expected_types=[f"{SKILL_ID}:lights"])
+        finally:
+            self.pipeline._ensure_model = real
+        self.assertIsNotNone(msg, "a loading model must not be reported as no match")
 
     def test_spec_template_builds_prototypes(self):
         self._register_template("music", ["play some music", "start the music"])
@@ -243,13 +268,6 @@ class TestIntent4Consume(unittest.TestCase):
             {"skill_id": ADMIN_SKILL_ID}))
         self._expect_no_match("lights on now", timeout=3.0)
 
-    @pytest.mark.xfail(
-        strict=False,
-        reason="INTENT-4 §8.5: 'ovos.intent.enable re-arms a previously disabled "
-               "intent' — in m2v prototype mode disable drops the prototypes and "
-               "enable only restores label tracking (cannot re-embed samples), so "
-               "the intent does not match again; re-arming requires re-registration.",
-    )
     def test_spec_enable_rearms_intent(self):
         self._register_template("lights", ["turn on the lights", "lights on"])
         self._emit(INTENT_DISABLE, "lights")
