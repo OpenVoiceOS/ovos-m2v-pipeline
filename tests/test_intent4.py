@@ -217,8 +217,8 @@ class TestIntent4EntityRegistration(unittest.TestCase):
             SpecMessage.ENTITY_REGISTER.value,
             data={"skill_id": "music.skill", "entity_name": "engine",
                   "lang": "en-US", "samples": ["spotify", "youtube"]},
-        ))
-        self.assertIn("engine", p.entities)
+            context={"skill_id": "music.skill"}))
+        self.assertIn("engine", p.entities["music.skill"])
         # register a template that references {engine}
         p._handle_intent4_register_template(Message(
             SpecMessage.INTENT_REGISTER_TEMPLATE.value,
@@ -236,8 +236,8 @@ class TestIntent4EntityRegistration(unittest.TestCase):
             p._handle_intent4_register_entity(Message(
                 SpecMessage.ENTITY_REGISTER.value,
                 data={"skill_id": "s", "entity_name": "engine", "samples": []},
-            ))
-        self.assertNotIn("engine", p.entities)
+            context={"skill_id": "s"}))
+        self.assertEqual(p.entities, {})
         warn.assert_called()
 
     def test_unregistered_slot_left_literal(self):
@@ -287,12 +287,12 @@ class TestIntent4Deregistration(unittest.TestCase):
 
     def test_deregister_entity(self):
         p = _make_prototype_pipeline()
-        p.entities["engine"] = ["spotify"]
+        p.entities["music.skill"] = {"engine": ["spotify"]}
         p._handle_intent4_deregister_entity(Message(
             SpecMessage.ENTITY_DEREGISTER.value,
             data={"skill_id": "music.skill", "entity_name": "engine", "lang": "en-US"},
-        ))
-        self.assertNotIn("engine", p.entities)
+            context={"skill_id": "music.skill"}))
+        self.assertNotIn("engine", p.entities["music.skill"])
 
     @staticmethod
     def _session_message(topic, session_id, **data):
@@ -517,7 +517,8 @@ class TestContext1SlotFill(unittest.TestCase):
         p._handle_intent4_register_entity(Message(
             SpecMessage.ENTITY_REGISTER.value,
             data={"skill_id": "bio.skill", "entity_name": "person",
-                  "lang": "en-US", "samples": ["Alice"]}))
+                  "lang": "en-US", "samples": ["Alice"]},
+            context={"skill_id": "bio.skill"}))
         self._register(p, requires=[{"key": "person", "scope": "shared"}])
         self.assertEqual(p._intent_slots.get("bio.skill:height_query"), ["person"])
 
@@ -805,8 +806,9 @@ class TestPadatiousLegacyEntityExpansion(unittest.TestCase):
         p._handle_intent4_register_entity(Message(
             SpecMessage.ENTITY_REGISTER.value,
             data={"skill_id": "paint.skill", "entity_name": "color",
-                  "lang": "en-US", "samples": ["red", "blue"]}))
-        self.assertIn("color", p.entities)
+                  "lang": "en-US", "samples": ["red", "blue"]},
+            context={"skill_id": "paint.skill"}))
+        self.assertIn("color", p.entities["paint.skill"])
 
         encoded_sentences = []
         p.model.encode.side_effect = lambda sents, **kw: (
@@ -850,7 +852,8 @@ class TestPadatiousLegacyEntityExpansion(unittest.TestCase):
         p._handle_intent4_register_entity(Message(
             SpecMessage.ENTITY_REGISTER.value,
             data={"skill_id": "paint.skill", "entity_name": "color",
-                  "lang": "en-US", "samples": ["red", "blue"]}))
+                  "lang": "en-US", "samples": ["red", "blue"]},
+            context={"skill_id": "paint.skill"}))
         p._handle_register_padatious(Message(
             "padatious:register_intent",
             data={"name": "paint.skill:paint_it", "lang": "en-US",
@@ -886,7 +889,8 @@ class TestPadatiousLegacyEntityExpansion(unittest.TestCase):
         p._handle_intent4_register_entity(Message(
             SpecMessage.ENTITY_REGISTER.value,
             data={"skill_id": "paint.skill", "entity_name": "color",
-                  "lang": "en-US", "samples": ["red", "blue"]}))
+                  "lang": "en-US", "samples": ["red", "blue"]},
+            context={"skill_id": "paint.skill"}))
         key_en_with_entity = register("en-US")
         key_pt_with_entity = register("pt-PT")
 
@@ -922,7 +926,8 @@ class TestTypedSlotPrefixAndExpansionOrder(unittest.TestCase):
         p._handle_intent4_register_entity(Message(
             SpecMessage.ENTITY_REGISTER.value,
             data={"skill_id": "alarm.skill", "entity_name": "amount",
-                  "lang": "en-US", "samples": ["5", "10"]}))
+                  "lang": "en-US", "samples": ["5", "10"]},
+            context={"skill_id": "alarm.skill"}))
         captured = self._cache_key_entity_values(p)
 
         p._handle_intent4_register_template(Message(
@@ -941,7 +946,8 @@ class TestTypedSlotPrefixAndExpansionOrder(unittest.TestCase):
         p._handle_intent4_register_entity(Message(
             SpecMessage.ENTITY_REGISTER.value,
             data={"skill_id": "alarm.skill", "entity_name": "amount",
-                  "lang": "en-US", "samples": ["5", "10"]}))
+                  "lang": "en-US", "samples": ["5", "10"]},
+            context={"skill_id": "alarm.skill"}))
         captured = self._cache_key_entity_values(p)
 
         p._handle_register_padatious(Message(
@@ -1214,3 +1220,50 @@ class TestIntent4MalformedRegistration(unittest.TestCase):
         self._register(p, "set_volume", ["set volume to {number:level}"],
                        required_slots=["level"])
         self.assertIn("music.skill:set_volume", p.intents)
+
+class TestIntent4EntityScope(unittest.TestCase):
+    """OVOS-INTENT-4 §7 / §8.3: entities belong to the registering skill."""
+
+    def _entity(self, p, skill_id, name="engine", samples=("spotify", "youtube")):
+        p._handle_intent4_register_entity(Message(
+            SpecMessage.ENTITY_REGISTER.value,
+            data={"skill_id": skill_id, "entity_name": name, "lang": "en-US",
+                  "samples": list(samples)},
+            context={"skill_id": skill_id}))
+
+    def _template(self, p, skill_id, intent_name="play_on", sample="play on {engine}"):
+        p._handle_intent4_register_template(Message(
+            SpecMessage.INTENT_REGISTER_TEMPLATE.value,
+            data={"skill_id": skill_id, "intent_name": intent_name,
+                  "lang": "en-US", "samples": [sample]},
+            context={"skill_id": skill_id}))
+
+    def test_entity_fills_only_its_own_skill(self):
+        p = _make_prototype_pipeline()
+        self._entity(p, "music.skill")
+        self._template(p, "music.skill")
+        self._template(p, "other.skill")
+        self.assertEqual((p.prototype_store.labels == "music.skill:play_on").sum(), 2)
+        # other.skill has no {engine}: the placeholder stays literal, one prototype
+        self.assertEqual((p.prototype_store.labels == "other.skill:play_on").sum(), 1)
+
+    def test_deregister_entity_is_skill_scoped(self):
+        p = _make_prototype_pipeline()
+        self._entity(p, "a.skill", name="color", samples=("red",))
+        self._entity(p, "b.skill", name="color", samples=("blue",))
+        p._handle_intent4_deregister_entity(Message(
+            SpecMessage.ENTITY_DEREGISTER.value,
+            data={"skill_id": "a.skill", "entity_name": "color", "lang": "en-US"},
+            context={"skill_id": "a.skill"}))
+        self.assertNotIn("color", p.entities.get("a.skill", {}))
+        self.assertEqual(p.entities["b.skill"]["color"], ["blue"])
+
+    def test_skill_deregister_drops_its_entities_only(self):
+        p = _make_prototype_pipeline()
+        self._entity(p, "a.skill")
+        self._entity(p, "b.skill")
+        p._handle_intent4_deregister_skill(Message(
+            SpecMessage.SKILL_DEREGISTER.value, data={"skill_id": "a.skill"},
+            context={"skill_id": "a.skill"}))
+        self.assertNotIn("a.skill", p.entities)
+        self.assertIn("engine", p.entities["b.skill"])
