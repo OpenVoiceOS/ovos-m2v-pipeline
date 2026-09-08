@@ -285,3 +285,21 @@ every revision:
 
 An alias entry is a statement that two names denote one runtime intent. It is
 not a place to fix a corpus typo — those belong upstream, in the skill.
+
+Two things disqualify an alias. The first is a split: when the old template's lines
+now spread over several intents, no single destination is right for its rows,
+and folding them all into the largest destination mislabels the rest. The old
+`volume.max` and `volume.default` templates split between `volume_level` and
+the new `volume.max.boost` and `volume.reset`, and the old alerts
+`CreateOcpAlarm` splits between `CreateAlarm` and `CreateAlarmAlt`; all three
+stay out for that reason.
+
+The second is a destination that does not claim the phrasing. An alias is only
+honest when the surviving intent's own template covers what the old label
+carried, so `ovos-skill-wordnet`'s definition, synonym and antonym rows fold
+into `search_wordnet`, which asks for exactly those, while its hyponym,
+hypernym, holonym and lemma rows are dropped: nothing in the surviving grammar
+mentions a relation lookup, and aliasing them would teach the model to route
+relation questions at a definition. An intent that was deleted rather than
+renamed, such as `ovos-skill-iss-location`'s `about`, has no destination at all;
+its rows go too.
