@@ -192,10 +192,11 @@ class TestIntent4Registration(unittest.TestCase):
                       data={"skill_id": "test_skill",
                             "entity_name": "media",
                             "lang": "en-US",
-                            "samples": ["spotify", "{bad"]})
+                            "samples": ["spotify", "{bad"]},
+                      context={"skill_id": "test_skill"})
         with patch("ovos_m2v_pipeline.LOG.warning") as warn:
             pipeline._handle_intent4_register_entity(msg)
-        self.assertEqual(pipeline.entities.get("media"), ["spotify"])
+        self.assertEqual(pipeline.entities["test_skill"].get("media"), ["spotify"])
         warn.assert_called_once()
         self.assertIn("skipping malformed entity sample", warn.call_args[0][0])
 
@@ -205,10 +206,11 @@ class TestIntent4Registration(unittest.TestCase):
                       data={"skill_id": "test_skill",
                             "entity_name": "media",
                             "lang": "en-US",
-                            "samples": ["{bad", "{Worse}"]})
+                            "samples": ["{bad", "{Worse}"]},
+                      context={"skill_id": "test_skill"})
         with patch("ovos_m2v_pipeline.LOG.warning") as warn:
             pipeline._handle_intent4_register_entity(msg)
-        self.assertNotIn("media", pipeline.entities)
+        self.assertNotIn("media", pipeline.entities.get("test_skill", {}))
         rejection = warn.call_args_list[-1][0][0]
         self.assertIn("rejecting", rejection)
         self.assertIn("no valid entity sample remains", rejection)
