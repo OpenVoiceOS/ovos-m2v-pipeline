@@ -294,22 +294,101 @@ class TestIntent4Deregistration(unittest.TestCase):
         ))
         self.assertNotIn("engine", p.entities)
 
-    def test_disable_then_enable(self):
+    @staticmethod
+    def _session_message(topic, session_id, **data):
+        from ovos_bus_client.session import Session
+        return Message(topic, data=data,
+                       context={"skill_id": "music.skill",
+                                "session": Session(session_id=session_id).serialize()})
+
+    def _control(self, p, topic, session_id):
+        p._handle_intent4_disable(self._session_message(
+            topic, session_id, skill_id="music.skill",
+            intent_name="play_music", lang="en-US")) \
+            if topic == SpecMessage.INTENT_DISABLE.value else \
+            p._handle_intent4_enable(self._session_message(
+                topic, session_id, skill_id="music.skill",
+                intent_name="play_music", lang="en-US"))
+
+    def _matches(self, p, session_id):
+        p.model.encode.side_effect = None
+        p.model.encode.return_value = np.array([[1.0, 0.0, 0.0, 0.0]], dtype=np.float32)
+        msg = self._session_message("recognizer_loop:utterance", session_id)
+        return [label for _, label, _, _ in p._match("play music", msg)]
+
+    def test_disable_is_session_scoped(self):
+        # OVOS-INTENT-4 §8.5: disable affects only the session it arrived under
+        p = _make_prototype_pipeline()
+        self._register(p)
+        self._control(p, SpecMessage.INTENT_DISABLE.value, "session-a")
+        self.assertEqual(self._matches(p, "session-a"), [])
+        self.assertEqual(self._matches(p, "session-b"), ["music.skill:play_music"])
+        self.assertIn("music.skill:play_music", p.intents)
+        self.assertIn("music.skill:play_music", p.prototype_store.unique_labels)
+
+    def test_enable_rearms_without_reregistration(self):
+        p = _make_prototype_pipeline()
+        self._register(p)
+        self._control(p, SpecMessage.INTENT_DISABLE.value, "session-a")
+        self.assertEqual(self._matches(p, "session-a"), [])
+        self._control(p, SpecMessage.INTENT_ENABLE.value, "session-a")
+        self.assertEqual(self._matches(p, "session-a"), ["music.skill:play_music"])
+
+    def test_reregistration_preserves_disabled_state(self):
+        # §8.1: replacement preserves enabled/disabled state
+        p = _make_prototype_pipeline()
+        self._register(p)
+        self._control(p, SpecMessage.INTENT_DISABLE.value, "session-a")
+        self._register(p)
+        self.assertEqual(self._matches(p, "session-a"), [])
+
+    def test_deregistration_resets_disabled_state(self):
+        p = _make_prototype_pipeline()
+        self._register(p)
+        self._control(p, SpecMessage.INTENT_DISABLE.value, "session-a")
+        p._handle_intent4_deregister_intent(Message(
+            SpecMessage.INTENT_DEREGISTER.value,
+            data={"skill_id": "music.skill", "intent_name": "play_music", "lang": "en-US"},
+            context={"skill_id": "music.skill"}))
+        self._register(p)
+        self.assertEqual(self._matches(p, "session-a"), ["music.skill:play_music"])
+
+    def test_disable_unregistered_is_noop(self):
+        p = _make_prototype_pipeline()
+        self._control(p, SpecMessage.INTENT_DISABLE.value, "session-a")
+        self.assertEqual(p._disabled, {})
+
+    def test_default_session_disable_is_device_wide(self):
+        # Miro's ruling: a disable under the default session reaches the
+        # satellites that inherit the default registration (§11.2)
         p = _make_prototype_pipeline()
         self._register(p)
         p._handle_intent4_disable(Message(
             SpecMessage.INTENT_DISABLE.value,
-            data={"skill_id": "music.skill", "intent_name": "play_music", "lang": "en-US"},
-            context={"skill_id": "music.skill"},
-        ))
-        self.assertNotIn("music.skill:play_music", p.intents)
-        p._handle_intent4_enable(Message(
-            SpecMessage.INTENT_ENABLE.value,
-            data={"skill_id": "music.skill", "intent_name": "play_music", "lang": "en-US"},
-            context={"skill_id": "music.skill"},
-        ))
+            data={"skill_id": "music.skill", "intent_name": "play_music",
+                  "lang": "en-US"},
+            context={"skill_id": "music.skill"}))
+        self.assertEqual(self._matches(p, "a-satellite"), [])
         self.assertIn("music.skill:play_music", p.intents)
 
+    def test_named_session_disable_does_not_reach_the_default(self):
+        p = _make_prototype_pipeline()
+        self._register(p)
+        self._control(p, SpecMessage.INTENT_DISABLE.value, "session-a")
+        p.model.encode.side_effect = None
+        p.model.encode.return_value = np.array([[1.0, 0.0, 0.0, 0.0]], dtype=np.float32)
+        default_matches = [label for _, label, _, _ in p._match("play music", None)]
+        self.assertEqual(default_matches, ["music.skill:play_music"])
+
+    def test_classifier_mode_disable_is_session_scoped(self):
+        p = _make_classifier_pipeline()
+        self._register(p)
+        self._control(p, SpecMessage.INTENT_DISABLE.value, "session-a")
+        self.assertIn("music.skill:play_music", p.intents)
+        self.assertEqual(p._session_disabled(self._session_message(
+            "recognizer_loop:utterance", "session-a")), {"music.skill:play_music"})
+        self.assertEqual(p._session_disabled(self._session_message(
+            "recognizer_loop:utterance", "session-b")), frozenset())
 
 class TestIntent4ContextGating(unittest.TestCase):
     """OVOS-CONTEXT-1 §6/§6.1 requires_context / excludes_context gating."""
@@ -1049,7 +1128,8 @@ class TestSkillIdFromContext(unittest.TestCase):
             SpecMessage.INTENT_DISABLE.value,
             data={"skill_id": "music.skill", "intent_name": "play_music", "lang": "en-US"},
             context={"skill_id": "admin.skill"}))
-        self.assertNotIn("music.skill:play_music", p.intents)
+        # no session on the message -> the default session's scope
+        self.assertEqual(p._disabled, {"default": {"music.skill:play_music"}})
 
     def test_enable_is_cross_skill_by_design(self):
         p = _make_prototype_pipeline()
@@ -1062,12 +1142,12 @@ class TestSkillIdFromContext(unittest.TestCase):
             SpecMessage.INTENT_DISABLE.value,
             data={"skill_id": "music.skill", "intent_name": "play_music", "lang": "en-US"},
             context={"skill_id": "music.skill"}))
-        self.assertNotIn("music.skill:play_music", p.intents)
+        self.assertEqual(p._disabled, {"default": {"music.skill:play_music"}})
         p._handle_intent4_enable(Message(
             SpecMessage.INTENT_ENABLE.value,
             data={"skill_id": "music.skill", "intent_name": "play_music", "lang": "en-US"},
             context={"skill_id": "admin.skill"}))
-        self.assertIn("music.skill:play_music", p.intents)
+        self.assertEqual(p._disabled, {})
 
     def test_register_ignores_differing_payload_even_with_enable_disable_exempt(self):
         """Sanity: the §8.5 enable/disable exemption must not leak into the
