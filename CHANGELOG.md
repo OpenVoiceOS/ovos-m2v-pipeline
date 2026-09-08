@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.2a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.12.2a2) (2026-09-08)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.12.2a1...0.12.2a2)
+
+**Merged pull requests:**
+
+- test: survive a loading model, and drop an xfail dev already passes [\#145](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/145) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.12.2a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.12.2a1) (2026-09-08)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.12.1a1...0.12.2a1)
@@ -362,7 +370,6 @@
 **Merged pull requests:**
 
 - Release 0.0.9a1 [\#23](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/23) ([github-actions[bot]](https://github.com/apps/github-actions))
-- chore\(deps\): update actions/checkout action to v6 [\#15](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/15) ([renovate[bot]](https://github.com/apps/renovate))
 
 ## [0.0.8](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.8) (2026-03-02)
 
