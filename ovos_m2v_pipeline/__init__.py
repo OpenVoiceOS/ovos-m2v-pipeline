@@ -16,6 +16,7 @@ from ovos_config.config import Configuration
 from ovos_plugin_manager.templates.pipeline import IntentHandlerMatch, ConfidenceMatcherPipeline
 from ovos_config.locations import get_xdg_data_save_path
 from ovos_spec_tools import SpecMessage
+from ovos_spec_tools.intent_topics import RESERVED_INTENT_NAMES
 from ovos_spec_tools.context import gate_satisfied, context_slot_candidates
 from ovos_spec_tools.language import closest_lang, standardize_lang
 from itertools import islice
@@ -1877,11 +1878,25 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             return
         if label in self.ignore_labels:
             return
+        intent_name = message.data.get("intent_name", "")
+        if intent_name in RESERVED_INTENT_NAMES:  # §5.3: reserved by another spec
+            self._intent4_warn(topic, message,
+                               f"intent_name {intent_name!r} is reserved "
+                               "(OVOS-PIPELINE-1 §7.3)")
+            return
         samples = message.data.get("samples")
         if not samples:  # missing or empty -> malformed (§6.3)
             self._intent4_warn(topic, message, "samples missing or empty")
             return
         samples = [strip_type_prefixes(s) for s in samples]
+        required = message.data.get("required_slots") or []
+        declared = {slot for s in samples for slot in _SLOT_RE.findall(s)}
+        undeclared = [r for r in required if r not in declared]
+        if undeclared:  # §6.3: required_slots must name declared slots
+            self._intent4_warn(topic, message,
+                               f"required_slots {undeclared!r} not declared "
+                               "by any sample template")
+            return
 
         blacklist = message.data.get("blacklist")
         if blacklist:  # §6.1 suppression phrases: drop matches containing these
