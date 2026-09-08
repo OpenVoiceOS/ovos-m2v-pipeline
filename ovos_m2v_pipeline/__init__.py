@@ -1654,23 +1654,26 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
 
     @staticmethod
     def _resolve_skill_id(message: Message, topic: str) -> str:
-        """Resolve the producing skill_id per OVOS-INTENT-4 §3.2:
-        ``message.context["skill_id"]`` is the authoritative attribution.
-        A ``message.data["skill_id"]`` that differs is logged and ignored,
-        never trusted; a missing context value resolves to "" so callers
-        drop the registration."""
-        ctx_id = message.context.get("skill_id", "")
+        """Resolve the skill a registration message acts on.
+
+        ``message.data["skill_id"]`` is the target: the registration acts
+        on the payload. ``message.context["skill_id"]`` records which
+        component sent the message and is only used when the payload
+        names no skill (the legacy wire relies on it). A payload that
+        differs from the context is a cross-skill registration, which is
+        allowed (an operator scripting on a skill's behalf); it is logged
+        so provenance stays visible. Neither present resolves to "" and
+        the caller drops the registration.
+        """
         data_id = message.data.get("skill_id", "")
-        if not ctx_id:
-            LOG.warning(f"{topic}: missing skill_id in message.context "
-                        f"(OVOS-INTENT-4 §3.2); dropping")
-            return ""
-        if data_id and data_id != ctx_id:
-            LOG.warning(
-                f"{topic}: message.data['skill_id']={data_id!r} differs from "
-                f"authoritative message.context['skill_id']={ctx_id!r} "
-                f"(OVOS-INTENT-4 §3.2); using context value")
-        return ctx_id
+        ctx_id = message.context.get("skill_id", "")
+        if data_id and ctx_id and data_id != ctx_id:
+            LOG.info(f"{topic}: registration for {data_id!r} sent by "
+                     f"{ctx_id!r} (message.context['skill_id'])")
+        if not data_id and not ctx_id:
+            LOG.warning(f"{topic}: no skill_id in message.data or "
+                        f"message.context; dropping")
+        return data_id or ctx_id
 
     def _handle_ready_prototype(self, message: Message) -> None:
         LOG.info(
