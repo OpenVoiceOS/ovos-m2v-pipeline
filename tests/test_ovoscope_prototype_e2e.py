@@ -19,8 +19,6 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-pytest.importorskip("ovoscope", reason="ovoscope not installed; skipping E2E tests")
-
 from ovos_bus_client.message import Message  # noqa: E402
 from ovos_bus_client.session import Session  # noqa: E402
 from ovos_config.config import Configuration  # noqa: E402

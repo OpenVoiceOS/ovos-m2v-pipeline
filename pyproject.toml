@@ -43,6 +43,7 @@ test = [
     # E2EPipelineHarness namespace flags). Mirrors ovos-test-harness@dev.
     "ovos-bus-client>=2.5.1a1,<3.0.0",
     "ovos-spec-tools>=1.11.2a1",
+    "ovoscope>=1.8.1a1",
     "pandas>=1.5.0",
     "scikit-learn>=1.0.0",
     "pyyaml>=5.1",

@@ -32,7 +32,6 @@ if os.environ.get("OVOSCOPE_LIVE") != "1":
         allow_module_level=True,
     )
 
-pytest.importorskip("ovoscope", reason="ovoscope not installed")
 
 import numpy as np  # noqa: E402
 from ovos_bus_client.message import Message  # noqa: E402

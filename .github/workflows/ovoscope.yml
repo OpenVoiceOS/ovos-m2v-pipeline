@@ -18,7 +18,6 @@ jobs:
       install_extras: "test"
       test_path: "tests/test_ovoscope_prototype_e2e.py tests/end2end/"
       require_m2v: true
-      # Validate against the unreleased ovoscope dev branch (E2EPipelineHarness)
-      # and the m2v pipeline from dev. Drop once ovoscope is released to PyPI
-      # with the harness.
+      # Validate against the latest ovoscope PyPI prerelease (E2EPipelineHarness)
+      # and the m2v pipeline from dev.
       pre_release: true
