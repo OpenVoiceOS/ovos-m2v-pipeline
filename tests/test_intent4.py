@@ -1011,76 +1011,64 @@ class TestTypedSlotContextFill(unittest.TestCase):
         self.assertEqual(slots.get("amount"), "5")
 
 
-class TestSkillIdFromContext(unittest.TestCase):
-    """OVOS-INTENT-4 §3.2: ``message.context["skill_id"]`` is the
-    authoritative attribution of the producing component. A registration
-    handler takes the skill id from the context, never from a payload
-    value that differs from it."""
+class TestSkillIdFromPayload(unittest.TestCase):
+    """The registration acts on ``message.data["skill_id"]``, the payload.
+    ``message.context["skill_id"]`` is provenance: it only fills in when
+    the payload names no skill, and a difference between the two is a
+    cross-skill registration, allowed and logged."""
 
-    def test_register_template_differing_payload_uses_context(self):
+    def test_register_template_differing_payload_acts_on_payload(self):
         p = _make_prototype_pipeline()
         with patch("ovos_m2v_pipeline.LOG.warning") as warn:
             p._handle_intent4_register_template(Message(
                 SpecMessage.INTENT_REGISTER_TEMPLATE.value,
-                data={"skill_id": "spoofed.skill", "intent_name": "play_music",
+                data={"skill_id": "target.skill", "intent_name": "play_music",
                       "lang": "en-US", "samples": ["play music"]},
-                context={"skill_id": "music.skill"}))
-        self.assertIn("music.skill:play_music", p.intents)
-        self.assertNotIn("spoofed.skill:play_music", p.intents)
-        warn.assert_called()
-        self.assertIn("differs from", warn.call_args_list[0].args[0])
+                context={"skill_id": "admin.skill"}))
+        self.assertIn("target.skill:play_music", p.intents)
+        self.assertNotIn("admin.skill:play_music", p.intents)
+        warn.assert_not_called()
 
-    def test_register_template_missing_context_dropped(self):
+    def test_register_template_missing_context_uses_payload(self):
         p = _make_prototype_pipeline()
         with patch("ovos_m2v_pipeline.LOG.warning") as warn:
             p._handle_intent4_register_template(Message(
                 SpecMessage.INTENT_REGISTER_TEMPLATE.value,
                 data={"skill_id": "music.skill", "intent_name": "play_music",
                       "lang": "en-US", "samples": ["play music"]}))
-        self.assertNotIn("music.skill:play_music", p.intents)
-        warn.assert_called()
-        self.assertIn("missing skill_id in message.context", warn.call_args_list[0].args[0])
+        self.assertIn("music.skill:play_music", p.intents)
+        warn.assert_not_called()
 
-    def test_register_template_matching_payload_unaffected(self):
+    def test_register_template_no_skill_id_anywhere_dropped(self):
         p = _make_prototype_pipeline()
         with patch("ovos_m2v_pipeline.LOG.warning") as warn:
             p._handle_intent4_register_template(Message(
                 SpecMessage.INTENT_REGISTER_TEMPLATE.value,
-                data={"skill_id": "music.skill", "intent_name": "play_music",
-                      "lang": "en-US", "samples": ["play music"]},
-                context={"skill_id": "music.skill"}))
-        self.assertIn("music.skill:play_music", p.intents)
-        warn.assert_not_called()
-
-    def test_register_padatious_differing_payload_uses_context(self):
-        p = _make_prototype_pipeline()
-        with patch("ovos_m2v_pipeline.LOG.warning") as warn:
-            p._handle_register_padatious(Message(
-                "padatious:register_intent",
-                data={"name": "spoofed.skill:greet.intent",
-                      "skill_id": "spoofed.skill", "samples": ["hi"]},
-                context={"skill_id": "music.skill"}))
-        # the label is dealiased from message.data["name"] (§3.2 covers
-        # skill_id attribution, not the intent name), but the registration
-        # itself must go through -- only a differing skill_id is rejected.
-        self.assertIn("spoofed.skill:greet", p.intents)
-        self.assertTrue(any("differs from" in c.args[0] for c in warn.call_args_list))
-
-    def test_register_padatious_missing_context_dropped(self):
-        p = _make_prototype_pipeline()
-        with patch("ovos_m2v_pipeline.LOG.warning") as warn:
-            p._handle_register_padatious(Message(
-                "padatious:register_intent",
-                data={"name": "music.skill:greet.intent", "samples": ["hi"]}))
-        self.assertNotIn("music.skill:greet", p.intents)
-        self.assertEqual(len(p.prototype_store), 0)
+                data={"intent_name": "play_music", "lang": "en-US",
+                      "samples": ["play music"]}))
+        self.assertEqual(p.intents, set())
         warn.assert_called()
-        self.assertIn("missing skill_id in message.context", warn.call_args_list[0].args[0])
+        self.assertIn("no skill_id", warn.call_args_list[0].args[0])
+
+    def test_register_padatious_differing_payload_acts_on_payload(self):
+        p = _make_prototype_pipeline()
+        p._handle_register_padatious(Message(
+            "padatious:register_intent",
+            data={"name": "target.skill:greet.intent",
+                  "skill_id": "target.skill", "samples": ["hi"]},
+            context={"skill_id": "admin.skill"}))
+        self.assertIn("target.skill:greet", p.intents)
+
+    def test_register_padatious_missing_context_uses_payload(self):
+        p = _make_prototype_pipeline()
+        p._handle_register_padatious(Message(
+            "padatious:register_intent",
+            data={"name": "music.skill:greet.intent", "skill_id": "music.skill",
+                  "samples": ["hi"]}))
+        self.assertIn("music.skill:greet", p.intents)
 
     def test_register_padatious_absent_payload_uses_context(self):
-        # the legacy wire's ``name`` already carries the label (dealiased,
-        # not skill_id-prefixed here); an absent payload skill_id is simply
-        # resolved from the context, with no warning.
+        # the legacy wire carries the sender only in the context
         p = _make_prototype_pipeline()
         with patch("ovos_m2v_pipeline.LOG.warning") as warn:
             p._handle_register_padatious(Message(
@@ -1090,22 +1078,22 @@ class TestSkillIdFromContext(unittest.TestCase):
         self.assertIn("greet", p.intents)
         warn.assert_not_called()
 
-    def test_deregister_skill_differing_payload_uses_context(self):
+    def test_deregister_skill_differing_payload_acts_on_payload(self):
         p = _make_prototype_pipeline()
-        p._handle_intent4_register_template(Message(
-            SpecMessage.INTENT_REGISTER_TEMPLATE.value,
-            data={"skill_id": "music.skill", "intent_name": "play_music",
-                  "lang": "en-US", "samples": ["play music"]},
-            context={"skill_id": "music.skill"}))
-        with patch("ovos_m2v_pipeline.LOG.warning") as warn:
-            p._handle_intent4_deregister_skill(Message(
-                SpecMessage.SKILL_DEREGISTER.value,
-                data={"skill_id": "spoofed.skill"},
-                context={"skill_id": "music.skill"}))
-        self.assertNotIn("music.skill:play_music", p.intents)
-        self.assertTrue(any("differs from" in c.args[0] for c in warn.call_args_list))
+        for sid in ("music.skill", "other.skill"):
+            p._handle_intent4_register_template(Message(
+                SpecMessage.INTENT_REGISTER_TEMPLATE.value,
+                data={"skill_id": sid, "intent_name": "play_music",
+                      "lang": "en-US", "samples": ["play music"]},
+                context={"skill_id": sid}))
+        p._handle_intent4_deregister_skill(Message(
+            SpecMessage.SKILL_DEREGISTER.value,
+            data={"skill_id": "other.skill"},
+            context={"skill_id": "admin.skill"}))
+        self.assertIn("music.skill:play_music", p.intents)
+        self.assertNotIn("other.skill:play_music", p.intents)
 
-    def test_deregister_skill_missing_context_dropped(self):
+    def test_deregister_skill_no_skill_id_anywhere_dropped(self):
         p = _make_prototype_pipeline()
         p._handle_intent4_register_template(Message(
             SpecMessage.INTENT_REGISTER_TEMPLATE.value,
@@ -1114,10 +1102,9 @@ class TestSkillIdFromContext(unittest.TestCase):
             context={"skill_id": "music.skill"}))
         with patch("ovos_m2v_pipeline.LOG.warning") as warn:
             p._handle_intent4_deregister_skill(Message(
-                SpecMessage.SKILL_DEREGISTER.value, data={"skill_id": "music.skill"}))
+                SpecMessage.SKILL_DEREGISTER.value, data={}))
         self.assertIn("music.skill:play_music", p.intents)
         warn.assert_called()
-        self.assertIn("missing skill_id in message.context", warn.call_args_list[0].args[0])
 
     def test_disable_is_cross_skill_by_design(self):
         """§8.5 exemption: ovos.intent.disable's payload skill_id names the
@@ -1154,20 +1141,6 @@ class TestSkillIdFromContext(unittest.TestCase):
             data={"skill_id": "music.skill", "intent_name": "play_music", "lang": "en-US"},
             context={"skill_id": "admin.skill"}))
         self.assertEqual(p._disabled, {})
-
-    def test_register_ignores_differing_payload_even_with_enable_disable_exempt(self):
-        """Sanity: the §8.5 enable/disable exemption must not leak into the
-        register/deregister path, which stays context-only (§3.2)."""
-        p = _make_prototype_pipeline()
-        with patch("ovos_m2v_pipeline.LOG.warning") as warn:
-            p._handle_intent4_register_template(Message(
-                SpecMessage.INTENT_REGISTER_TEMPLATE.value,
-                data={"skill_id": "spoofed.skill", "intent_name": "play_music",
-                      "lang": "en-US", "samples": ["play music"]},
-                context={"skill_id": "music.skill"}))
-        self.assertIn("music.skill:play_music", p.intents)
-        self.assertNotIn("spoofed.skill:play_music", p.intents)
-        warn.assert_called()
 
 
 if __name__ == "__main__":
