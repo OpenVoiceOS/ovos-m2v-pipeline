@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.12.1a1) (2026-09-08)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.12.0a1...0.12.1a1)
+
+**Merged pull requests:**
+
+- fix: reject reserved intent names and undeclared required\_slots \(OVOS-INTENT-4 §6.3\) [\#137](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/137) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.12.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.12.0a1) (2026-09-07)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.11.3a2...0.12.0a1)
@@ -380,23 +388,14 @@
 **Merged pull requests:**
 
 - Release 0.0.8a1 [\#13](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/13) ([github-actions[bot]](https://github.com/apps/github-actions))
-- chore: Configure Renovate [\#12](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/12) ([renovate[bot]](https://github.com/apps/renovate))
 
 ## [0.0.7](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.7) (2025-11-05)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.7a1...0.0.7)
 
-**Merged pull requests:**
-
-- Release 0.0.7a1 [\#11](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/11) ([github-actions[bot]](https://github.com/apps/github-actions))
-
 ## [0.0.7a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.7a1) (2025-11-05)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.6...0.0.7a1)
-
-**Merged pull requests:**
-
-- Update ovos-plugin-manager version range [\#10](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/10) ([JarbasAl](https://github.com/JarbasAl))
 
 ## [0.0.6](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.6) (2025-06-08)
 
