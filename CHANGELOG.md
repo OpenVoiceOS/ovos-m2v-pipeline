@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.2a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.12.2a1) (2026-09-08)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.12.1a1...0.12.2a1)
+
+**Merged pull requests:**
+
+- fix: session-scoped intent disable and enable \(OVOS-INTENT-4 §8.5\) [\#138](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/138) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.12.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.12.1a1) (2026-09-08)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.12.0a1...0.12.1a1)
@@ -384,10 +392,6 @@
 ## [0.0.8a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.8a1) (2025-12-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.7...0.0.8a1)
-
-**Merged pull requests:**
-
-- Release 0.0.8a1 [\#13](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/13) ([github-actions[bot]](https://github.com/apps/github-actions))
 
 ## [0.0.7](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.7) (2025-11-05)
 
