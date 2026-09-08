@@ -12,5 +12,6 @@ jobs:
       python_version: '3.11'
       coverage_source: 'ovos_m2v_pipeline'
       test_path: 'tests/'
+      test_extras: 'test'
       install_extras: ''
       min_coverage: 0
