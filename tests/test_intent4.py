@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 from ovos_bus_client.message import Message
 from ovos_spec_tools import SpecMessage
+from ovos_spec_tools.intent_topics import RESERVED_INTENT_NAMES
 from ovos_spec_tools.context import context_slot_candidates
 
 
@@ -1085,3 +1086,51 @@ class TestSkillIdFromContext(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestIntent4MalformedRegistration(unittest.TestCase):
+    """OVOS-INTENT-4 §5.3 / §6.3: a reserved ``intent_name`` and a
+    ``required_slots`` entry no sample declares are rejected, not indexed."""
+
+    def _register(self, p, intent_name, samples, **extra):
+        p._handle_intent4_register_template(Message(
+            SpecMessage.INTENT_REGISTER_TEMPLATE.value,
+            data={"skill_id": "music.skill", "intent_name": intent_name,
+                  "lang": "en-US", "samples": samples, **extra},
+            context={"skill_id": "music.skill"},
+        ))
+
+    def test_reserved_intent_name_rejected(self):
+        # iterate the spec's own registry rather than a copy of it, so a
+        # name reserved upstream is covered here without a code change.
+        # `response` and `fallback` are the two names ovos-spec-tools
+        # 1.11.2a1 exists to add: assert them by name, or loosening the
+        # floor back to a three-name release would leave this green while
+        # enforcement silently narrowed.
+        self.assertIn("response", RESERVED_INTENT_NAMES)
+        self.assertIn("fallback", RESERVED_INTENT_NAMES)
+        for mode in (_make_prototype_pipeline, _make_classifier_pipeline):
+            p = mode()
+            for name in sorted(RESERVED_INTENT_NAMES):
+                self._register(p, name, ["stop the music"])
+                self.assertNotIn(f"music.skill:{name}", p.intents, name)
+            if p.prototype_store is not None:
+                self.assertEqual(len(p.prototype_store), 0)
+
+    def test_required_slot_not_declared_rejected(self):
+        p = _make_prototype_pipeline()
+        self._register(p, "play_song", ["play {song}"], required_slots=["artist"])
+        self.assertNotIn("music.skill:play_song", p.intents)
+        self.assertNotIn("music.skill:play_song", p.prototype_store.unique_labels)
+
+    def test_required_slot_declared_accepted(self):
+        p = _make_prototype_pipeline()
+        self._register(p, "play_song", ["play {song} by {artist}"],
+                       required_slots=["artist"])
+        self.assertIn("music.skill:play_song", p.intents)
+
+    def test_required_slot_declared_with_type_prefix_accepted(self):
+        p = _make_prototype_pipeline()
+        self._register(p, "set_volume", ["set volume to {number:level}"],
+                       required_slots=["level"])
+        self.assertIn("music.skill:set_volume", p.intents)
