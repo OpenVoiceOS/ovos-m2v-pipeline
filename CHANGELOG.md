@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.4a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.12.4a1) (2026-09-08)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.12.3a2...0.12.4a1)
+
+**Merged pull requests:**
+
+- fix: registrations act on the payload skill\_id [\#141](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/141) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.12.3a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.12.3a2) (2026-09-08)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.12.3a1...0.12.3a2)
@@ -383,17 +391,9 @@
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.8...0.0.9a1)
 
-**Merged pull requests:**
-
-- Release 0.0.9a1 [\#23](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/23) ([github-actions[bot]](https://github.com/apps/github-actions))
-
 ## [0.0.8](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.8) (2026-03-02)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.8a3...0.0.8)
-
-**Merged pull requests:**
-
-- Release 0.0.8a3 [\#22](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/22) ([github-actions[bot]](https://github.com/apps/github-actions))
 
 ## [0.0.8a3](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.8a3) (2026-03-02)
 
