@@ -1002,10 +1002,10 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             if isinstance(manifest_valid, list):
                 self.valid_labels = manifest_valid
         self._syncing = False
-        #: Registered entity value-sets (OVOS-INTENT-4 §7), keyed by entity
-        #: name (lowercase). Used to fill ``{slot}`` placeholders in template
-        #: samples before embedding. Disabled (left empty) in classifier mode.
-        self.entities: Dict[str, List[str]] = {}
+        #: OVOS-INTENT-4 §7 entity value sets, keyed by the owning skill_id
+        #: (§8.3 targets (skill_id, entity_name, lang)): one skill's entity
+        #: never fills or removes another skill's.
+        self.entities: Dict[str, Dict[str, List[str]]] = {}
         #: OVOS-INTENT-4 §8.5 disabled labels, keyed by the session_id the
         #: disable arrived under: the definition stays registered, the label
         #: is only excluded from match candidacy for that session.
@@ -1731,10 +1731,9 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         # entities registered so far are the only ones visible, so this is a
         # one-shot fill just like the INTENT-4 path (neither re-expands on
         # later entity registration).
-        sentences = self._expand_entities(sentences)
+        sentences = self._expand_entities(sentences, skill_id)
         slots = {slot for s in raw_samples for slot in _SLOT_RE.findall(s)}
-        entity_values = {slot: self.entities[slot.lower()]
-                          for slot in slots if slot.lower() in self.entities}
+        entity_values = self._entity_values(skill_id, slots)
         cache_key = self._prototype_cache_key(raw_samples, entity_values, lang=reg_lang)
         if (cache_key is not None
                 and self._prebuilt_validated
@@ -1791,6 +1790,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             self._intent_slots = {l: s for l, s in self._intent_slots.items()
                                   if not l.startswith(skill_id + ":")}
             self._forget_disabled_skill(skill_id)
+            self.entities.pop(skill_id, None)
             LOG.debug(f"Prototype store: removed prototypes for skill '{skill_id}'")
 
     # ------------------------------------------------------------------
@@ -1860,7 +1860,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             f"lang={message.data.get('lang')!r}]"
         )
 
-    def _expand_entities(self, samples: List[str]) -> List[str]:
+    def _expand_entities(self, samples: List[str], skill_id: str) -> List[str]:
         """Fill ``{slot}`` placeholders in template *samples* with registered
         entity values (OVOS-INTENT-4 §7). Samples without placeholders, or whose
         entity is unregistered, are passed through with the placeholder left
@@ -1871,7 +1871,12 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         training corpus and the runtime prototype encoder fill slots the
         same way.
         """
-        return expand_entities(samples, self.entities)
+        return expand_entities(samples, self.entities.get(skill_id, {}))
+
+    def _entity_values(self, skill_id: str, slots: Iterable[str]) -> Dict[str, List[str]]:
+        """The owning skill's registered values for the slots a template names."""
+        own = self.entities.get(skill_id, {})
+        return {slot: own[slot.lower()] for slot in slots if slot.lower() in own}
 
     def _handle_intent4_register_template(self, message: Message) -> None:
         """Register a template intent (§6): bracket-expand + entity-fill the
@@ -1930,7 +1935,8 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         # from later, so this is a one-shot fill just like the legacy-wire
         # path (neither re-expands on a later `ovos.entity.register`).
         expanded: List[str] = []
-        for s in self._expand_entities(list(samples)):
+        skill_id = label.split(":", 1)[0]
+        for s in self._expand_entities(list(samples), skill_id):
             if len(expanded) >= MAX_ENTITY_EXPANSIONS:
                 break
             try:
@@ -1954,8 +1960,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         # their list order is unstable across runs -- compute_cache_key()
         # sorts them before hashing.
         slots = {slot for s in samples for slot in _SLOT_RE.findall(s)}
-        entity_values = {slot: self.entities[slot.lower()]
-                          for slot in slots if slot.lower() in self.entities}
+        entity_values = self._entity_values(skill_id, slots)
         reg_lang = message.data.get("lang")
         cache_key = self._prototype_cache_key(list(samples), entity_values, lang=reg_lang)
         if (cache_key is not None
@@ -2008,8 +2013,9 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         topic = SpecMessage.ENTITY_REGISTER.value
         name: str = message.data.get("entity_name", "")
         samples = message.data.get("samples")
-        if not name:
-            self._intent4_warn(topic, message, "missing entity_name")
+        skill_id = self._resolve_skill_id(message, topic)
+        if not name or not skill_id:
+            self._intent4_warn(topic, message, "missing skill_id or entity_name")
             return
         if not samples:  # missing or empty -> malformed (§7.2)
             self._intent4_warn(topic, message, "samples missing or empty")
@@ -2035,7 +2041,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         if not values:  # zero valid entries -> malformed (§7.2)
             self._intent4_warn(topic, message, "no valid entity sample remains")
             return
-        self.entities[name.lower()] = list(values)
+        self.entities.setdefault(skill_id, {})[name.lower()] = list(values)
         LOG.debug(f"Model2Vec: registered INTENT-4 entity '{name}' ({len(values)} values)")
 
     def _handle_intent4_deregister_intent(self, message: Message) -> None:
@@ -2056,9 +2062,10 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
     def _handle_intent4_deregister_entity(self, message: Message) -> None:
         """Remove one entity (§8.3). No-op in classifier mode."""
         name: str = message.data.get("entity_name", "")
-        if name:
-            self.entities.pop(name.lower(), None)
-            LOG.debug(f"Model2Vec: deregistered INTENT-4 entity '{name}'")
+        skill_id = self._resolve_skill_id(message, message.msg_type)
+        if name and skill_id:
+            self.entities.get(skill_id, {}).pop(name.lower(), None)
+            LOG.debug(f"Model2Vec: deregistered INTENT-4 entity '{skill_id}:{name}'")
 
     def _handle_intent4_deregister_skill(self, message: Message) -> None:
         """Remove every intent and entity owned by a skill (§8.4)."""
@@ -2076,6 +2083,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         self.excluded_keywords = {i: kw for i, kw in self.excluded_keywords.items()
                                   if not i.startswith(skill_id + ":")}
         self._forget_disabled_skill(skill_id)
+        self.entities.pop(skill_id, None)
         LOG.debug(f"Model2Vec: deregistered all INTENT-4 registrations for skill '{skill_id}'")
 
     def _handle_intent4_disable(self, message: Message) -> None:
