@@ -320,3 +320,23 @@ mentions a relation lookup, and aliasing them would teach the model to route
 relation questions at a definition. An intent that was deleted rather than
 renamed, such as `ovos-skill-iss-location`'s `about`, has no destination at all;
 its rows go too.
+
+### Labels an unfilled slot limits
+
+A label can reach the split with too few rows for a reason no contribution
+upstream can fix. If every phrasing it carries in a language ends in a slot the
+pinned refs register no values for, the entity fill leaves the placeholder
+literal and each of those phrasings is dropped, so the label arrives with only
+whatever slot-free lines it happens to have.
+
+The manifest reports those apart from the genuinely thin ones, under
+`labels_limited_by_unfilled_slots`, naming the slot and the languages. The
+distinction is not cosmetic: a thin label asks for a phrasing or a translation,
+while a limited one asks for an entity file in the skill or a change here, and
+reading the second as the first sends a maintainer a request they cannot act on.
+
+Some of those slots are deliberately open. A pipeline that forwards whatever
+word the user said as a search hint, and leaves the vocabulary to the skills
+that answer, has no entity file to ship and no reason to grow one. Such a label
+cannot be scored by a corpus that expands templates, and the manifest entry
+says so rather than implying a gap.

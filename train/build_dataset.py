@@ -236,6 +236,45 @@ def norm_skill(skill_id: str) -> str:
     return s
 
 
+def unfillable_slots(dropped) -> dict:
+    """Slots that left their placeholder literal, per label.
+
+    `dropped` is the frame of rows the entity fill could not complete. The
+    result maps a label to the slot names and languages behind that loss, so
+    a report can say which slot cost the label its phrasings.
+    """
+    out = {}
+    for label, lang, utt in zip(dropped["label"], dropped["lang"],
+                                dropped["utterance"]):
+        slots, langs = out.setdefault(label, (set(), set()))
+        slots.update(re.findall(r"\{([^}]+)\}", utt))
+        langs.add(lang)
+    return out
+
+
+def limited_by_unfilled_slots(no_test: set, unfillable: dict) -> dict:
+    """Of the labels with no test rows, those an unfilled slot explains.
+
+    A label here is not short of phrasings. Its phrasings exist in the skill
+    and this corpus cannot expand them, because the pinned refs register no
+    values for the slot they end in. That asks for an entity file or a change
+    in the builder, where a genuinely thin label asks for a contribution, so
+    the two are reported apart and the reason travels with the entry.
+    """
+    limited = {}
+    for label in sorted(no_test & set(unfillable)):
+        slots, langs = unfillable[label]
+        limited[label] = {
+            "slots": sorted(slots),
+            "langs": sorted(langs),
+            "reason": "every phrasing in %s ends in %s, which the pinned refs "
+                      "register no values for" % (
+                          ", ".join(sorted(langs)),
+                          " and ".join("{%s}" % s for s in sorted(slots))),
+        }
+    return limited
+
+
 def make_label(skill_id: str, intent: str) -> str:
     label = f"{norm_skill(skill_id)}:{norm_intent(intent)}"
     return LABEL_ALIASES.get(label, label)
@@ -969,6 +1008,12 @@ def main(argv=None):
     df = df.explode("utterance", ignore_index=False)
     still_literal = df["utterance"].str.contains("{", regex=False, na=False)
     n_unfilled_slot = int(still_literal.sum())
+    # A slot the pinned refs register no values for leaves its placeholder
+    # literal, so every phrasing built on it is dropped here. Remember which
+    # label lost phrasings that way, and to which slot, so the floor report
+    # can tell a label starved of phrasings from one whose phrasings exist
+    # and cannot be expanded.
+    unfillable = unfillable_slots(df[still_literal])
     df = df[~still_literal]
 
     # ---- content filters
@@ -1157,8 +1202,15 @@ def main(argv=None):
 
     report["outputs"] = written
     test_rows = test["label"].value_counts()
-    report["labels_without_test_rows"] = sorted(
-        set(df["label"].unique()) - set(test_rows.index))
+    no_test = set(df["label"].unique()) - set(test_rows.index)
+    # A label whose phrasings were dropped for an unfilled slot is not thin:
+    # the phrasings exist in the skill and this corpus cannot expand them. It
+    # is reported apart from the labels that genuinely lack phrasings, with
+    # the slot named, because the two ask for opposite things -- one a change
+    # in the builder or the skill's entity files, the other a contribution.
+    limited = limited_by_unfilled_slots(no_test, unfillable)
+    report["labels_without_test_rows"] = sorted(no_test - set(limited))
+    report["labels_limited_by_unfilled_slots"] = limited
     report["golden_in_split"] = {
         "train": int(train["source"].str.startswith("golden:").sum()),
         "test": int(test["source"].str.startswith("golden:").sum()),
