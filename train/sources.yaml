@@ -305,6 +305,19 @@ filters:
   # Labels with fewer than this many rows cannot be stratified into a split.
   min_rows_per_label: 2
 
+# What the published dataset claims, as opposed to what the corpus holds.
+# A language carrying one skill's templates, or a region-less tag the corpus
+# disagrees about, is real data and stays in the corpora; neither is published,
+# because a published language count is read as coverage.
+publish:
+  # The dataset is language-level: every regional variant trains one label
+  # space for its macro language. Skills keep their per-dialect locale
+  # directories; this groups their rows at build time and every row keeps
+  # its dialect in `lang_variant`, so the grouping is reversible.
+  collapse_to_macro_language: true
+  min_rows_per_lang: 0
+  min_skills_per_lang: 0
+
 split:
   test_size: 0.2
   seed: 42
