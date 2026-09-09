@@ -48,7 +48,17 @@ python train/build_dataset.py --workspace ~/AgentWorkspaces --out train/dataset
 
 # 3. fit (only once the hold above is lifted)
 python train/train.py --dataset train/dataset --base-model minishlab/potion-base-32M
+
+# 3b. or export prototype-mode centroids from the same corpus
+ovos-m2v-prototypes export --from-dataset train/dataset \
+  --model minishlab/potion-base-32M --out train/prototypes
 ```
+
+Step 3 fits a classifier, whose label head is frozen at fit time. Step 3b builds a prototype
+artifact over a bare embedding backbone instead, which keeps the label set open: a per-skill
+artifact is one export restricted to that skill's labels, loaded alongside the default.
+Both read the same corpus, so a comparison between them measures the two shapes rather than
+two datasets.
 
 `--allow-ambiguous` keeps rows whose `(utterance, lang)` carries more than one
 label; by default they are dropped and the label pairs are reported.
