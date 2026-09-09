@@ -50,6 +50,16 @@ python train/build_dataset.py --workspace ~/AgentWorkspaces --out train/dataset
 python train/train.py --dataset train/dataset --base-model minishlab/potion-base-32M
 ```
 
+The classifier and the prototype artifact are published as a pair and describe the
+same intents, so their label sets have to agree. `train/build_artifacts.py` runs both
+producers against one corpus into a staging directory, compares the two label sets,
+and publishes only when they match. When they differ it writes nothing and names the
+labels responsible:
+
+```bash
+python train/build_artifacts.py --dataset train/dataset --out train/artifacts
+```
+
 `--allow-ambiguous` keeps rows whose `(utterance, lang)` carries more than one
 label; by default they are dropped and the label pairs are reported.
 
