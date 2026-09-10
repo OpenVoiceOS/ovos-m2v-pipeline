@@ -21,9 +21,30 @@ SLOT_RE = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
 #: the combination space.
 MAX_ENTITY_EXPANSIONS = 2000
 
+#: ``(template, total_combinations)`` pairs recorded by :func:`expand_entities`
+#: with ``record_oversample=True`` since the last :func:`reset_oversample_stats`
+#: call. A bulk caller that fills thousands of templates from large entity sets
+#: (the corpus builder) hits the per-call bound on most of them; that caller
+#: opts in and reads this list to log one summary instead of one WARNING per
+#: call. A default call records nothing, so a long-lived runtime holds no list.
+_oversampled: List[tuple] = []
+
+
+def oversample_stats() -> List[tuple]:
+    """Return the oversampling events recorded since the last
+    :func:`reset_oversample_stats` call."""
+    return list(_oversampled)
+
+
+def reset_oversample_stats() -> None:
+    """Clear the recorded oversampling events, e.g. before a fresh corpus
+    build."""
+    _oversampled.clear()
+
 
 def expand_entities(samples: Iterable[str],
-                    entities: Dict[str, List[str]]) -> List[str]:
+                    entities: Dict[str, List[str]],
+                    record_oversample: bool = False) -> List[str]:
     """Fill ``{slot}`` placeholders in template *samples* with registered
     entity values (OVOS-INTENT-4 §7). Samples without placeholders, or whose
     entity is unregistered, are passed through with the placeholder left
@@ -53,9 +74,19 @@ def expand_entities(samples: Iterable[str],
         for n in sizes:
             total *= n
         if total > MAX_ENTITY_EXPANSIONS:
-            LOG.warning(
-                f"template {tmpl!r} expands to {total} combinations; "
-                f"sampling {MAX_ENTITY_EXPANSIONS} evenly")
+            msg = (f"template {tmpl!r} expands to {total} combinations; "
+                   f"sampling {MAX_ENTITY_EXPANSIONS} evenly")
+            if record_oversample:
+                # Routine at bulk-fill scale (a corpus builder calling this
+                # once per template row against large `.entity` files) --
+                # WARNING here would drown itself; the caller summarizes
+                # from `oversample_stats()` instead.
+                LOG.debug(msg)
+                _oversampled.append((tmpl, total))
+            else:
+                # A live registration: the truncation is news, and nothing
+                # reads `oversample_stats()` here, so log it and keep no state.
+                LOG.warning(msg)
             step = (total - 1) / (MAX_ENTITY_EXPANSIONS - 1)
             indices = {round(i * step) for i in range(MAX_ENTITY_EXPANSIONS)}
             combos = []

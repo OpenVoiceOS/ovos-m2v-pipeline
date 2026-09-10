@@ -28,7 +28,12 @@ import pandas as pd
 import yaml
 from ovos_spec_tools.expansion import iter_expand
 
-from ovos_m2v_pipeline.slots import expand_entities, MAX_ENTITY_EXPANSIONS
+from ovos_m2v_pipeline.slots import (
+    expand_entities,
+    MAX_ENTITY_EXPANSIONS,
+    oversample_stats,
+    reset_oversample_stats,
+)
 
 HERE = Path(__file__).resolve().parent
 
@@ -1091,13 +1096,21 @@ def main(argv=None):
     def _fill(u):
         if "{" not in u:
             return [u]
-        filled = expand_entities([u], entities)
+        filled = expand_entities([u], entities, record_oversample=True)
         if len(filled) <= TEMPLATE_FILL_CAP:
             return filled
         step = (len(filled) - 1) / (TEMPLATE_FILL_CAP - 1)
         return [filled[round(i * step)] for i in range(TEMPLATE_FILL_CAP)]
 
+    reset_oversample_stats()
     df = df.assign(utterance=df["utterance"].map(_fill))
+    oversampled = oversample_stats()
+    if oversampled:
+        worst = sorted(oversampled, key=lambda pair: -pair[1])[:10]
+        worst_str = "; ".join(f"{t!r}={n}" for t, n in worst)
+        print(f"WARNING [slots] {len(oversampled)} template fill(s) exceeded "
+              f"MAX_ENTITY_EXPANSIONS ({MAX_ENTITY_EXPANSIONS}) and were "
+              f"evenly sampled -- worst offenders: {worst_str}")
     df = df.explode("utterance", ignore_index=False)
     still_literal = df["utterance"].str.contains("{", regex=False, na=False)
     n_unfilled_slot = int(still_literal.sum())
