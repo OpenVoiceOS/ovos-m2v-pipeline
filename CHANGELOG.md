@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.4a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.12.4a2) (2026-09-10)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.12.4a1...0.12.4a2)
+
+**Merged pull requests:**
+
+- chore: pin skills at their current dev and lift the training hold [\#125](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/125) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.12.4a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.12.4a1) (2026-09-08)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.12.3a2...0.12.4a1)
@@ -381,11 +389,6 @@
 ## [0.0.9a3](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.9a3) (2026-03-03)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.9a1...0.0.9a3)
-
-**Merged pull requests:**
-
-- Release 0.0.9a3 [\#25](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/25) ([github-actions[bot]](https://github.com/apps/github-actions))
-- docs: add docs [\#24](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/24) ([JarbasAl](https://github.com/JarbasAl))
 
 ## [0.0.9a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.9a1) (2026-03-02)
 
