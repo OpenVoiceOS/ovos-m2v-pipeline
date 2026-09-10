@@ -196,7 +196,8 @@ class TestIntent4Registration(unittest.TestCase):
                       context={"skill_id": "test_skill"})
         with patch("ovos_m2v_pipeline.LOG.warning") as warn:
             pipeline._handle_intent4_register_entity(msg)
-        self.assertEqual(pipeline.entities["test_skill"].get("media"), ["spotify"])
+        self.assertEqual(
+            pipeline.entities["test_skill"]["en-US"].get("media"), ["spotify"])
         warn.assert_called_once()
         self.assertIn("skipping malformed entity sample", warn.call_args[0][0])
 
