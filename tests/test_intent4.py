@@ -218,7 +218,7 @@ class TestIntent4EntityRegistration(unittest.TestCase):
             data={"skill_id": "music.skill", "entity_name": "engine",
                   "lang": "en-US", "samples": ["spotify", "youtube"]},
             context={"skill_id": "music.skill"}))
-        self.assertIn("engine", p.entities["music.skill"])
+        self.assertIn("engine", p.entities["music.skill"]["en-US"])
         # register a template that references {engine}
         p._handle_intent4_register_template(Message(
             SpecMessage.INTENT_REGISTER_TEMPLATE.value,
@@ -287,12 +287,12 @@ class TestIntent4Deregistration(unittest.TestCase):
 
     def test_deregister_entity(self):
         p = _make_prototype_pipeline()
-        p.entities["music.skill"] = {"engine": ["spotify"]}
+        p.entities["music.skill"] = {"en-US": {"engine": ["spotify"]}}
         p._handle_intent4_deregister_entity(Message(
             SpecMessage.ENTITY_DEREGISTER.value,
             data={"skill_id": "music.skill", "entity_name": "engine", "lang": "en-US"},
             context={"skill_id": "music.skill"}))
-        self.assertNotIn("engine", p.entities["music.skill"])
+        self.assertNotIn("engine", p.entities["music.skill"]["en-US"])
 
     @staticmethod
     def _session_message(topic, session_id, **data):
@@ -808,7 +808,7 @@ class TestPadatiousLegacyEntityExpansion(unittest.TestCase):
             data={"skill_id": "paint.skill", "entity_name": "color",
                   "lang": "en-US", "samples": ["red", "blue"]},
             context={"skill_id": "paint.skill"}))
-        self.assertIn("color", p.entities["paint.skill"])
+        self.assertIn("color", p.entities["paint.skill"]["en-US"])
 
         encoded_sentences = []
         p.model.encode.side_effect = lambda sents, **kw: (
@@ -1228,8 +1228,8 @@ class TestIntent4EntityScope(unittest.TestCase):
             SpecMessage.ENTITY_DEREGISTER.value,
             data={"skill_id": "a.skill", "entity_name": "color", "lang": "en-US"},
             context={"skill_id": "a.skill"}))
-        self.assertNotIn("color", p.entities.get("a.skill", {}))
-        self.assertEqual(p.entities["b.skill"]["color"], ["blue"])
+        self.assertNotIn("color", p.entities.get("a.skill", {}).get("en-US", {}))
+        self.assertEqual(p.entities["b.skill"]["en-US"]["color"], ["blue"])
 
     def test_skill_deregister_drops_its_entities_only(self):
         p = _make_prototype_pipeline()
@@ -1239,4 +1239,4 @@ class TestIntent4EntityScope(unittest.TestCase):
             SpecMessage.SKILL_DEREGISTER.value, data={"skill_id": "a.skill"},
             context={"skill_id": "a.skill"}))
         self.assertNotIn("a.skill", p.entities)
-        self.assertIn("engine", p.entities["b.skill"])
+        self.assertIn("engine", p.entities["b.skill"]["en-US"])
