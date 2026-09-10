@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.2a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.2a1) (2026-09-10)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.1a1...0.13.2a1)
+
+**Merged pull requests:**
+
+- fix: no utterance may appear on both sides of the split [\#154](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/154) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.13.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.1a1) (2026-09-10)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.0a1...0.13.1a1)
@@ -375,8 +383,6 @@
 - feat: consume OVOS-INTENT-4 template registration \(alongside legacy\) [\#41](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/41) ([JarbasAl](https://github.com/JarbasAl))
 - docs: standardize NGI0 Commons Fund attribution [\#38](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/38) ([JarbasAl](https://github.com/JarbasAl))
 - feat: configurable PrototypeStrategy for prototype-mode scoring [\#37](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/37) ([JarbasAl](https://github.com/JarbasAl))
-- Gate special labels by session.pipeline and seed intents at startup [\#33](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/33) ([JarbasAl](https://github.com/JarbasAl))
-- feat: embeddings mode [\#30](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/30) ([JarbasAl](https://github.com/JarbasAl))
 
 ## [0.0.10a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.10a1) (2026-03-04)
 
