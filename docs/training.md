@@ -4,14 +4,12 @@
 fits a classifier on it. You only need it to produce a custom model; the
 [pre-trained models](models.md) already cover the standard OVOS skill corpus.
 
-> **Training is on hold.** The Adapt-to-`.intent` refactors change intent names
-> across the default skills, and a later unification wave will merge the
-> weather condition intents, the alerts create and list families, and the
-> volume levels. A classifier's label head is frozen at fit time, so a model
-> trained before those land is stale the day they merge. Build the dataset and
-> read the manifest as often as you like; run `train.py` only once the
-> refactors are merged and the skill pins in `sources.yaml` have been
-> regenerated against them.
+The Adapt-to-`.intent` refactors and the unification wave that merged the
+weather condition intents, the alerts create and list families, and the
+volume levels are merged in the revisions `sources.yaml` pins, so `train.py`
+runs against those pins. A classifier's label head is frozen at fit time: the
+day a skill renames or folds an intent again, its pin has to be refreshed and
+the model refit before that skill's labels are trusted.
 
 ```
 train/
@@ -46,7 +44,7 @@ python train/build_dataset.py --dry-run --workspace ~/AgentWorkspaces
 # 2. build it
 python train/build_dataset.py --workspace ~/AgentWorkspaces --out train/dataset
 
-# 3. fit (only once the hold above is lifted)
+# 3. fit against the pinned revisions
 python train/train.py --dataset train/dataset --base-model minishlab/potion-base-32M
 ```
 
