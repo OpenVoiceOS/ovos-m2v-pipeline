@@ -775,7 +775,152 @@ def sha256_file(path: Path) -> str:
 #: Files a dataset build writes to `--out`; the exact set `push_dataset`
 #: uploads to the Hub, additively, one commit per file.
 DATASET_FILES = ("train.parquet", "train.jsonl", "test.parquet", "test.jsonl",
-                 "labels.json", "manifest.json")
+                 "labels.json", "manifest.json", "README.md")
+
+#: A language is only counted as covered when this many skills contribute
+#: rows to it. One skill's templates translated into a language says the
+#: language appeared in somebody's translation pass, not that a device can be
+#: used in it, and a headline count that conflates the two overstates the
+#: dataset to exactly the reader who takes the number at face value. The
+#: fleet build sets `publish.min_skills_per_lang`; a corpus built for one
+#: skill sets neither and publishes what it has.
+MIN_SKILLS_FOR_COVERAGE = 2
+
+#: Language tags that carry no region because the language has one locale in
+#: the fleet, not because the corpus disagrees about which region a row is.
+#: Kabyle ships as `kab` in every skill that has it, so it is a locale like
+#: any other; `es`, `pt` and `nl` are not, and they are not published.
+LANG_NO_REGION = {"kab"}
+
+
+def labels_from_one_variant(df) -> dict:
+    """Per language, how many of its labels only one of its dialects attests.
+
+    Grouping dialects makes such a label attested for the whole language,
+    which is the point of the grouping, but it changes what a per-language
+    coverage number means: `pt` claiming a label may mean only pt-BR has it.
+    Counted per language rather than in total, because a single total says
+    nothing about which language's coverage figure to read carefully.
+    """
+    multi = df.groupby("lang")["lang_variant"].nunique()
+    rows = df[df["lang"].isin(multi[multi > 1].index)]
+    per_label = rows.groupby(["lang", "label"])["lang_variant"].nunique()
+    single = per_label[per_label == 1].reset_index()
+    return single.groupby("lang")["label"].nunique().to_dict()
+
+
+def write_dataset_card(out: Path, report: dict) -> None:
+    """Write the README the Hub renders as the dataset card.
+
+    The census is part of the card rather than a companion file: the reader
+    deciding whether the dataset serves their language is the one who has to
+    see how thin their language is.
+    """
+    rows_per_lang = report["rows_per_lang"]
+    skills_per_lang = report["skills_per_lang"]
+    labels_per_lang = report.get("labels_per_lang", {})
+    covered = sorted(rows_per_lang, key=lambda l: -rows_per_lang[l])
+    excluded = report.get("languages_excluded_from_publication", {})
+    excluded_langs = sum(group["rows"] for group in excluded.values())
+    total = report["rows_final"]
+
+    lines = [
+        "# OVOS intent corpus",
+        "",
+        f"{total:,} utterances labelled with the intent the OVOS skill fleet "
+        f"registers for them, across {report['labels']} labels.",
+        "",
+        "Each label is author-qualified — `ovos-skill-weather.openvoiceos:"
+        "temperature`, not `temperature` — so the skill that owns an intent "
+        "is readable from the label alone and the set can be sliced per "
+        "skill without reconstruction.",
+        "",
+        "## Language coverage",
+        "",
+        f"{len(rows_per_lang)} languages. This is a language-level dataset: "
+        "regional variants are grouped under their macro language, so `es` "
+        "covers Castilian and Latin American rows together and `pt` covers "
+        "European and Brazilian ones. Read `es` as Spanish, not as any one "
+        "region's Spanish.",
+        "",
+        "The grouping happens when this corpus is built. The skills it comes "
+        "from ship their dialect locales separately and are untouched by it, "
+        "and every row keeps the dialect it came from in `lang_variant`, so "
+        "the merge can be undone or redone differently without re-collecting "
+        "anything. A dialect that behaves differently from its siblings is "
+        "still visible in the data even though the label space is shared.",
+        "",
+        "| language | rows | labels | skills |",
+        "|---|---:|---:|---:|",
+    ]
+    for lang in covered:
+        lines.append(f"| `{lang}` | {rows_per_lang[lang]:,} | "
+                     f"{labels_per_lang.get(lang, 0)} | "
+                     f"{skills_per_lang[lang]} |")
+
+    top = covered[0] if covered else None
+    widest = max(labels_per_lang, key=labels_per_lang.get) if labels_per_lang else None
+    lines += [
+        "",
+        f"The distribution is heavily skewed: `{top}` alone is "
+        f"{rows_per_lang[top]:,} rows, {100 * rows_per_lang[top] / total:.0f}% "
+        "of the corpus. Anything trained on this without reweighting inherits "
+        "that skew." if top else "",
+        "",
+        f"Rows and labels are close to unrelated, so read both columns for "
+        f"your language rather than the row count alone: `{top}` holds the "
+        f"most rows and attests {labels_per_lang.get(top, 0)} of "
+        f"{report['labels']} labels, while `{widest}` attests "
+        f"{labels_per_lang.get(widest, 0)}."
+        if top and labels_per_lang else "",
+        "",
+        "| language | variants grouped |",
+        "|---|---|",
+] + [f"| `{lang}` | " + ", ".join(f"`{v}`" for v in variants) + " |"
+     for lang, variants in sorted(report.get("variants_per_lang", {}).items())
+     if len(variants) > 1] + [
+        "",
+        "## What a published accuracy number covers",
+        "",
+        f"{report['labels_without_test_rows']['labels']} of "
+        f"{report['labels']} labels have no rows in the test split, so no "
+        "held-out number can score them. The cause is structural rather than "
+        "a shortage of rows: every expansion of one template stays on one "
+        "side of the split, so a label attested by a single template goes "
+        "into train whole. `manifest.json` lists them by name under "
+        "`labels_without_test_rows`.",
+        "",
+        "No utterance appears on both sides of the split; the match is "
+        "exact-string after lowercasing, not semantic or accent-insensitive.",
+        "",
+        "## What is not here",
+        "",
+        f"{report['dropped_unresolved_labels']:,} rows were dropped because "
+        "their label names an intent no pinned skill registers any more — a "
+        "rename or a removal the corpus predates. "
+        f"{report['dropped_rare_labels']['labels']} further labels fell below "
+        "the minimum rows per label and were dropped whole.",
+        "",
+        "Labels are folded onto the intent their skill registers today, and "
+        "only when that intent's own template still claims the phrasings the "
+        "old label carried. Where an old intent's templates were split across "
+        "several new ones, or the surviving grammar does not claim them, the "
+        "rows are dropped rather than folded onto a plausible-looking "
+        "destination.",
+        "",
+        "## Provenance and licence",
+        "",
+        "Built by `train/build_dataset.py` in `OpenVoiceOS/ovos-m2v-pipeline` "
+        "from the locale resources of the skills pinned in "
+        "`train/sources.yaml`, at those exact revisions. `manifest.json` "
+        "carries the per-source counts, the pins and the checksum of every "
+        "file here.",
+        "",
+        "Apache-2.0, following the skills the utterances come from.",
+        "",
+    ]
+    (out / "README.md").write_text("\n".join(l for l in lines if l is not None),
+                                   encoding="utf-8")
 
 
 def push_dataset(out: Path, repo_id: str, dry_run: bool = False) -> None:
@@ -807,31 +952,59 @@ def push_dataset(out: Path, repo_id: str, dry_run: bool = False) -> None:
         print(f"[push] uploaded {f} -> {repo_id}")
 
 
-def template_split(df: pd.DataFrame, label_col: str, test_size: float, seed: int):
-    """Stratified train/test split at the TEMPLATE level, not the row level.
+def _split_groups(df: pd.DataFrame) -> pd.Series:
+    """Rows that must land on the same side of the split, as a group id.
 
-    Every row expanded from the same source template (an `.intent` line's
-    `(alt|alt)`/`[optional]`/`{slot}` expansions, or one already-atomic
-    utterance from the other readers) carries the same ``(lang, template)``
-    key and is assigned to train or test as one unit, so no template's
-    expansions straddle the split -- the failure mode that inflates held-out
-    accuracy by letting a near-identical sentence leak across sides.
+    Two rows are tied together when they come from the same template, and
+    also when they carry the same utterance string. The second tie is the
+    one template identity misses: two different templates can fill their
+    slots into the same sentence, and an utterance in train that is scored
+    again in test is the oldest wrong number in machine learning. Ties are
+    transitive, so the groups are the connected components of both.
+    """
+    parent = {}
+
+    def find(x):
+        while parent.setdefault(x, x) != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a, b):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+
+    template_key = list(zip(df["lang"], df["template"]))
+    utterance_key = [("\x00utt", u) for u in df["utterance"].str.lower()]
+    for t, u in zip(template_key, utterance_key):
+        union(t, u)
+    return pd.Series([find(t) for t in template_key], index=df.index)
+
+
+def template_split(df: pd.DataFrame, label_col: str, test_size: float, seed: int):
+    """Stratified train/test split over groups of rows, never single rows.
+
+    A group is every row a template produced plus every row carrying the
+    same utterance as one of them, so neither a template's expansions nor a
+    repeated sentence can straddle the split. Both are the same failure:
+    a held-out number inflated by scoring something the model was fitted on.
     """
     from sklearn.model_selection import train_test_split
-    group_cols = ["lang", "template"]
-    groups = df[group_cols + [label_col]].drop_duplicates(subset=group_cols)
+    df = df.assign(_group=_split_groups(df))
+    groups = df[["_group", label_col]].drop_duplicates(subset=["_group"])
     counts = groups[label_col].value_counts()
-    # a label attested by only one template group cannot be stratified across
-    # both sides; keep it whole in train rather than fail the split.
+    # a label attested by only one group cannot be stratified across both
+    # sides; keep it whole in train rather than fail the split.
     unsplittable = set(counts[counts < 2].index)
     forced_train = groups[groups[label_col].isin(unsplittable)]
     splittable = groups[~groups[label_col].isin(unsplittable)]
     train_g, test_g = train_test_split(splittable, test_size=test_size,
                                        random_state=seed,
                                        stratify=splittable[label_col])
-    train_keys = set(map(tuple, pd.concat([train_g, forced_train])[group_cols].values))
-    is_train = df[group_cols].apply(tuple, axis=1).isin(train_keys)
-    return df[is_train], df[~is_train]
+    train_keys = set(pd.concat([train_g, forced_train])["_group"])
+    is_train = df["_group"].isin(train_keys)
+    return df[is_train].drop(columns=["_group"]), df[~is_train].drop(columns=["_group"])
 
 
 def main(argv=None):
@@ -981,6 +1154,28 @@ def main(argv=None):
               f"skill_id_aliases; {n} corpus row(s) dropped unresolved",
               file=sys.stderr)
 
+    # ---- group regional variants under their macro language
+    # The dataset is language-level: pt-PT and pt-BR rows are both Portuguese
+    # and train one `pt` label space. The skills keep shipping their dialect
+    # locales untouched — this is a grouping applied when the corpus is built,
+    # not a re-tagging of anything on disk — and every row keeps the dialect
+    # it came from in `lang_variant`, so a later build can group differently
+    # without re-collecting anything.
+    pub = cfg.get("publish") or {}
+    df["lang_variant"] = df["lang"]
+    if pub.get("collapse_to_macro_language"):
+        df["lang"] = df["lang"].str.split("-").str[0]
+
+    min_skills = pub.get("min_skills_per_lang", 0)
+    min_rows = pub.get("min_rows_per_lang", 0)
+    skills_per_lang = df.groupby("lang")["skill_id"].nunique()
+    rows_per_lang_all = df["lang"].value_counts()
+    thin = sorted(set(skills_per_lang[skills_per_lang < min_skills].index)
+                  | set(rows_per_lang_all[rows_per_lang_all < min_rows].index))
+    excluded = {"thin_languages": {"languages": thin,
+                                   "rows": int(df["lang"].isin(thin).sum())}}
+    df = df[~df["lang"].isin(thin)]
+
     # ---- exact dedup on (utterance, label, lang)
     n_before = len(df)
     df = df.sort_values(["source", "label", "utterance"], kind="mergesort")
@@ -1043,6 +1238,13 @@ def main(argv=None):
         "rows_per_source_final": df["source"].value_counts().to_dict(),
         "rows_per_family": df["family"].value_counts().to_dict(),
         "rows_per_lang": df["lang"].value_counts().to_dict(),
+        "skills_per_lang": df.groupby("lang")["skill_id"].nunique().to_dict(),
+        "labels_per_lang": df.groupby("lang")["label"].nunique().to_dict(),
+        "languages_excluded_from_publication": excluded,
+        "variants_per_lang": {lang: sorted(group.unique()) for lang, group
+                              in df.groupby("lang")["lang_variant"]},
+        "rows_per_variant": df["lang_variant"].value_counts().to_dict(),
+        "labels_from_one_variant": labels_from_one_variant(df),
         "labels": int(df["label"].nunique()),
         "labels_per_family": df.groupby("family")["label"].nunique().to_dict(),
         "langs": int(df["lang"].nunique()),
@@ -1113,6 +1315,13 @@ def main(argv=None):
     p = out / "labels.json"
     p.write_text(json.dumps(manifest_labels, indent=2, ensure_ascii=False), encoding="utf-8")
     written[p.name] = sha256_file(p)
+
+    report.setdefault("labels_without_test_rows",
+                      {"labels": len(set(train["label"]) - set(test["label"])),
+                       "names": sorted(set(train["label"]) - set(test["label"]))})
+
+    write_dataset_card(out, report)
+    written["README.md"] = sha256_file(out / "README.md")
 
     report["outputs"] = written
     report["golden_in_split"] = {
