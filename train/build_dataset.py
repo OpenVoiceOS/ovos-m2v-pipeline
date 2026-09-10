@@ -66,6 +66,96 @@ LABEL_ALIASES = {
     "ovos-common-query-pipeline-plugin:search_fakewiki": "common_query:search_fakewiki",
     "ovos-ocp-pipeline-plugin:play": "ocp:play",
     "ovos-persona:ask": "persona:ask",
+
+    # Renames and folds the corpora predate. Each left-hand side is a
+    # spelling a skill registered before the Adapt-to-`.intent` migration or
+    # the unification wave; each right-hand side is what the pinned revision
+    # registers today. See docs/labels.md, "Renames, merges, and the
+    # unification wave".
+
+    # ovos-skill-mark1-ctrl#45: the 14 Adapt IntentBuilder names became
+    # lowercase file-intents, one for one.
+    "ovos-skill-mark1-ctrl.openvoiceos:EnclosureEyesBlink": "ovos-skill-mark1-ctrl.openvoiceos:blink",
+    "ovos-skill-mark1-ctrl.openvoiceos:EnclosureEyesSpin": "ovos-skill-mark1-ctrl.openvoiceos:spin",
+    "ovos-skill-mark1-ctrl.openvoiceos:EnclosureEyesNarrow": "ovos-skill-mark1-ctrl.openvoiceos:narrow_eyes",
+    "ovos-skill-mark1-ctrl.openvoiceos:EnclosureCrazyEyes": "ovos-skill-mark1-ctrl.openvoiceos:crazy_eyes",
+    "ovos-skill-mark1-ctrl.openvoiceos:EnclosureMouthSmile": "ovos-skill-mark1-ctrl.openvoiceos:smile",
+    "ovos-skill-mark1-ctrl.openvoiceos:EnclosureMouthListen": "ovos-skill-mark1-ctrl.openvoiceos:listen",
+    "ovos-skill-mark1-ctrl.openvoiceos:EnclosureMouthThink": "ovos-skill-mark1-ctrl.openvoiceos:think",
+    "ovos-skill-mark1-ctrl.openvoiceos:EnclosureLookUp": "ovos-skill-mark1-ctrl.openvoiceos:look_up",
+    "ovos-skill-mark1-ctrl.openvoiceos:EnclosureLookDown": "ovos-skill-mark1-ctrl.openvoiceos:look_down",
+    "ovos-skill-mark1-ctrl.openvoiceos:EnclosureLookLeft": "ovos-skill-mark1-ctrl.openvoiceos:look_left",
+    "ovos-skill-mark1-ctrl.openvoiceos:EnclosureLookRight": "ovos-skill-mark1-ctrl.openvoiceos:look_right",
+    "ovos-skill-mark1-ctrl.openvoiceos:EnclosureLookUpDown": "ovos-skill-mark1-ctrl.openvoiceos:look_up_down",
+    "ovos-skill-mark1-ctrl.openvoiceos:EnclosureLookLeftRight": "ovos-skill-mark1-ctrl.openvoiceos:look_left_right",
+    "ovos-skill-mark1-ctrl.openvoiceos:EnclosureReset": "ovos-skill-mark1-ctrl.openvoiceos:reset",
+
+    # ovos-skill-wallpapers#82: the context-gated Adapt intents became file
+    # intents. The skill registers under `skill-ovos-wallpapers`.
+    "ovos-skill-wallpapers.openvoiceos:MakeWallpaperIntent": "skill-ovos-wallpapers.openvoiceos:make_wallpaper",
+    "ovos-skill-wallpapers.openvoiceos:NextPictureIntent": "skill-ovos-wallpapers.openvoiceos:next_picture",
+    "ovos-skill-wallpapers.openvoiceos:PrevPictureIntent": "skill-ovos-wallpapers.openvoiceos:previous_picture",
+
+    # ovos-skill-weather#230: six condition intents became one, dispatched
+    # from the shared weather_condition vocabulary.
+    "ovos-skill-weather.openvoiceos:is_clear": "ovos-skill-weather.openvoiceos:weather_condition",
+    "ovos-skill-weather.openvoiceos:is_cloudy": "ovos-skill-weather.openvoiceos:weather_condition",
+    "ovos-skill-weather.openvoiceos:is_fog": "ovos-skill-weather.openvoiceos:weather_condition",
+    "ovos-skill-weather.openvoiceos:is_rain": "ovos-skill-weather.openvoiceos:weather_condition",
+    "ovos-skill-weather.openvoiceos:is_snow": "ovos-skill-weather.openvoiceos:weather_condition",
+    "ovos-skill-weather.openvoiceos:is_stormy": "ovos-skill-weather.openvoiceos:weather_condition",
+
+    # ovos-skill-weather#243: the forecast and temperature families each fold
+    # to one label, and is_hot/is_cold (#231's split of the older is_hot_cold
+    # Adapt intent) fold back together.
+    "ovos-skill-weather.openvoiceos:current_weather": "ovos-skill-weather.openvoiceos:weather",
+    "ovos-skill-weather.openvoiceos:hourly_forecast": "ovos-skill-weather.openvoiceos:weather",
+    "ovos-skill-weather.openvoiceos:daily_forecast": "ovos-skill-weather.openvoiceos:weather",
+    "ovos-skill-weather.openvoiceos:N_days_forecast": "ovos-skill-weather.openvoiceos:weather",
+    "ovos-skill-weather.openvoiceos:weekend_forecast": "ovos-skill-weather.openvoiceos:weather",
+    "ovos-skill-weather.openvoiceos:current_temperature": "ovos-skill-weather.openvoiceos:temperature",
+    "ovos-skill-weather.openvoiceos:hourly_temperature": "ovos-skill-weather.openvoiceos:temperature",
+    "ovos-skill-weather.openvoiceos:high_temperature": "ovos-skill-weather.openvoiceos:temperature",
+    "ovos-skill-weather.openvoiceos:low_temperature": "ovos-skill-weather.openvoiceos:temperature",
+    "ovos-skill-weather.openvoiceos:daily_temperature": "ovos-skill-weather.openvoiceos:temperature",
+    "ovos-skill-weather.openvoiceos:is_hot_cold": "ovos-skill-weather.openvoiceos:is_hot_or_cold",
+
+    # ovos-skill-volume#137: the discrete level intents became one
+    # {level}-slot intent. volume.max and volume.default are deliberately
+    # absent: each also fed a phrasing to a new sibling intent
+    # (volume.max.boost, volume.reset), so their rows need an utterance-level
+    # rule rather than one label.
+    "ovos-skill-volume.openvoiceos:volume.low": "ovos-skill-volume.openvoiceos:volume_level",
+    "ovos-skill-volume.openvoiceos:volume.high": "ovos-skill-volume.openvoiceos:volume_level",
+
+    # ovos-skill-alerts#197 and #204: the alias intents fold into their base
+    # intent. CreateOcpAlarmAlt carried the wake-with-media phrasings, which
+    # #199 split out again as CreateAlarmAlt.
+    "ovos-skill-alerts.openvoiceos:CreateReminderAlt": "ovos-skill-alerts.openvoiceos:CreateReminder",
+    "ovos-skill-alerts.openvoiceos:RescheduleAlertAlt": "ovos-skill-alerts.openvoiceos:RescheduleAlert",
+    "ovos-skill-alerts.openvoiceos:CreateOcpAlarmAlt": "ovos-skill-alerts.openvoiceos:CreateAlarmAlt",
+    # CreateOcpAlarm is deliberately absent: of its 48 template lines, 37
+    # are now CreateAlarm and the 11 "wake me up with ..." lines are now
+    # CreateAlarmAlt, so one label cannot carry it.
+
+    # ovos-skill-confucius-quotes#70 and ovos-skill-fuster-quotes#38: birth,
+    # death and "when did X live" answer one lifespan question.
+    "ovos-skill-confucius-quotes.openvoiceos:ConfuciusBirth": "ovos-skill-confucius-quotes.openvoiceos:confucius_lifespan",
+    "ovos-skill-confucius-quotes.openvoiceos:ConfuciusDeath": "ovos-skill-confucius-quotes.openvoiceos:confucius_lifespan",
+    "ovos-skill-confucius-quotes.openvoiceos:ConfuciusLive": "ovos-skill-confucius-quotes.openvoiceos:confucius_lifespan",
+    "ovos-skill-fuster-quotes.openvoiceos:FusterBirth": "ovos-skill-fuster-quotes.openvoiceos:fuster_lifespan",
+    "ovos-skill-fuster-quotes.openvoiceos:FusterDeath": "ovos-skill-fuster-quotes.openvoiceos:fuster_lifespan",
+    "ovos-skill-fuster-quotes.openvoiceos:FusterLive": "ovos-skill-fuster-quotes.openvoiceos:fuster_lifespan",
+
+    # ovos-skill-wordnet#112: the relation lookups became one search_wordnet
+    # intent. Only the relations its template still claims are aliased --
+    # definition, synonym and antonym. hyponym, hypernym, holonym and lemma
+    # are dropped rather than folded: the surviving grammar says nothing
+    # about them, and routing a relation question at a definition lookup
+    # would teach a mapping no template attests.
+    "ovos-skill-wordnet.openvoiceos:definition": "ovos-skill-wordnet.openvoiceos:search_wordnet",
+    "ovos-skill-wordnet.openvoiceos:synonym": "ovos-skill-wordnet.openvoiceos:search_wordnet",
+    "ovos-skill-wordnet.openvoiceos:antonym": "ovos-skill-wordnet.openvoiceos:search_wordnet",
 }
 
 #: Intent-name merges that predate the unification wave: the corpus attests
