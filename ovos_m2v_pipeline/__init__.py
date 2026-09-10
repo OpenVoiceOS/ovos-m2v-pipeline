@@ -1653,23 +1653,35 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             return None
 
     @staticmethod
-    def _resolve_skill_id(message: Message, topic: str) -> str:
-        """Resolve the skill a registration message acts on.
+    def _spec_skill_id(message: Message, topic: str) -> str:
+        """The skill a §§5-8 message acts on: the payload, never the context.
 
-        ``message.data["skill_id"]`` is the target: the registration acts
-        on the payload. ``message.context["skill_id"]`` records which
-        component sent the message and is only used when the payload
-        names no skill (the legacy wire relies on it). A payload that
-        differs from the context is a cross-skill registration, which is
-        allowed (an operator scripting on a skill's behalf); it is logged
-        so provenance stays visible. Neither present resolves to "" and
-        the caller drops the registration.
+        ``message.data["skill_id"]`` names the target and is a required
+        field. ``message.context["skill_id"]`` names the source that
+        emitted the message and is provenance only, so it is never
+        substituted for a missing target: doing so would hand the
+        registration to whoever emitted it. A payload that differs from
+        the context is a cross-skill registration, which is allowed (an
+        operator scripting on a skill's behalf) and is logged so
+        provenance stays visible. An absent payload identity resolves to
+        "" and the caller rejects the message as malformed.
+        """
+        skill_id = message.data.get("skill_id", "")
+        ctx_id = message.context.get("skill_id", "")
+        if skill_id and ctx_id and skill_id != ctx_id:
+            LOG.info(f"{topic}: registration for {skill_id!r} sent by "
+                     f"{ctx_id!r} (message.context['skill_id'])")
+        return skill_id
+
+    @staticmethod
+    def _legacy_skill_id(message: Message, topic: str) -> str:
+        """The skill a legacy-wire message acts on.
+
+        The legacy topics carry no required payload identity, so the
+        context is the only source when the payload omits one.
         """
         data_id = message.data.get("skill_id", "")
         ctx_id = message.context.get("skill_id", "")
-        if data_id and ctx_id and data_id != ctx_id:
-            LOG.info(f"{topic}: registration for {data_id!r} sent by "
-                     f"{ctx_id!r} (message.context['skill_id'])")
         if not data_id and not ctx_id:
             LOG.warning(f"{topic}: no skill_id in message.data or "
                         f"message.context; dropping")
@@ -1698,7 +1710,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         if not name or name in self.ignore_labels                 or f"{name}.intent" in self.ignore_labels:
             return
 
-        skill_id = self._resolve_skill_id(message, message.msg_type)
+        skill_id = self._legacy_skill_id(message, message.msg_type)
         if not skill_id:
             return
         ctx = (f"[skill_id={skill_id!r} name={name!r} "
@@ -1783,7 +1795,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             LOG.debug(f"Prototype store: removed prototypes for '{name}'")
 
     def _handle_detach_skill(self, message: Message) -> None:
-        skill_id: str = self._resolve_skill_id(message, message.msg_type)
+        skill_id: str = self._legacy_skill_id(message, message.msg_type)
         if skill_id:
             self.prototype_store.remove_skill(skill_id)
             self._forget_pending_skill(skill_id)
@@ -1825,7 +1837,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
     @staticmethod
     def _intent4_label(message: Message) -> str:
         """Build the internal ``<skill_id>:<intent_name>`` label from §3.2 fields."""
-        skill_id = Model2VecIntentPipeline._resolve_skill_id(message, message.msg_type)
+        skill_id = Model2VecIntentPipeline._spec_skill_id(message, message.msg_type)
         intent_name = message.data.get("intent_name", "")
         if not skill_id or not intent_name:
             return ""
@@ -1836,8 +1848,8 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         """Build the ``<skill_id>:<intent_name>`` label for ``ovos.intent.enable``
         / ``ovos.intent.disable`` (§8.5).
 
-        These are control messages, not ownership claims, and are exempt from
-        the §3.2 identity check: ``message.data["skill_id"]`` names the
+        Enable and disable take the same shape as the rest of §§5-8 and are
+        not an exception to it: ``message.data["skill_id"]`` names the
         **target** intent's skill, while ``message.context["skill_id"]``
         names the **source** requesting the control action, and the two MAY
         differ (cross-skill control, e.g. an admin UI or a conflict-resolving
@@ -1918,7 +1930,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
 
         # Classifier mode is frozen: only gate the (already trained) label.
         if self.prototype_store is None:
-            skill_id = self._resolve_skill_id(message, topic)
+            skill_id = self._spec_skill_id(message, topic)
             if skill_id and skill_id not in self._intent4_frozen_warned:
                 self._intent4_frozen_warned.add(skill_id)
                 LOG.warning(
@@ -2016,7 +2028,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         topic = SpecMessage.ENTITY_REGISTER.value
         name: str = message.data.get("entity_name", "")
         samples = message.data.get("samples")
-        skill_id = self._resolve_skill_id(message, topic)
+        skill_id = self._spec_skill_id(message, topic)
         if not name or not skill_id:
             self._intent4_warn(topic, message, "missing skill_id or entity_name")
             return
@@ -2051,6 +2063,8 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         """Remove one intent (§8.2)."""
         label = self._intent4_label(message)
         if not label:
+            self._intent4_warn(message.msg_type, message,
+                               "missing skill_id or intent_name")
             return
         if self.prototype_store is not None:
             self.prototype_store.remove(label)
@@ -2065,15 +2079,19 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
     def _handle_intent4_deregister_entity(self, message: Message) -> None:
         """Remove one entity (§8.3). No-op in classifier mode."""
         name: str = message.data.get("entity_name", "")
-        skill_id = self._resolve_skill_id(message, message.msg_type)
-        if name and skill_id:
-            self.entities.get(skill_id, {}).pop(name.lower(), None)
-            LOG.debug(f"Model2Vec: deregistered INTENT-4 entity '{skill_id}:{name}'")
+        skill_id = self._spec_skill_id(message, message.msg_type)
+        if not name or not skill_id:
+            self._intent4_warn(message.msg_type, message,
+                               "missing skill_id or entity_name")
+            return
+        self.entities.get(skill_id, {}).pop(name.lower(), None)
+        LOG.debug(f"Model2Vec: deregistered INTENT-4 entity '{skill_id}:{name}'")
 
     def _handle_intent4_deregister_skill(self, message: Message) -> None:
         """Remove every intent and entity owned by a skill (§8.4)."""
-        skill_id: str = self._resolve_skill_id(message, message.msg_type)
+        skill_id: str = self._spec_skill_id(message, message.msg_type)
         if not skill_id:
+            self._intent4_warn(message.msg_type, message, "missing skill_id")
             return
         if self.prototype_store is not None:
             self.prototype_store.remove_skill(skill_id)

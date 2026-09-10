@@ -1048,7 +1048,34 @@ class TestSkillIdFromPayload(unittest.TestCase):
                       "samples": ["play music"]}))
         self.assertEqual(p.intents, set())
         warn.assert_called()
-        self.assertIn("no skill_id", warn.call_args_list[0].args[0])
+        self.assertIn("missing skill_id", warn.call_args_list[0].args[0])
+
+    def test_register_template_absent_payload_is_not_the_senders(self):
+        # §3.2: the context is provenance and is never substituted for the
+        # target, so a payload with no skill_id is malformed (§6.3), not a
+        # registration owned by whoever emitted it.
+        p = _make_prototype_pipeline()
+        with patch("ovos_m2v_pipeline.LOG.warning") as warn:
+            p._handle_intent4_register_template(Message(
+                SpecMessage.INTENT_REGISTER_TEMPLATE.value,
+                data={"intent_name": "play_music", "lang": "en-US",
+                      "samples": ["play music"]},
+                context={"skill_id": "some.sender"}))
+        self.assertEqual(p.intents, set())
+        self.assertNotIn("some.sender:play_music", p.intents)
+        warn.assert_called()
+        self.assertIn("missing skill_id", warn.call_args_list[0].args[0])
+
+    def test_register_entity_absent_payload_is_not_the_senders(self):
+        p = _make_prototype_pipeline()
+        with patch("ovos_m2v_pipeline.LOG.warning") as warn:
+            p._handle_intent4_register_entity(Message(
+                SpecMessage.ENTITY_REGISTER.value,
+                data={"entity_name": "color", "lang": "en-US",
+                      "samples": ["blue"]},
+                context={"skill_id": "some.sender"}))
+        self.assertEqual(p.entities, {})
+        warn.assert_called()
 
     def test_register_padatious_differing_payload_acts_on_payload(self):
         p = _make_prototype_pipeline()
@@ -1092,6 +1119,54 @@ class TestSkillIdFromPayload(unittest.TestCase):
             context={"skill_id": "admin.skill"}))
         self.assertIn("music.skill:play_music", p.intents)
         self.assertNotIn("other.skill:play_music", p.intents)
+
+    def test_deregister_skill_absent_payload_spares_the_senders_intents(self):
+        # §3.2: the sender's identity is provenance, so a deregister that
+        # names no target removes nothing rather than the emitter's own.
+        p = _make_prototype_pipeline()
+        for sid in ("music.skill", "admin.skill"):
+            p._handle_intent4_register_template(Message(
+                SpecMessage.INTENT_REGISTER_TEMPLATE.value,
+                data={"skill_id": sid, "intent_name": "play_music",
+                      "lang": "en-US", "samples": [f"play music for {sid}"]},
+                context={"skill_id": sid}))
+        with patch("ovos_m2v_pipeline.LOG.warning") as warn:
+            p._handle_intent4_deregister_skill(Message(
+                SpecMessage.SKILL_DEREGISTER.value, data={},
+                context={"skill_id": "admin.skill"}))
+        self.assertIn("admin.skill:play_music", p.intents)
+        self.assertIn("music.skill:play_music", p.intents)
+        warn.assert_called()
+
+    def test_deregister_intent_absent_payload_spares_the_senders_intents(self):
+        p = _make_prototype_pipeline()
+        p._handle_intent4_register_template(Message(
+            SpecMessage.INTENT_REGISTER_TEMPLATE.value,
+            data={"skill_id": "admin.skill", "intent_name": "play_music",
+                  "lang": "en-US", "samples": ["play music"]},
+            context={"skill_id": "admin.skill"}))
+        with patch("ovos_m2v_pipeline.LOG.warning") as warn:
+            p._handle_intent4_deregister_intent(Message(
+                SpecMessage.INTENT_DEREGISTER.value,
+                data={"intent_name": "play_music"},
+                context={"skill_id": "admin.skill"}))
+        self.assertIn("admin.skill:play_music", p.intents)
+        warn.assert_called()
+
+    def test_deregister_entity_absent_payload_spares_the_senders_entities(self):
+        p = _make_prototype_pipeline()
+        p._handle_intent4_register_entity(Message(
+            SpecMessage.ENTITY_REGISTER.value,
+            data={"skill_id": "admin.skill", "entity_name": "color",
+                  "lang": "en-US", "samples": ["blue"]},
+            context={"skill_id": "admin.skill"}))
+        with patch("ovos_m2v_pipeline.LOG.warning") as warn:
+            p._handle_intent4_deregister_entity(Message(
+                SpecMessage.ENTITY_DEREGISTER.value,
+                data={"entity_name": "color"},
+                context={"skill_id": "admin.skill"}))
+        self.assertEqual(p.entities, {"admin.skill": {"color": ["blue"]}})
+        warn.assert_called()
 
     def test_deregister_skill_no_skill_id_anywhere_dropped(self):
         p = _make_prototype_pipeline()
