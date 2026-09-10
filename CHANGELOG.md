@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.0a1) (2026-09-10)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.12.4a2...0.13.0a1)
+
+**Merged pull requests:**
+
+- feat: build the corpus from the skills and their gold sentences [\#158](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/158) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.12.4a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.12.4a2) (2026-09-10)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.12.4a1...0.12.4a2)
@@ -366,10 +374,6 @@
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.9...0.0.10a1)
 
-**Merged pull requests:**
-
-- chore\(deps\): update actions/setup-python action to v6 [\#27](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/27) ([renovate[bot]](https://github.com/apps/renovate))
-
 ## [0.0.9](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.9) (2026-03-04)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.9a4...0.0.9)
@@ -381,10 +385,6 @@
 ## [0.0.9a4](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.9a4) (2026-03-04)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.9a3...0.0.9a4)
-
-**Merged pull requests:**
-
-- chore\(deps\): update actions/checkout action to v6 [\#26](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/26) ([renovate[bot]](https://github.com/apps/renovate))
 
 ## [0.0.9a3](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.9a3) (2026-03-03)
 
