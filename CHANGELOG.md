@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.1a1) (2026-09-10)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.0a1...0.13.1a1)
+
+**Merged pull requests:**
+
+- fix: alias the renamed and folded intent labels in the external corpora [\#126](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/126) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.13.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.0a1) (2026-09-10)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.12.4a2...0.13.0a1)
@@ -377,10 +385,6 @@
 ## [0.0.9](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.9) (2026-03-04)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.9a4...0.0.9)
-
-**Merged pull requests:**
-
-- Release 0.0.9a4 [\#28](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/28) ([github-actions[bot]](https://github.com/apps/github-actions))
 
 ## [0.0.9a4](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.9a4) (2026-03-04)
 
