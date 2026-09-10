@@ -203,3 +203,41 @@ def test_an_entity_is_scoped_to_its_own_language(tmp_path):
 
     assert out["en-US"] == ["play rock"]
     assert out["de-DE"] == ["spiele schlager"]
+
+
+def test_a_slot_value_carrying_alternation_is_expanded_not_embedded():
+    # A value pulled from an .entity file can itself carry template syntax.
+    # Filling it with re.sub and never expanding again ships the syntax
+    # verbatim as a training row; the fix must expand the filled result.
+    value = "(lys|mørk|bleg|dyb|klar) (rød|orange|gul|grøn|blå|lilla|pink|brun|grå)"
+    out = sentences("Vis mig farve {color}", hints={"color": [value]})
+    assert sorted(out) == sorted(
+        f"Vis mig farve {shade} {hue}"
+        for shade in ["lys", "mørk", "bleg", "dyb", "klar"]
+        for hue in ["rød", "orange", "gul", "grøn", "blå", "lilla", "pink",
+                    "brun", "grå"])
+    assert all("(" not in s and ")" not in s for s in out)
+
+
+def test_a_slot_value_with_no_template_syntax_is_unchanged():
+    out = sentences("play {track}", hints={"track": ["hey jude", "let it be"]})
+    assert sorted(out) == ["play hey jude", "play let it be"]
+
+
+def test_an_unfilled_slot_still_ships():
+    assert sentences("set {alertkind} for {duration}",
+                    hints={"alertkind": ["alarm", "timer"]}) == [
+        "set alarm for {duration}", "set timer for {duration}"]
+
+
+def test_the_post_build_check_counts_leftover_template_syntax():
+    rows_dirty = [
+        {"utterance": "Vis mig farve (lys|mørk) rød"},
+        {"utterance": "play hey jude"},
+    ]
+    rows_clean = [
+        {"utterance": "play hey jude"},
+        {"utterance": "what type is the pokemon {pokemon}"},
+    ]
+    assert bfs.count_leftover_template_syntax(rows_dirty) == 1
+    assert bfs.count_leftover_template_syntax(rows_clean) == 0
