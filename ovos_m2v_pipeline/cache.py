@@ -7,12 +7,13 @@ embeddings are read back from a small ``.npz`` file instead of being
 recomputed by ``model.encode()``.
 
 The cache is keyed on the *inputs* to a registration (model id, model2vec
-version, the strategy/anchor-selection parameters, and the raw pre-expansion
-sample lines), never on the resulting embeddings themselves, so a changed
-template, a bumped model, or a different anchor-selection setting is a plain
-cache miss that falls through to normal ingest -- no separate invalidation
-logic is needed for the common case of "something about this registration
-changed". A cached entry whose embedding dimension disagrees with the
+version, the installed ovos-spec-tools version, the strategy/anchor-selection
+parameters, and the raw pre-expansion sample lines), never on the resulting
+embeddings themselves, so a changed template, a bumped model, an upgraded
+spec-tools (which governs template expansion), or a different
+anchor-selection setting is a plain cache miss that falls through to normal
+ingest -- no separate invalidation logic is needed for the common case of
+"something about this registration changed". A cached entry whose embedding dimension disagrees with the
 currently-loaded model (e.g. the artifact behind an unchanged model id was
 retrained in place) is likewise treated as a miss: loading it in regardless
 would poison the live store with vectors of the wrong shape.
@@ -34,10 +35,22 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
 from ovos_utils.log import LOG
+from ovos_spec_tools.version import (
+    VERSION_MAJOR, VERSION_MINOR, VERSION_BUILD, VERSION_ALPHA,
+)
 
 #: Characters allowed verbatim in a cache path component; everything else
 #: (notably ``:`` in ``skill_id:intent_name`` labels) is folded to ``_``.
 _UNSAFE_RE = re.compile(r"[^A-Za-z0-9_.-]")
+
+#: The installed ``ovos-spec-tools`` version, folded into every cache key.
+#: Expansion semantics (``ovos_spec_tools.expansion.iter_expand`` /
+#: ``strip_type_prefixes``) live in that package, so a spec-tools upgrade can
+#: change what a template line expands to without touching anything else this
+#: key already covers. Without this, a rebuilt cache after such an upgrade
+#: would silently keep serving prototypes computed under the old expansion
+#: semantics as a "hit".
+_SPEC_TOOLS_VERSION = (VERSION_MAJOR, VERSION_MINOR, VERSION_BUILD, VERSION_ALPHA)
 
 
 def compute_cache_key(
@@ -67,6 +80,7 @@ def compute_cache_key(
     payload = {
         "model_id": model_id,
         "model2vec_version": model2vec_version,
+        "spec_tools_version": list(_SPEC_TOOLS_VERSION),
         "params": params,
         "samples": sorted(raw_samples),
         "entities": {k: sorted(v) for k, v in sorted((entity_values or {}).items())},

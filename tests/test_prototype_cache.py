@@ -128,6 +128,25 @@ class TestPrototypeCacheHitMiss(unittest.TestCase):
             _register(p2, ["turn on the lights"])
             p2.model.encode.assert_called_once()
 
+    def test_changed_spec_tools_version_invalidates_and_reencodes(self):
+        """A prototype computed under one ovos-spec-tools version must never
+        be served back as a cache hit once spec-tools is upgraded: that
+        package governs template expansion (``iter_expand`` /
+        ``strip_type_prefixes``), so a version bump can change what a raw
+        sample line actually expands to, and reusing the previously-encoded
+        artifact across that boundary would silently keep serving
+        prototypes computed under the old expansion semantics.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("ovos_m2v_pipeline.cache._SPEC_TOOLS_VERSION", (1, 11, 2, 0)):
+                p1 = _make_pipeline(tmp)
+                _register(p1, ["turn on the lights"])
+
+            with patch("ovos_m2v_pipeline.cache._SPEC_TOOLS_VERSION", (1, 12, 0, 0)):
+                p2 = _make_pipeline(tmp)
+                _register(p2, ["turn on the lights"])
+                p2.model.encode.assert_called_once()
+
 
 class TestPrototypeCacheInvalidationOnRemoval(unittest.TestCase):
     def test_remove_skill_deletes_cache_entries(self):
