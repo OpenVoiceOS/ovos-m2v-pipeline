@@ -226,8 +226,42 @@ def fill(template: str, hints: dict, keywords: dict, stats: collections.Counter)
                     nxt.append(re.sub(r"\{" + re.escape(slot) + r"\}", value,
                                       partial, flags=re.IGNORECASE))
             filled = nxt[:EXPANSION_CAP]
-        out.extend(filled)
+        # A hint value is substituted verbatim, and a value can itself carry
+        # template syntax (an `.entity` line copied from a template, or one
+        # written with alternation in it). Left alone, that syntax ships as a
+        # literal training row instead of the sentences it denotes, so every
+        # filled string is expanded again. `expand` is eager and raises
+        # rather than returning a partial sample set, so a fill that produces
+        # a malformed string is dropped whole, the same way a malformed
+        # template is dropped above -- never partially kept.
+        reexpanded = []
+        for f in filled:
+            try:
+                grown = expand(f, {})
+            except Exception:
+                stats["filled_sentence_would_not_expand"] += 1
+                continue
+            if len(grown) > 1:
+                stats["rows_expanded_after_filling"] += len(grown)
+            reexpanded.extend(grown)
+        if len(reexpanded) > EXPANSION_CAP:
+            stats["sentence_over_cap_after_fill"] += 1
+            reexpanded = reexpanded[:EXPANSION_CAP]
+        out.extend(reexpanded)
     return out
+
+
+def count_leftover_template_syntax(rows) -> int:
+    """Written rows that still carry template syntax other than `{slot}`.
+
+    A slot left unfilled (INTENT-1 5.4) is the documented, correct shape of
+    a row -- `{slot}` is excluded. Anything else the grammar defines,
+    alternation or an optional segment, is never a valid training row; this
+    is the check that would have caught the defect the manifest's own
+    per-stage counters did not.
+    """
+    leftover = re.compile(r"\(.*\|.*\)|\[[^\]]*\]")
+    return sum(1 for row in rows if leftover.search(row["utterance"]))
 
 
 def resolve_gold_label(label: str, shipped: set) -> str:
@@ -459,6 +493,13 @@ def main() -> int:
         "templates_silenced": len(silenced_templates),
         "templates_silenced_detail": silenced_templates,
         "labels_with_a_silenced_template": silenced_labels,
+        # A row still carrying template syntax other than an unfilled `{slot}`
+        # is unusable, whatever the per-stage counters above say. This is the
+        # number that would have caught the shipped-alternation defect: it
+        # reads the finished corpus rather than trusting the builder's own
+        # account of its work.
+        "train_rows_with_leftover_template_syntax":
+            count_leftover_template_syntax(train),
         "gold_flags_are_not_evidence": (
             "every gold sentence in this fleet was written by a model, so the "
             "machine_generated field is unreliable wherever it claims False "
