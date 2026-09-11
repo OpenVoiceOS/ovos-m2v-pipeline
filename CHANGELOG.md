@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.6a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.6a1) (2026-09-11)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.5a1...0.13.6a1)
+
+**Merged pull requests:**
+
+- fix: expand filled slot values instead of embedding their template syntax [\#170](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/170) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.13.5a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.5a1) (2026-09-11)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.4a1...0.13.5a1)
@@ -383,10 +391,6 @@
 ## [0.5.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.5.0a1) (2026-07-02)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.4.0a1...0.5.0a1)
-
-**Merged pull requests:**
-
-- feat: honor INTENT-4 §6.1 blacklist + session blacklists at match [\#45](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/45) ([JarbasAl](https://github.com/JarbasAl))
 
 ## [0.4.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.4.0a1) (2026-07-02)
 
