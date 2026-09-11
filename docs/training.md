@@ -98,11 +98,47 @@ templates, the common-query and weather intent corpora, an LLM-augmented
 balancing set, the locale intent files of the OCP, common-query, persona and
 stop pipelines, and the golden end-to-end corpora of the pinned skills.
 
-## Distilling a new base model
+## Distilling a base model
 
-If you want to start from a Sentence Transformer with no Model2Vec distillate
-yet, edit the model list at the top of `distill.py` and run it. The result can
-be passed to `train.py --base-model`.
+`backbones.yaml` lists the sentence encoders worth distilling, each with the
+Hugging Face revision it is distilled from and the languages it is trained for.
+A backbone marked `languages: [mul]` is multilingual and serves any language
+without a dedicated entry.
+
+```bash
+python train/distill.py --resolve        # pin every empty revision from the Hub
+python train/distill.py --lang gl        # the backbones serving one language
+python train/distill.py --all            # every backbone in the manifest
+```
+
+`--lang` builds that language's own backbones together with the multilingual
+ones, because a language-specific backbone is only worth shipping when it beats
+the multilingual baseline on that language's rows. `--no-multilingual` drops
+that baseline once it is built, or on a box that cannot hold it: a multilingual
+vocabulary is an order of magnitude larger than one language's, and the
+distillation peaks with the whole vocabulary encoded in memory.
+
+What a distillation costs is the vocabulary rather than the parameter count: every token is
+encoded, and peak memory follows the vocabulary's size. Each run logs the token count before it
+starts, and `--max-vocab` refuses anything above a ceiling instead of discovering the cost when
+the machine runs out of memory.
+
+A backbone the installed `transformers` cannot load is skipped with the error that stopped it,
+and the rest of the manifest still builds.
+
+Some repositories ship code that loading the model executes. Those carry
+`custom_code: true` and are skipped with a message naming the model, until you
+have read that repository and passed `--trust-remote-code`. Each result lands in
+`distilled/<backbone id>` beside a `distill.json` naming the source model, its
+revision, the embedding dimension, the vocabulary size and the model2vec
+version, and a backbone already built at the same revision is skipped, so an
+interrupted run resumes. Pass the directory to `train.py --base-model`.
+
+The `selected` map at the bottom of `backbones.yaml` records which backbone a
+language's published model is built from. It is filled in from a measurement
+against that language's rows, never from a preference: until a language's own
+backbone is measured against the multilingual one, the multilingual one is what
+that language gets.
 
 ## Publishing
 
