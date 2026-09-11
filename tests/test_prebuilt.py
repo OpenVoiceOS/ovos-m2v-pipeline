@@ -211,6 +211,80 @@ class TestPrebuiltFromHFRepoId(unittest.TestCase):
         self.assertIsNotNone(loaded)
 
 
+class TestCLIExportFromDataset(unittest.TestCase):
+    """The corpus built by ``train/build_dataset.py`` is a prototype source.
+
+    A skill's own ``.intent`` templates carry none of the translated, tracker,
+    golden or augmented rows the corpus does, so an artifact built from the
+    corpus is what makes a classifier and a prototype model comparable.
+    """
+
+    def _dataset(self, tmp):
+        import pandas as pd
+        dataset = Path(tmp) / "dataset"
+        dataset.mkdir(parents=True)
+        pd.DataFrame([
+            {"lang": "en-US", "label": "weather.skill:current",
+             "utterance": "what is the weather"},
+            {"lang": "en-US", "label": "weather.skill:current",
+             "utterance": "how is the weather outside"},
+            {"lang": "pt-PT", "label": "weather.skill:current",
+             "utterance": "como esta o tempo"},
+            {"lang": "en-US", "label": "time.skill:current",
+             "utterance": "what time is it"},
+        ]).to_parquet(dataset / "train.parquet")
+        return dataset
+
+    def _run(self, argv):
+        fake_m2v = MagicMock()
+        fake_m2v.__version__ = "0.9.0"
+        mock_embed_model = MagicMock()
+        mock_embed_model.encode.side_effect = _hash_encode
+        fake_m2v.StaticModel.from_pretrained.return_value = mock_embed_model
+        from ovos_m2v_pipeline.cli import main
+        with patch.dict(sys.modules, {"model2vec": fake_m2v}):
+            return main(argv)
+
+    def test_every_label_and_language_is_exported(self):
+        import json
+        with tempfile.TemporaryDirectory() as tmp:
+            dataset = self._dataset(tmp)
+            out_dir = Path(tmp) / "artifact"
+            rc = self._run(["export", "--out", str(out_dir),
+                            "--model", "fake-model",
+                            "--from-dataset", str(dataset)])
+            self.assertEqual(rc, 0)
+            manifest = json.loads((out_dir / "manifest.json").read_text())
+            self.assertEqual(sorted(manifest["labels"]),
+                             ["time.skill:current", "weather.skill:current"])
+            self.assertEqual(manifest["languages"]["weather.skill:current"],
+                             ["en-US", "pt-PT"])
+            self.assertEqual(manifest["model_id"], "fake-model")
+
+    def test_lang_filter_narrows_the_export(self):
+        import json
+        with tempfile.TemporaryDirectory() as tmp:
+            dataset = self._dataset(tmp)
+            out_dir = Path(tmp) / "artifact"
+            rc = self._run(["export", "--out", str(out_dir),
+                            "--model", "fake-model",
+                            "--from-dataset", str(dataset),
+                            "--lang", "pt-PT"])
+            self.assertEqual(rc, 0)
+            manifest = json.loads((out_dir / "manifest.json").read_text())
+            self.assertEqual(manifest["labels"], ["weather.skill:current"])
+            self.assertEqual(manifest["languages"]["weather.skill:current"],
+                             ["pt-PT"])
+
+    def test_two_sources_are_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dataset = self._dataset(tmp)
+            with self.assertRaises(SystemExit):
+                self._run(["export", "--out", str(Path(tmp) / "artifact"),
+                           "--from-dataset", str(dataset),
+                           "--from-cache", str(dataset)])
+
+
 class TestCLIExportFromSkillDir(unittest.TestCase):
     def test_export_from_skill_dir_produces_expected_manifest(self):
         with tempfile.TemporaryDirectory() as tmp:
