@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.5a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.5a1) (2026-09-11)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.4a1...0.13.5a1)
+
+**Merged pull requests:**
+
+- fix: remove training rows that leak into the gold test set [\#166](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/166) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.13.4a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.4a1) (2026-09-10)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.3a1...0.13.4a1)
@@ -391,11 +399,6 @@
 ## [0.3.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.3.1a1) (2026-06-28)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.0.10a1...0.3.1a1)
-
-**Merged pull requests:**
-
-- fix\(ci\): adopt OpenVoiceOS shared release + build workflows \(unblock PyPI publish\) [\#43](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/43) ([JarbasAl](https://github.com/JarbasAl))
-- fix\(deps\): allow ovos-workshop 9.x \(widen \<9.0.0 -\> \<10.0.0\) [\#42](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/42) ([JarbasAl](https://github.com/JarbasAl))
 
 ## [0.0.10a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.0.10a1) (2026-03-04)
 
