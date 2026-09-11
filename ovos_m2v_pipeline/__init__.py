@@ -2529,3 +2529,9 @@ class Model2VecPrototypePipeline(Model2VecIntentPipeline):
             )
         config["mode"] = "prototype"
         super().__init__(bus, config)
+
+
+# Imported at the bottom: `PrototypeScorer` itself imports `DEFAULT_MULTILINGUAL`
+# and `Model2VecIntentPipeline` from this module, so this module must finish
+# defining them first.
+from ovos_m2v_pipeline.scorer import PrototypeScorer  # noqa: E402
