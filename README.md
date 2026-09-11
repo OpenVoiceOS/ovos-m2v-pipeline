@@ -328,6 +328,10 @@ under grant agreement No [101135429](https://cordis.europa.eu/project/id/1011354
 
 ---
 
+## License
+
+Licensed under the Apache License, Version 2.0. See [LICENSE](./LICENSE).
+
 ## Training your own model
 
 `train/` builds the intent corpus from pinned sources and fits a classifier on
