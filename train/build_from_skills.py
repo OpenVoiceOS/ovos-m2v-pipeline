@@ -3,9 +3,30 @@
 
 The skills are the data. Every locale resource a running skill would load is
 the training side, and the gold sentences the fleet already ships are the test
-side, so the split comes from provenance rather than from a stratifier slicing
-one pool. No sentence can appear on both sides: the two come from different
-files, written for different purposes.
+side. Provenance alone does not keep the two disjoint: a gold sentence and an
+expansion of that skill's own template are both somebody reaching for the
+obvious phrasing of the same intent, and they collide constantly regardless
+of which file either one was read from. So after both sides are built, every
+training row whose utterance matches a gold utterance is removed from the
+training side. The comparison is string equality after lowercasing,
+collapsing whitespace, and stripping leading and trailing punctuation --
+the same trailing-punctuation fold ``ovos-utterance-normalizer`` applies to
+an incoming utterance before an intent engine ever sees it, so "play rock?"
+in gold and "play rock" in a template expansion are one string here because
+they are one string at match time. It is still not accent-insensitive and
+not semantic. The gold side is never thinned: dropping the gold rows a
+skill author happened to also think of would leave the phrasings nobody
+anticipated, a biased sample rather than a smaller one. The manifest
+records the measured overlap between the two sides after the removal under
+both the punctuation-insensitive comparison the removal itself uses and the
+narrower exact-string comparison, both of which must be zero, and how many
+templates the removal left with no rows at all, because that count is the
+price paid for the fix and a manifest that reports only the zero is how
+this defect gets rebuilt. The test side itself is a claim that must hold a
+floor too: a gold glob that resolves to nothing builds a corpus with zero
+test rows and reports the overlap as a vacuous zero, so ``--min-test-rows``
+and ``--min-labels-scored`` gate the test side exactly as ``--min-labels``
+and ``--min-languages`` gate the training side.
 
 Three resource kinds, each read for what it is. An ``.intent`` file carries
 templates. An ``.entity`` file carries example values for a slot -- a hint per
@@ -31,6 +52,7 @@ import argparse
 import collections
 import json
 import re
+import string
 import subprocess
 import sys
 from pathlib import Path
@@ -70,6 +92,33 @@ def show(repo: Path, rev: str, path: str) -> str:
         return git(repo, "show", f"{rev}:{path}")
     except subprocess.CalledProcessError:
         return ""
+
+
+def normalize_utterance(text: str) -> str:
+    """Lowercase and collapse whitespace, the narrower overlap comparison.
+
+    Exact string match after this normalisation, nothing wider: not
+    accent-insensitive, not semantic. Kept and reported alongside the
+    punctuation-insensitive comparison below because the two answer
+    different questions, and collapsing them into one number would hide
+    which normalisation the removal actually rests on.
+    """
+    return re.sub(r"\s+", " ", text.strip()).lower()
+
+
+def normalize_utterance_punct_insensitive(text: str) -> str:
+    """As ``normalize_utterance``, plus stripping leading/trailing punctuation.
+
+    ``ovos-utterance-normalizer``, the runtime transformer every incoming
+    utterance passes through before an intent engine matches it, strips
+    edge punctuation with ``utterance.strip(string.punctuation).strip()``.
+    A gold row ending in "?" and a training expansion without one are the
+    same string at that point, so the removal this builder performs is
+    matched on this wider equivalence, not the narrower one above. Still
+    not accent-insensitive, not semantic, and inner punctuation is left
+    alone -- only what the runtime strips is stripped here.
+    """
+    return normalize_utterance(text).strip(string.punctuation).strip()
 
 
 def normalize_lang(tag: str) -> str:
@@ -270,6 +319,17 @@ def main() -> int:
     # once fa-ir/fa-IR merged under OVOS-INTENT-2 2's case-insensitive tag
     # comparison. The prior floor of 53 counted that pair twice.
     ap.add_argument("--min-languages", type=int, default=52)
+    # The zero this build asserts on the overlap is satisfied trivially when
+    # the test side is empty: a gold glob renamed or moved out from under the
+    # builder still builds rc=0 with test_rows=0 and every overlap zero by
+    # construction, scoring nothing while reporting the cleanest possible
+    # number. Floors on the test side close that, the same way min-labels
+    # and min-languages close it on the training side. Measured against a
+    # real build over dev@72d73a5 (`--workspace ~/AgentWorkspaces`, shipped
+    # source pins): test_rows=1412.
+    ap.add_argument("--min-test-rows", type=int, default=1412)
+    # Measured on the same build: labels_scored=164.
+    ap.add_argument("--min-labels-scored", type=int, default=164)
     # A base name that breaks OVOS-INTENT-2 2 is read anyway, because the
     # corpus must build against the fleet as it stands. Pinning the count
     # stops the set growing while the rename campaign brings it down; a zero
@@ -334,6 +394,45 @@ def main() -> int:
         deduped.append(row)
     train = deduped
 
+    # A gold sentence and an expansion of the same skill's own template are
+    # both somebody reaching for the obvious phrasing of the same intent, so
+    # they collide regardless of which file either was read from. Every
+    # training row that collides with a gold row -- match after lowercasing,
+    # whitespace collapse, and stripping edge punctuation, the same fold the
+    # runtime utterance normalizer applies before an intent engine matches
+    # -- is removed from the training side; the gold side is never touched.
+    # Measured, not assumed: the overlap under both comparisons and the
+    # templates the removal silences all go in the manifest.
+    gold_normalized = {normalize_utterance(r["utterance"]) for r in test}
+    gold_normalized_wide = {
+        normalize_utterance_punct_insensitive(r["utterance"]) for r in test}
+    templates_before = collections.defaultdict(set)
+    for row in train:
+        templates_before[row["template"]].add(row["label"])
+    train_gold_overlap = [
+        row for row in train
+        if normalize_utterance_punct_insensitive(row["utterance"])
+        in gold_normalized_wide]
+    train = [row for row in train
+             if normalize_utterance_punct_insensitive(row["utterance"])
+             not in gold_normalized_wide]
+    templates_after = {row["template"] for row in train}
+    silenced_templates = sorted(t for t in templates_before
+                                if t not in templates_after)
+    silenced_labels = sorted({label for t in silenced_templates
+                              for label in templates_before[t]})
+    # The overlap this fix removes may have been the only training rows a
+    # label had; re-derive labels_trained from what survives rather than
+    # from the pre-removal pass, or the manifest would call a label trained
+    # when its last row was just deleted.
+    labels_trained = {row["label"] for row in train}
+    train_gold_overlap_after = sum(
+        1 for row in train if normalize_utterance(row["utterance"]) in gold_normalized)
+    train_gold_overlap_after_punct_insensitive = sum(
+        1 for row in train
+        if normalize_utterance_punct_insensitive(row["utterance"])
+        in gold_normalized_wide)
+
     # A gold sentence naming a label no skill trains is two different
     # findings wearing one shape, and they ask for opposite work. If the
     # skill ships the intent and it produces no rows, the intent is starved
@@ -353,6 +452,13 @@ def main() -> int:
         "labels_never_scored": len(labels_trained - labels_scored),
         "languages_train": len({r["lang"] for r in train}),
         "languages_test": len({r["lang"] for r in test}),
+        "train_gold_overlap_removed": len(train_gold_overlap),
+        "train_gold_overlap_after_fix": train_gold_overlap_after,
+        "train_gold_overlap_after_fix_punct_insensitive":
+            train_gold_overlap_after_punct_insensitive,
+        "templates_silenced": len(silenced_templates),
+        "templates_silenced_detail": silenced_templates,
+        "labels_with_a_silenced_template": silenced_labels,
         "gold_flags_are_not_evidence": (
             "every gold sentence in this fleet was written by a model, so the "
             "machine_generated field is unreliable wherever it claims False "
@@ -380,6 +486,28 @@ def main() -> int:
         short.append(
             f"the corpus shrank to {report['languages_train']} languages, "
             f"floor {args.min_languages}")
+    if report["test_rows"] < args.min_test_rows:
+        short.append(
+            f"the gold side shrank to {report['test_rows']} test rows, "
+            f"floor {args.min_test_rows}: a moved or renamed gold glob "
+            f"that matches nothing builds an overlap of zero by having "
+            f"nothing to overlap with, and no other count shows the loss")
+    if report["labels_scored"] < args.min_labels_scored:
+        short.append(
+            f"the gold side scores only {report['labels_scored']} labels, "
+            f"floor {args.min_labels_scored}")
+    if report["train_gold_overlap_after_fix"] != 0:
+        short.append(
+            f"{report['train_gold_overlap_after_fix']} training rows still "
+            f"match a gold utterance after the removal pass: the fix did "
+            f"not do what it claims")
+    if report["train_gold_overlap_after_fix_punct_insensitive"] != 0:
+        short.append(
+            f"{report['train_gold_overlap_after_fix_punct_insensitive']} "
+            f"training rows still match a gold utterance once edge "
+            f"punctuation is stripped, the fold the runtime normalizer "
+            f"applies before an intent engine ever compares the two: the "
+            f"fix did not do what it claims")
     cap = args.max_noncompliant_base_names
     if cap is not None and report["noncompliant_base_names"] > cap:
         short.append(
