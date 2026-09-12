@@ -262,6 +262,22 @@ naming its origin, so a golden-only slice can still be scored on its own.
 Rows marked `needs_manual` are excluded. Rows with no `intent_label` are
 excluded too: the fallback skill's corpus asserts a dialog, not an intent.
 
+## The train/test split
+
+The split stratifies by label over groups, not rows: every row expanded from
+one `.intent` line carries the same `(lang, template)` key, and rows that
+share an utterance are tied to it, so a near-identical sentence can never
+appear on both sides of the split.
+
+A proportional split alone rounds a small label's test share down to nothing,
+and a label with no test rows is never measured again while it still occupies
+probability mass in the head. So on top of the ratio, a label with at least
+ten rows gets at least two test rows and a label with five to nine gets at
+least one, taking its smallest train-side groups first so the overall ratio
+barely moves. A label attested by a single group is the one case that cannot
+be honoured: moving its only group whole would leave the label untrained, so
+it keeps none and is listed in the manifest's `labels_without_test_rows`.
+
 ## Renames, merges, and the unification wave
 
 The Adapt-to-`.intent` refactors rename intents across the default skills, and
