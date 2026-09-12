@@ -982,6 +982,20 @@ def _split_groups(df: pd.DataFrame) -> pd.Series:
     return pd.Series([find(t) for t in template_key], index=df.index)
 
 
+def per_label_test_floor(n_rows: int) -> int:
+    """Test rows a label with *n_rows* rows must get, if its groups allow.
+
+    A label with a handful of rows is exactly where a proportional split
+    rounds down to nothing: 20% of eight rows is one row, and stratifying on
+    groups rather than rows rounds it away entirely. A label with no test
+    rows is invisible in every evaluation the corpus feeds, so it silently
+    stops being measured while still occupying probability mass.
+    """
+    if n_rows < 5:
+        return 0
+    return 1 if n_rows < 10 else 2
+
+
 def template_split(df: pd.DataFrame, label_col: str, test_size: float, seed: int):
     """Stratified train/test split over groups of rows, never single rows.
 
@@ -989,6 +1003,12 @@ def template_split(df: pd.DataFrame, label_col: str, test_size: float, seed: int
     same utterance as one of them, so neither a template's expansions nor a
     repeated sentence can straddle the split. Both are the same failure:
     a held-out number inflated by scoring something the model was fitted on.
+
+    On top of the ratio, every label reaches :func:`per_label_test_floor`
+    test rows where its groups allow it: the smallest train-side groups move
+    across until the floor is met, smallest first so the overall ratio moves
+    as little as possible. A label keeps at least one group in train, so a
+    label attested by a single group cannot reach the floor and keeps none.
     """
     from sklearn.model_selection import train_test_split
     df = df.assign(_group=_split_groups(df))
@@ -1003,6 +1023,27 @@ def template_split(df: pd.DataFrame, label_col: str, test_size: float, seed: int
                                        random_state=seed,
                                        stratify=splittable[label_col])
     train_keys = set(pd.concat([train_g, forced_train])["_group"])
+    test_keys = set(test_g["_group"])
+
+    label_of = dict(zip(groups["_group"], groups[label_col]))
+    group_rows = df.groupby("_group").size().to_dict()
+    train_by_label = collections.defaultdict(list)
+    for key in train_keys:
+        train_by_label[label_of[key]].append(key)
+    test_rows = collections.Counter()
+    for key in test_keys:
+        test_rows[label_of[key]] += group_rows[key]
+
+    for label, n_rows in sorted(df[label_col].value_counts().items()):
+        floor = per_label_test_floor(int(n_rows))
+        # smallest first, and never the label's last train group
+        movable = sorted(train_by_label[label], key=lambda k: (group_rows[k], k))
+        while test_rows[label] < floor and len(movable) > 1:
+            key = movable.pop(0)
+            train_keys.discard(key)
+            test_keys.add(key)
+            test_rows[label] += group_rows[key]
+
     is_train = df["_group"].isin(train_keys)
     return df[is_train].drop(columns=["_group"]), df[~is_train].drop(columns=["_group"])
 
