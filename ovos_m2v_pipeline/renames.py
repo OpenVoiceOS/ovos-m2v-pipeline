@@ -34,4 +34,7 @@ RENAMED_LABELS = {
     "ovos-skill-date-time.openvoiceos:what.time.will.it.be": "ovos-skill-date-time.openvoiceos:what_time_will_it_be",
     "ovos-skill-date-time.openvoiceos:what.weekday.is.it": "ovos-skill-date-time.openvoiceos:what_weekday_is_it",
     "ovos-skill-date-time.openvoiceos:what.year.is.it": "ovos-skill-date-time.openvoiceos:what_year_is_it",
+    # ovos-skill-confucius-quotes: resource base names made OVOS-INTENT-2 §2
+    # compliant (lowercase letters, digits and underscores).
+    "ovos-skill-confucius-quotes.openvoiceos:ConfuciusQuote": "ovos-skill-confucius-quotes.openvoiceos:confucius_quote",
 }

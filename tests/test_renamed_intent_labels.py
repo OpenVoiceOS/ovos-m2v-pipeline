@@ -85,6 +85,16 @@ class TestRenameTable(unittest.TestCase):
         dated = {k for k in RENAMED_LABELS if k.startswith("ovos-skill-date-time.openvoiceos:")}
         self.assertEqual(len(dated), 13)
 
+    def test_confucius_quotes_rename_is_listed(self):
+        self.assertEqual(
+            RENAMED_LABELS["ovos-skill-confucius-quotes.openvoiceos:ConfuciusQuote"],
+            "ovos-skill-confucius-quotes.openvoiceos:confucius_quote")
+
+    def test_no_new_label_is_also_an_old_label(self):
+        # the alias is applied once; a chained rename would stop half way
+        chained = set(RENAMED_LABELS.values()) & set(RENAMED_LABELS)
+        self.assertEqual(chained, set())
+
 
 def test_builder_files_pre_rename_rows_under_the_new_label():
     pytest.importorskip("pandas")
