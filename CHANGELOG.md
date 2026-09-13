@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.13.13a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.13a1) (2026-09-13)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.12a1...0.13.13a1)
+
+**Merged pull requests:**
+
+- fix: route the renamed SpeedtestIntent model label to speedtest\_intent [\#189](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/189) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+- fix: route the renamed TellMeMoreIntent model label to tell\_me\_more\_intent [\#188](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/188) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+- fix: route the renamed ConfuciusQuote model label to confucius\_quote [\#187](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/187) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.13.12a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.12a1) (2026-09-13)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.11a1...0.13.12a1)
@@ -380,17 +390,9 @@
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.5.5a1...0.5.6a1)
 
-**Merged pull requests:**
-
-- fix: bound store ingest and dealias padatious labels [\#63](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/63) ([JarbasAl](https://github.com/JarbasAl))
-
 ## [0.5.5a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.5.5a1) (2026-08-17)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.5.4a2...0.5.5a1)
-
-**Merged pull requests:**
-
-- fix: keep model2vec encoding in-process [\#61](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/61) ([JarbasAl](https://github.com/JarbasAl))
 
 ## [0.5.4a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.5.4a2) (2026-07-31)
 
