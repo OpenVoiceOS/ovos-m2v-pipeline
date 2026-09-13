@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.13.13a5](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.13a5) (2026-09-13)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.13a4...0.13.13a5)
+
 ## [0.13.13a4](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.13a4) (2026-09-13)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.13a3...0.13.13a4)
