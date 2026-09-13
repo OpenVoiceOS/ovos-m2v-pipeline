@@ -47,9 +47,24 @@ Distilled from the [Potion](https://huggingface.co/collections/minishlab/potion-
 
 ---
 
+## Prototype Mode: Embedding-Only Models
+
+In prototype mode the plugin uses a bare `StaticModel` (no classifier head). Any Model2Vec embedding model works, including the distilled bases used to train the classifier models above:
+
+| Model | Languages | Approx. Size |
+|-------|-----------|-------------|
+| `minishlab/M2V_multilingual_output` | multilingual | ~500 MB |
+| `minishlab/potion-base-2M` | English | ~8 MB |
+| `minishlab/potion-base-8M` | English | ~32 MB |
+| `minishlab/potion-base-32M` | English | ~128 MB |
+
+Prototype mode requires no training step. Point `model` at any of the above and set `"mode": "prototype"`.
+
+---
+
 ## Using a Custom Model
 
-Point `model` at any local directory or Hugging Face repo that contains a `StaticModelPipeline` checkpoint:
+Point `model` at any local directory or Hugging Face repo that contains a `StaticModelPipeline` checkpoint (classifier mode) or a bare `StaticModel` (prototype mode):
 
 ```json
 {
@@ -62,3 +77,6 @@ Point `model` at any local directory or Hugging Face repo that contains a `Stati
 ```
 
 See [Training](training.md) to produce your own model.
+
+---
+[← Prototype Strategies](strategies.md) · [Home](README.md) · [Training →](training.md)

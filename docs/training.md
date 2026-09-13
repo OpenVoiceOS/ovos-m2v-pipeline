@@ -1,167 +1,158 @@
 # Training
 
-The `train/` directory contains all scripts needed to gather data and train new models.
+`train/` holds the reproducible pipeline that builds the intent corpus and
+fits a classifier on it. You only need it to produce a custom model; the
+[pre-trained models](models.md) already cover the standard OVOS skill corpus.
 
-> Training is only needed if you want to produce a custom model. The [pre-trained models](models.md) cover the standard OVOS skill corpus.
-
----
-
-## Overview
+The Adapt-to-`.intent` refactors and the unification wave that merged the
+weather condition intents, the alerts create and list families, and the
+volume levels are merged in the revisions `sources.yaml` pins, so `train.py`
+runs against those pins. A classifier's label head is frozen at fit time: the
+day a skill renames or folds an intent again, its pin has to be refreshed and
+the model refit before that skill's labels are trusted.
 
 ```
 train/
-├── gather_dataset.py          # Download & merge multilingual intent examples
-├── gather_dataset_en.py       # Download & merge English-only intent examples
-├── train_multilingual.py      # Train a multilingual classifier
-├── train_en.py                # Train English classifiers (multiple base models)
-├── distill.py                 # Distill a Sentence Transformer into a Model2Vec base
-├── predict.py                 # Quick smoke-test / inference demo
-├── merged_intents_dataset.csv     # Output of gather_dataset.py
-└── merged_intents_dataset_en.csv  # Output of gather_dataset_en.py
+├── sources.yaml        # every source, pinned to an immutable revision
+├── build_dataset.py    # resolve, normalise, dedup, split, write the manifest
+├── train.py            # fit a classifier on the built corpus
+├── distill.py          # distill a Sentence Transformer into a Model2Vec base
+└── predict.py          # inference smoke test
 ```
 
----
+Labels are `<skill_id>:<intent_name>` exactly as the pipeline registers them at
+runtime. The scheme, the pipeline families, the dedup rules, and the procedure
+for renames and merges are in [Label scheme](labels.md). Read that page before
+changing anything in `sources.yaml`.
 
-## Step 1 — Gather the Dataset
+## Reproducing end to end
 
-### Multilingual
+The builder reads git sources from local clones, so it needs a workspace with
+the OVOS repos checked out; a pinned revision the clone does not carry is a
+hard error, not a fallback to the branch tip. The Hugging Face sources are
+downloaded, pinned revision by pinned revision, through the shared cache. So
+the builder fetches only what a pin names, and a pin that has moved fails the
+build rather than quietly changing the corpus.
 
 ```bash
-cd train
-python gather_dataset.py
+python -m venv .venv && . .venv/bin/activate
+pip install pandas pyarrow pyyaml huggingface_hub scikit-learn model2vec
+
+# 1. count what the pinned revisions currently yield, writing nothing
+python train/build_dataset.py --dry-run --workspace ~/AgentWorkspaces
+
+# 2. build it
+python train/build_dataset.py --workspace ~/AgentWorkspaces --out train/dataset
+
+# 3. fit against the pinned revisions
+python train/train.py --dataset train/dataset --base-model minishlab/potion-base-32M
 ```
 
-This pulls from:
-- `Jarbas/ovos_intent_examples` on Hugging Face (English examples)
-- `Jarbas/music_queries_templates` on Hugging Face (OCP / music playback templates)
-- Per-language intent CSVs from the [OpenVoiceOS lang-support-tracker](https://github.com/OpenVoiceOS/lang-support-tracker)
+`--allow-ambiguous` keeps rows whose `(utterance, lang)` carries more than one
+label; by default they are dropped and the label pairs are reported.
 
-Languages included: `en`, `pt`, `eu`, `es`, `gl`, `nl`, `fr`, `de`, `ca`, `it`, `da`.
+Step 2 writes `train.parquet`, `test.parquet`, their JSONL twins,
+`labels.json`, and `manifest.json`. The manifest records the row counts per
+source, label, language and family, every drop the filters made, the case
+duplicates that were collapsed, the revisions actually used, and the sha256 of
+each output. Two runs from the same pins produce the same shas.
 
-Output: `merged_intents_dataset.csv` with columns `lang`, `label`, `sentence`.
+Each row carries `lang`, `label`, `utterance`, `source`, `skill_id` and
+`family`. `source` is the provenance tag — `golden:` rows come from a skill's
+own end-to-end corpus.
 
-### English-only
+`labels.json` is the manifest the pipeline reads beside a model (m2v#73). Ship
+it with the model so the plugin can restrict matching to the label set the
+model was actually trained on.
+
+## Regenerating after skills merge
+
+When skill repos move, refresh their pins. Either edit `skill_refs` in
+`sources.yaml`, or pass a generated list:
 
 ```bash
-python gather_dataset_en.py
+for d in ~/AgentWorkspaces/ovos/skills/ovos-skill-*; do
+  echo "$(basename $d) $(git -C $d rev-parse origin/dev)"
+done > skill-refs.txt
+
+python train/build_dataset.py --skill-ref-list skill-refs.txt --dry-run
 ```
 
-Same sources but filtered to `lang=en`.
+Diff the new manifest against the old one. A label count that moved, rows
+shifted by an alias, or a new entry in the rare-label list all mean the corpus
+changed shape and the model has to be refit.
 
-Output: `merged_intents_dataset_en.csv`.
+The pins are also the label vocabulary: the builder reads each pinned repo's
+entry point and registered intents and drops any corpus label those refs do
+not attest. `unresolved_labels` in the manifest is where an unpinned or
+archived skill shows up. Adding a skill to `skill_refs` is how you add its
+intents to the vocabulary.
 
----
+## Sources
 
-## Dataset Schema
+`sources.yaml` is the authority; each entry carries its revision, its license
+note, and the column mapping into `(skill_id, intent, utterance, lang)`. In
+summary the corpus comes from the ovos-localize classification export and the
+lang-support tracker CSVs, the legacy GitLocalize export, the OCP music query
+templates, the common-query and weather intent corpora, an LLM-augmented
+balancing set, the locale intent files of the OCP, common-query, persona and
+stop pipelines, and the golden end-to-end corpora of the pinned skills.
 
-Each row in the CSV represents one training example:
+## Distilling a new base model
 
-| Column | Example |
-|--------|---------|
-| `lang` | `en` |
-| `label` | `ovos-skill-date-time.openvoiceos:what.time.is.it.intent` |
-| `sentence` | `what time is it` |
+If you want to start from a Sentence Transformer with no Model2Vec distillate
+yet, edit the model list at the top of `distill.py` and run it. The result can
+be passed to `train.py --base-model`.
 
-Labels follow the format `<skill_id>:<intent_name>`.
+## Publishing
 
-### Normalisation
-
-`gather_dataset.py` applies the following normalisation before saving:
-
-- **`sentence`**: lowercased, commas removed, multi-word separators collapsed, leading/trailing quotes stripped.
-- **`domain`** (skill ID): `skill-ovos` prefix replaced with `ovos-skill`.
-- **`intent`**: configurable replacements to merge near-duplicate intent names (e.g. `is_rain` → `do-i-need-an-umbrella.intent`).
-
-Blacklists (`BLACKLIST_SKILLS`, `BLACKLIST_INTENTS`) allow excluding specific skills or intents.
-
----
-
-## Step 2 — Train the Model
-
-### Multilingual
+Both `build_dataset.py` and `train.py` can push their output straight to the
+Hub with `--push-to`, given a token in the `HF_TOKEN` environment variable
+(`huggingface-cli login` also works; either way, never put a token in a
+config file or a command line argument). Every upload is additive — it
+creates or updates the named files in one commit each and never deletes
+anything else already in the target repo.
 
 ```bash
-python train_multilingual.py
+export HF_TOKEN=hf_...
+
+# corpus: train.parquet, train.jsonl, test.parquet, test.jsonl,
+# labels.json and manifest.json
+python train/build_dataset.py --push-to YourOrg/your-dataset-name
+
+# trained pipeline: everything train.py wrote to --out, including an
+# onnx/ subdirectory if one is present, plus a training_manifest.json
+# that records the dataset's own file hashes and the model2vec version
+# training ran with
+python train/train.py --push-to YourOrg/your-model-name
 ```
 
-- Base model: `minishlab/M2V_multilingual_output`
-- Trains for 25 epochs with an 90/10 train/test split.
-- Saves each trained pipeline to `model_mul_<base_model_name>/`.
-- Writes evaluation metrics to `metrics_mul_<base_model_name>.md`.
-- Writes a comparison table to `model_comparison.md`.
+Add `--dry-run` to either command to print what would be uploaded without
+touching the network — useful for checking a corpus or a model repo id
+before spending a real commit on it. On `build_dataset.py`, `--dry-run`
+resolves and counts sources but writes nothing; on `train.py`, `--dry-run`
+skips fitting entirely and only prints the training summary, so `--push-to`
+combined with it never uploads or writes a model.
 
-### English
+Point the `model` key in your OVOS configuration at the new model repo once
+it is published.
 
-```bash
-python train_en.py
-```
+## Capping a skewed label
 
-Trains five separate classifiers, one per Potion base model:
-
-- `minishlab/potion-base-2M`
-- `minishlab/potion-base-4M`
-- `minishlab/potion-base-8M`
-- `minishlab/potion-base-32M`
-- `minishlab/potion-retrieval-32M`
-
-Each is trained for 25 epochs. Outputs:
-- `m2v_intents_<base_model_name>/` — saved pipeline
-- `metrics_en_<base_model_name>.md` — per-model metrics
-- `model_comparison_en.md` — comparison table across all English models
-
----
-
-## Step 3 — (Optional) Distill a New Base Model
-
-If you want to start from a Sentence Transformer that is not yet available as a Model2Vec distillate:
-
-```bash
-python distill.py
-```
-
-Edit the model list at the top of `distill.py`, then run the script. It calls `model2vec.distill.distill()` and saves the result locally. The distilled model can then be used as the `base_model` in the training scripts.
-
----
-
-## Step 4 — Test the Trained Model
-
-Use `predict.py` as a quick smoke test:
-
-```python
-# predict.py (edit the model path first)
-model = StaticModelPipeline.from_pretrained("/path/to/m2v_intents_potion-base-2M")
-
-inputs = ["do you know the time"]
-predicted = model.predict(inputs)
-probs = model.predict_proba(inputs)
-```
-
-Expected output:
-
-```
-took 0.137 seconds to load model
-took 0.003 seconds to predict
-['ovos-skill-date-time.openvoiceos:what.time.is.it.intent']
-
-Input: do you know the time
-  ovos-skill-date-time.openvoiceos:what.time.is.it.intent: 0.9135
-  ovos-skill-naptime.openvoiceos:naptime.intent: 0.0205
-  ...
-```
-
----
-
-## Publishing to Hugging Face
-
-Once satisfied with the model, push it to the Hub:
-
-```bash
-huggingface-cli login
-python -c "
-from model2vec.inference import StaticModelPipeline
-m = StaticModelPipeline.from_pretrained('m2v_intents_potion-base-32M')
-m.push_to_hub('YourOrg/your-model-name')
-"
-```
-
-Then update the `model` key in your OVOS configuration to point at the new repo.
+Alias merges can leave a handful of labels with tens of thousands of rows next
+to labels with a few dozen. `train.py --max-per-label N` downsamples any label
+with more than `N` training rows to `N`, applied after the `--lang`/`--family`
+slice and before fitting; the test split is never touched. Sampling is
+stratified by `lang` within the label — a multilingual label keeps its
+language mix, with each language present getting a proportional share of `N`
+(at least one row per language when `N` allows) — and sorted by row content,
+not row position, before sampling. That means a given `--seed` (default `0`)
+selects the same rows for the same corpus content regardless of what order
+the rows arrive in — the sample is not sensitive to a shuffle or a re-export
+that reorders the parquet file. It does select different rows once the
+corpus content itself changes, e.g. after a rebuild that adds, drops or
+edits rows for that label. `train.py --max-per-label N --dry-run` prints the
+per-label row counts
+before and after the cap, together with the seed, without fitting; the same
+table and seed are written to `label_cap_report.json` next to the model, and
+folded into `metrics.json` when a model is actually trained.

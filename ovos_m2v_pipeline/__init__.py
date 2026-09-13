@@ -1,60 +1,1537 @@
+import itertools
+import json
+import re
+import threading
 import time
-import numpy as np
-from typing import List, Optional, Union, Dict, Iterable, Tuple
+from pathlib import Path
 
-# Labels that bypass the registered-intent check and are always matched
-_SPECIAL_LABELS = {"ocp:play", "common_query:common_query", "stop:stop"}
+import numpy as np
+from typing import Any, List, Optional, Union, Dict, Iterable, Tuple, Set
 
 from model2vec.inference import StaticModelPipeline
 from ovos_bus_client.client import MessageBusClient
 from ovos_bus_client.message import Message
+from ovos_bus_client.session import DEFAULT_SESSION_ID, SessionManager
 from ovos_config.config import Configuration
 from ovos_plugin_manager.templates.pipeline import IntentHandlerMatch, ConfidenceMatcherPipeline
+from ovos_config.locations import get_xdg_data_save_path
+from ovos_spec_tools import SpecMessage
+from ovos_spec_tools.intent_topics import RESERVED_INTENT_NAMES
+from ovos_spec_tools.context import gate_satisfied, context_slot_candidates
+from ovos_spec_tools.language import closest_lang, standardize_lang
+from itertools import islice
+
+from ovos_spec_tools.expansion import iter_expand, strip_type_prefixes
 from ovos_utils.fakebus import FakeBus
 from ovos_utils.log import LOG
 
+from ovos_m2v_pipeline.cache import PrototypeCache, compute_cache_key
+from ovos_m2v_pipeline.strategies import (
+    PrototypeStrategy,
+    select_anchors,
+    score_labels,
+)
+from ovos_m2v_pipeline.slots import (
+    SLOT_RE as _SLOT_RE,
+    MAX_ENTITY_EXPANSIONS,
+    expand_entities,
+)
+
+#: retry backoff for a deferred model load that raised: starts at 30s
+#: and doubles on each consecutive failure, capped at 15 minutes, so a
+#: transient network blip retries soon while a persistently broken
+#: model id (bad repo, no network at all) does not re-attempt the load
+#: on every single utterance.
+_MODEL_LOAD_RETRY_BASE_S = 30.0
+_MODEL_LOAD_RETRY_CAP_S = 15 * 60.0
+
+#: Bound on the single "is the cached snapshot still current" Hub call in
+#: `_resolve_model_revision`. A blackholed or slow Hub must not block boot
+#: for the minutes that `huggingface_hub`'s own per-file connect/backoff
+#: would otherwise take -- this is a single request, so the whole probe
+#: costs at most this long.
+_HUB_REVISION_PROBE_TIMEOUT_S = 5.0
+
+# Labels that bypass the registered-intent check and are always matched
+_SPECIAL_LABELS = {"ocp:play", "common_query:common_query", "stop:stop"}
+
+# Map each special label to a substring that must appear in `session.pipeline`
+# entries for the label to be considered. Without the matching downstream
+# pipeline in the session there is no service to route the intent to.
+_SPECIAL_LABEL_PIPELINES = {
+    "ocp:play": "ovos-ocp-pipeline-plugin",
+    "common_query:common_query": "ovos-common-query-pipeline-plugin",
+    "stop:stop": "ovos-stop-pipeline-plugin",
+}
+
+# Default ``label_map`` layer: model label -> (skill_id, canonical_label).
+# These are the built-in OCP / common-query / stop remaps that predate the
+# `label_map` config option; they stay wired unconditionally unless a model
+# manifest or user config overrides the same key. Values are ``(skill_id,
+# canonical_label)`` tuples (rather than a single ``skill_id:label`` string)
+# because the canonical labels here do not live in the `skill_id:intent`
+# namespace themselves.
+_SPECIAL_LABEL_MAP: Dict[str, Tuple[str, str]] = {
+    "ocp:play": ("ovos.common_play", "ovos.common_play.play_search"),
+    "common_query:common_query": ("common_query.openvoiceos", "common_query.question"),
+    "stop:stop": ("stop.openvoiceos", "mycroft.stop"),
+}
+
+#: Built-in per-language default model, keyed by primary lang subtag
+#: (e.g. ``"en"`` from ``"en-US"``). Empty: `DEFAULT_MULTILINGUAL` is the
+#: default for every language. `OpenVoiceOS/ovos-m2v-intents-en` scores
+#: worse than the multilingual model on paraphrase / prototype-mode
+#: dispatch ranking (e.g. "lights on now" failing to match prototypes
+#: trained on "turn on the lights") despite a comparable held-out
+#: accuracy, so it is not wired in as anyone's default; it remains
+#: selectable via `config["models"]` for size-constrained deployments
+#: that can accept that trade-off.
+DEFAULT_MODELS: Dict[str, str] = {}
+
+#: Default model for every language without a `DEFAULT_MODELS` entry
+#: (and without a `config["models"]` override) -- i.e. every language.
+DEFAULT_MULTILINGUAL = "OpenVoiceOS/ovos-m2v-intents-multilingual"
+
+
+def _resolve_model_id(config: Dict, lang: str) -> str:
+    """Resolve the Model2Vec repo id to load for *lang*.
+
+    Resolution order (highest priority first):
+
+    1. ``config["model"]`` -- an explicit single-model override, unchanged
+       from before this per-language roster existed.
+    2. ``config["models"]`` -- a ``{locale_or_lang: repo_id}`` map, matched
+       first against the full locale (``"pt-BR"``) then against the primary
+       subtag (``"pt"``); keys are matched case-insensitively.
+    3. `DEFAULT_MODELS`, matched against the primary subtag.
+    4. `DEFAULT_MULTILINGUAL`.
+
+    There is no fallback to the deprecated
+    ``Jarbas/ovos-model2vec-intents-distiluse-base-multilingual-cased-v2``
+    default: callers that relied on it must now set ``config["model"]``
+    explicitly.
+    """
+    if "model" in config:
+        # Explicitly set (including an explicit empty string, which the
+        # caller treats as "no model configured" and raises on): never
+        # overridden by a per-language default.
+        return config["model"]
+
+    lang = (lang or "en-US").lower()
+    primary = lang.split("-")[0]
+
+    models_cfg = {str(k).lower(): v for k, v in (config.get("models") or {}).items()}
+    if lang in models_cfg:
+        return models_cfg[lang]
+    if primary in models_cfg:
+        return models_cfg[primary]
+
+    if primary in DEFAULT_MODELS:
+        return DEFAULT_MODELS[primary]
+    return DEFAULT_MULTILINGUAL
+
+
+def _load_labels_manifest(model_path: str) -> Dict[str, Any]:
+    """Load the optional ``labels.json`` a trained model ships alongside it.
+
+    A classifier's label head is frozen at train time, so which bus intents
+    its labels denote is a property of the model, not the plugin. When a
+    model directory (local path or the local HF hub cache) carries a
+    ``labels.json`` manifest, it is used as the *model* layer of the
+    ``label_map`` / ``valid_labels`` config, between the built-in defaults
+    and the user's own config.
+
+    ``labels.json`` has the same shape as the ``label_map`` config value
+    (model label -> ``skill_id:intent`` string), plus an optional
+    ``"valid_labels"`` list key.
+
+    This is called from ``__init__``, on the critical path of constructing
+    the pipeline, so it must never touch the network: for a hub id it only
+    consults the local HF cache (``local_files_only=True``), riding the
+    same cache the model's own weights were already fetched into. A model
+    not yet cached locally, or one with no manifest, is silently treated as
+    having none - it is not a reason to fetch anything here.
+
+    Never raises: a missing, corrupt, or unreadable manifest is logged
+    (debug for "not present locally", warning for "present but unreadable")
+    and ignored, and matching falls back to the built-in defaults / user
+    config.
+    """
+    try:
+        local_dir = Path(model_path)
+        if local_dir.exists():
+            manifest_path = local_dir / "labels.json"
+            if not manifest_path.exists():
+                return {}
+            raw = manifest_path.read_text(encoding="utf-8")
+        else:
+            import huggingface_hub
+
+            try:
+                cached = huggingface_hub.hf_hub_download(
+                    model_path, "labels.json", local_files_only=True
+                )
+            except (huggingface_hub.errors.LocalEntryNotFoundError,
+                     huggingface_hub.errors.EntryNotFoundError,
+                     OSError, ValueError):
+                # No manifest in the local cache (model not yet cached, no
+                # labels.json shipped, or repo id unknown offline) - never
+                # reach out to the network to find out; the manifest is
+                # optional and, once the model itself is fetched by whatever
+                # downloads it, labels.json rides the same cache entry.
+                LOG.debug(f"Model2Vec: no local labels.json cached for "
+                          f"'{model_path}'")
+                return {}
+            raw = Path(cached).read_text(encoding="utf-8")
+        data = json.loads(raw)
+    except (OSError, ValueError) as e:
+        LOG.warning(f"Model2Vec: failed to load labels.json manifest for "
+                    f"'{model_path}': {e}")
+        return {}
+    if not isinstance(data, dict):
+        LOG.warning(f"Model2Vec: labels.json manifest for '{model_path}' is "
+                    f"not a JSON object, ignoring")
+        return {}
+    return data
+
+
+
+class PrototypeIntentStore:
+    """Mutable store of L2-normalised prototype embeddings per intent label.
+
+    Inference is cosine nearest-neighbour: for each label the highest cosine
+    similarity across its prototypes is used as the match score.
+
+    The store starts empty and is populated incrementally at runtime as skills
+    register their Padatious intents (which carry example utterances).
+
+    Typical usage
+    -------------
+    Build from lists (offline / testing)::
+
+        store = PrototypeIntentStore()
+        store.add(model, "skill:intent", ["example 1", "example 2"], k=5)
+
+    Persist and reload (optional)::
+
+        store.save("prototypes.npz")
+        store = PrototypeIntentStore.load("prototypes.npz")
+    """
+
+    def __init__(
+        self,
+        embeddings: Optional[np.ndarray] = None,
+        labels: Optional[np.ndarray] = None,
+        *,
+        strategy: PrototypeStrategy = PrototypeStrategy.MAX_OVER_ALL,
+        top_k: int = 3,
+        tau: float = 0.1,
+        cache: Optional[PrototypeCache] = None,
+    ) -> None:
+        # Bus registration handlers run concurrently on an executor thread
+        # pool; this lock keeps the parallel embeddings/labels arrays in sync.
+        self._lock = threading.RLock()
+        self.strategy: PrototypeStrategy = PrototypeStrategy(strategy)
+        self.top_k: int = top_k
+        self.tau: float = tau
+        #: optional boot-time persistence for add()'s encode step; see
+        #: ``ovos_m2v_pipeline.cache.PrototypeCache``. ``None`` disables it.
+        self.cache: Optional[PrototypeCache] = cache
+        if embeddings is not None and len(embeddings):
+            embeddings = np.atleast_2d(embeddings)
+            labels_arr = np.asarray(labels, dtype=object)
+            if len(embeddings) != len(labels_arr):
+                raise ValueError(
+                    f"embeddings and labels must have the same length, "
+                    f"got {len(embeddings)} vs {len(labels_arr)}"
+                )
+            norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+            self._embeddings: np.ndarray = np.where(
+                norms > 0, embeddings / norms, embeddings
+            ).astype(np.float32)
+            self._labels: np.ndarray = labels_arr
+        else:
+            self._embeddings = np.empty((0, 0), dtype=np.float32)
+            self._labels = np.array([], dtype=object)
+        #: chunks appended by add() and stacked lazily: one vstack per add
+        #: copies the whole store every registration (quadratic build cost,
+        #: measured as a 1.2GB array reallocated per skill on real installs)
+        self._pending: List[tuple] = []
+        self._label_set = set(np.unique(self._labels)) if len(self._labels) else set()
+        #: bare label / registration language per consolidated row, plus a
+        #: factorization of the bare labels into small integer codes -- all
+        #: computed once here (and refreshed by ``_consolidate``), never in
+        #: ``scores()``, so a query never re-parses the composite label of
+        #: every stored entry. See ``_recompute_derived`` for how these three
+        #: stay in lock-step with ``self._labels``.
+        self._orig_labels: np.ndarray = np.array([], dtype=object)
+        self._entry_langs: np.ndarray = np.array([], dtype=object)
+        self._entry_lang_is_none: np.ndarray = np.array([], dtype=bool)
+        self._orig_codes: np.ndarray = np.array([], dtype=np.intp)
+        self._unique_orig_labels: np.ndarray = np.array([], dtype=object)
+        self._recompute_derived()
+        #: bare label -> set of BCP-47 tags it was registered under (never
+        #: contains ``None``); rebuilt from ``self._label_set`` on every
+        #: mutation so ``scores()`` only ever reads it.
+        self._langs_by_label: Dict[str, set] = {}
+        self._rebuild_langs_by_label()
+
+    def _consolidate(self) -> None:
+        """Fold pending chunks into the contiguous arrays.
+
+        ``np.vstack([self._embeddings] + chunks)`` (the previous
+        implementation) allocates one brand-new array the size of the
+        *entire* resulting store while every existing chunk is still
+        alive -- a transient ~2x peak over the final store size. On a
+        capped service that single allocation is what stalls: live
+        registrations finish (they only append to ``_pending``), and the
+        first read afterwards -- ``scores()``, on the bus dispatch thread
+        handling the next utterance -- is the one that needs the doubled
+        memory and never gets it, wedging dispatch (observed: an ovos-core
+        install pinned at its 2G cgroup cap, 100% CPU, no further intents
+        matched, 25+ minutes after the last registration completed).
+
+        Instead, allocate the final-size array exactly once and copy each
+        source (the old store, then each pending chunk) into it in turn,
+        dropping every source as soon as it is copied. Peak transient
+        overhead is then bounded by the final array itself plus at most
+        one still-alive source (<= ``MAX_ENTITY_EXPANSIONS`` rows), not by
+        the size of the whole backlog.
+
+        A ``MemoryError`` here is a hard failure, not something to retry:
+        it is logged and the store is left exactly as it was (nothing
+        pending is dropped), so a live install keeps matching whatever it
+        already consolidated instead of spinning.
+        """
+        if not self._pending:
+            return
+        total_new = sum(len(lbls) for _, lbls in self._pending)
+        dim = self._pending[0][0].shape[1]
+        old_n = len(self._labels)
+        try:
+            target_emb = np.empty((old_n + total_new, dim), dtype=np.float32)
+            target_lbl = np.empty(old_n + total_new, dtype=object)
+        except MemoryError:
+            LOG.error(
+                f"prototype store: out of memory consolidating {total_new} "
+                f"pending prototype(s) onto {old_n} existing; keeping the "
+                f"store as-is and leaving the batch pending"
+            )
+            return
+        if old_n:
+            target_emb[:old_n] = self._embeddings
+            target_lbl[:old_n] = self._labels
+        self._embeddings = None  # drop the old array before copying chunks in
+        self._labels = None
+        offset = old_n
+        pending, self._pending = self._pending, []
+        # Sort chunks by label (descending, so popping from the end below
+        # yields ascending order) before folding them in: concurrent bus
+        # registrations append to _pending in whatever order their handler
+        # threads happened to finish, and without this the store's array
+        # order -- and therefore anything downstream that iterates it --
+        # would vary across otherwise-identical boots.
+        pending.sort(key=lambda cl: tuple(cl[1]), reverse=True)
+        while pending:
+            # pop (not iterate): each source chunk is dereferenced right
+            # after its data is copied in, so at most one chunk plus the
+            # target array is resident at a time -- never the whole backlog
+            chunk, chunk_labels = pending.pop()
+            n = len(chunk_labels)
+            target_emb[offset:offset + n] = chunk
+            target_lbl[offset:offset + n] = chunk_labels
+            offset += n
+        self._embeddings = target_emb
+        self._labels = target_lbl
+        self._recompute_derived()
+
+    def _recompute_derived(self) -> None:
+        """Rebuild ``_orig_labels``/``_entry_langs``/``_orig_codes`` from
+        ``self._labels``.
+
+        Decomposing every composite label is only ever done here -- a
+        mutation-time event (``__init__``, ``_consolidate``, ``remove``,
+        ``remove_skill``) -- never from ``scores()``, which runs on the bus
+        dispatch thread for every live utterance and must not re-parse the
+        whole store on each call. ``_orig_codes``/``_unique_orig_labels`` is
+        a factorization of the bare labels: it lets ``scores()`` resolve a
+        per-query language winner per label with one small dict pass (over
+        the handful of unique labels) and a vectorised numpy gather over the
+        (much larger) row count, instead of a Python-level loop per row.
+        """
+        n = len(self._labels)
+        if not n:
+            self._orig_labels = np.array([], dtype=object)
+            self._entry_langs = np.array([], dtype=object)
+            self._entry_lang_is_none = np.array([], dtype=bool)
+            self._orig_codes = np.array([], dtype=np.intp)
+            self._unique_orig_labels = np.array([], dtype=object)
+            return
+        decomposed = [self._decompose(str(l)) for l in self._labels]
+        self._orig_labels = np.array([d[0] for d in decomposed], dtype=object)
+        self._entry_langs = np.array([d[1] for d in decomposed], dtype=object)
+        self._entry_lang_is_none = np.array([d[1] is None for d in decomposed], dtype=bool)
+        self._unique_orig_labels, self._orig_codes = np.unique(
+            self._orig_labels, return_inverse=True)
+
+    def _rebuild_langs_by_label(self) -> None:
+        """Rebuild ``_langs_by_label`` (bare label -> set of registered BCP-47
+        tags) from ``self._label_set``.
+
+        Runs once per mutation (``add``/``remove``/``remove_skill``), over
+        the store's *unique* labels, not its rows -- ``scores()`` only ever
+        reads the result.
+        """
+        langs_by_label: Dict[str, set] = {}
+        for composite in self._label_set:
+            orig, entry_lang = self._decompose(composite)
+            if entry_lang is not None:
+                langs_by_label.setdefault(orig, set()).add(entry_lang)
+        self._langs_by_label = langs_by_label
+
+    # ------------------------------------------------------------------
+    # Public read-only views
+    # ------------------------------------------------------------------
+
+    @property
+    def embeddings(self) -> np.ndarray:
+        with self._lock:
+            self._consolidate()
+            return self._embeddings
+
+    @property
+    def labels(self) -> np.ndarray:
+        """The bare (un-partitioned) label of every stored prototype, in the
+        same order as :attr:`embeddings`.
+
+        A label registered with a language (see :meth:`add`) is stored
+        internally as a composite ``label\\x00lang`` key so per-language
+        partitions never collide; this view decomposes it back to the bare
+        label a caller registered, so ``labels`` / ``unique_labels`` are a
+        stable public surface independent of that internal partitioning.
+        """
+        with self._lock:
+            self._consolidate()
+            if not len(self._labels):
+                return self._labels
+            return np.array(
+                [self._decompose(str(l))[0] for l in self._labels], dtype=object
+            )
+
+    @property
+    def unique_labels(self) -> np.ndarray:
+        return np.unique(self.labels)
+
+    def __len__(self) -> int:
+        return len(self._labels) + sum(len(l) for _, l in self._pending)
+
+    # ------------------------------------------------------------------
+    # Mutation
+    # ------------------------------------------------------------------
+
+    #: separator between a bare label (``skill_id:intent_name``) and its
+    #: registration language in the internal, per-language-partitioned
+    #: label the store actually keys on -- an embedded NUL, which cannot
+    #: occur in a bus-registered label or BCP-47 tag, so decomposition is
+    #: unambiguous.
+    _LANG_SEP = "\x00"
+
+    @classmethod
+    def _compose(cls, label: str, lang: Optional[str]) -> str:
+        """Build the internal per-language label stored/matched against.
+
+        ``lang=None`` returns *label* unchanged: callers that never pass a
+        language (offline ``build()``, direct tests) get the pre-partition
+        behaviour of one shared label space, exactly as before.
+        """
+        if lang is None:
+            return label
+        return f"{label}{cls._LANG_SEP}{standardize_lang(lang)}"
+
+    @classmethod
+    def _decompose(cls, internal_label: str) -> Tuple[str, Optional[str]]:
+        """Split an internal label back into ``(label, lang)``; ``lang`` is
+        ``None`` for a label that was never partitioned by language."""
+        if cls._LANG_SEP in internal_label:
+            label, _, lang = internal_label.partition(cls._LANG_SEP)
+            return label, lang
+        return internal_label, None
+
+    def _add_anchors(self, label: str, anchors: np.ndarray) -> int:
+        """Insert already-computed, already-normalised anchor embeddings for
+        *label*, replacing any existing prototypes for that label.
+
+        Shared by ``add()``'s normal encode path and its cache-hit path: both
+        end up with a set of anchors to store, they only differ in how those
+        anchors were obtained (encode + select_anchors vs. a disk read).
+        """
+        n_added = len(anchors)
+        with self._lock:
+            if label in self._label_set:
+                # re-registration: drop the label's rows from BOTH the
+                # consolidated store and any not-yet-folded pending
+                # chunk(s), independently of each other. _consolidate()
+                # can fail (MemoryError) and leave _pending untouched --
+                # if this branch relied on it to clear a label's old
+                # pending chunk, a re-registration during/after a failed
+                # consolidate would leave the OLD chunk sitting alongside
+                # the new one, and scores() (which reads consolidated +
+                # pending) would keep matching retired phrasing forever.
+                self._consolidate()
+                if len(self._labels):
+                    mask = self._labels != label
+                    self._embeddings = self._embeddings[mask]
+                    self._labels = self._labels[mask]
+                    self._recompute_derived()
+                self._pending = [(c, l) for c, l in self._pending
+                                  if not len(l) or l[0] != label]
+                self._label_set.discard(label)
+            if n_added == 0:
+                self._rebuild_langs_by_label()
+                return 0
+            self._pending.append(
+                (anchors, np.array([label] * n_added, dtype=object)))
+            self._label_set.add(label)
+            self._rebuild_langs_by_label()
+            LOG.info(f"prototype store: +{n_added} prototypes for "
+                     f"{label!r} ({len(self)} total, "
+                     f"{len(self._label_set)} labels)")
+        return n_added
+
+    def add(
+        self,
+        model,
+        label: str,
+        sentences: List[str],
+        k: Optional[int] = None,
+        random_state: int = 42,
+        *,
+        cache_key: Optional[str] = None,
+        lang: Optional[str] = None,
+    ) -> int:
+        """Embed *sentences* and add/replace prototypes for *label*.
+
+        ``k`` caps how many anchors the subsampling / clustering strategies
+        keep; ``None`` (the default) keeps every sample so exact training
+        samples always score a perfect match.
+
+        ``cache_key`` is a hash of this registration's inputs (model id,
+        model2vec version, anchor-selection parameters, raw pre-expansion
+        samples -- see ``ovos_m2v_pipeline.cache.compute_cache_key``). When
+        given and ``self.cache`` is set: a matching cached entry is loaded
+        from disk and used in place of encoding (``model.encode()`` is never
+        called); a miss falls through to the normal encode path and the
+        result is persisted under *cache_key* afterwards. Callers that don't
+        care about persistence (tests, offline ``build()``) simply omit it.
+
+        ``lang`` is the registration's BCP-47 tag. When given, *label*'s
+        prototypes are stored in that language's own partition (see
+        :meth:`_compose`) so that ``scores(..., lang=...)`` never lets a
+        different language's prototypes compete for the same query; the
+        on-disk cache entry (when caching is enabled) is likewise kept
+        per-language, distinct from a pre-partition cache entry for the same
+        *label*. ``None`` (the default) keeps the pre-partition behaviour of
+        one shared, language-agnostic label space.
+
+        Returns the number of prototypes actually added.
+        """
+        if not sentences:
+            return 0
+        internal_label = self._compose(label, lang)
+        if self.cache is not None and cache_key is not None:
+            # Prefer the live model's declared output dimension (e.g.
+            # model2vec.StaticModel.dim); fall back to whatever dimension
+            # the store itself already holds (existing labels or a pending
+            # chunk) when the model doesn't expose one. Either way, a
+            # cached entry whose dimension disagrees with what is actually
+            # in play is a stale entry (e.g. the artifact behind an
+            # unchanged model id was retrained in place at a different
+            # dimension) -- loading it as a hit would poison the live
+            # store with wrong-shape vectors that later crash
+            # _consolidate()/scores() for every label, not just this one.
+            expected_dim = getattr(model, "dim", None)
+            if not isinstance(expected_dim, int):
+                expected_dim = None
+            if expected_dim is None:
+                if len(self._labels):
+                    expected_dim = self._embeddings.shape[1]
+                elif self._pending:
+                    expected_dim = self._pending[-1][0].shape[1]
+            cached = self.cache.load(label, cache_key, lang=lang, expected_dim=expected_dim)
+            if cached is not None:
+                embeddings, _labels = cached
+                return self._add_anchors(internal_label, embeddings)
+        if len(sentences) > MAX_ENTITY_EXPANSIONS:
+            # single choke point: whatever path materialized the samples
+            # (entity slot-filling, padatious template expansion, inline
+            # payloads), the store never ingests an unbounded batch — the
+            # 2000-cap applied only on one expansion path let a real
+            # deployment build a million-prototype store and OOM its cgroup
+            LOG.warning(f"label {label!r}: {len(sentences)} samples exceed "
+                        f"the ingest bound; sampling {MAX_ENTITY_EXPANSIONS} "
+                        f"evenly")
+            step = (len(sentences) - 1) / (MAX_ENTITY_EXPANSIONS - 1)
+            keep = sorted({round(i * step)
+                           for i in range(MAX_ENTITY_EXPANSIONS)})
+            sentences = [sentences[i] for i in keep]
+        # Embed every sample first; the strategy decides which / how many
+        # to keep as anchors at storage time. Embedding happens outside the
+        # lock: it is the expensive step and touches no shared state.
+        # use_multiprocessing=False: model2vec otherwise spawns
+        # os.cpu_count() loky workers for batches over its threshold —
+        # observed as 24 subprocesses inside a 2G service cgroup, deep swap
+        # and an OOM-kill during skill loading. Static-model encoding is
+        # in-process numpy; a long-lived service never wants that fan-out.
+        embs = np.atleast_2d(
+            model.encode(list(sentences),
+                         use_multiprocessing=False)).astype(np.float32)
+        norms = np.linalg.norm(embs, axis=1, keepdims=True)
+        embs = np.where(norms > 0, embs / norms, embs)
+        anchors = select_anchors(
+            embs, self.strategy, k=k, random_state=random_state,
+        ).astype(np.float32)
+        n_added = self._add_anchors(internal_label, anchors)
+        if self.cache is not None and cache_key is not None and n_added:
+            self.cache.save(
+                label, cache_key, anchors,
+                np.array([label] * n_added, dtype=object),
+                lang=lang,
+            )
+        return n_added
+
+    def remove(self, label: str) -> None:
+        """Remove all prototypes for *label*, across every language
+        partition it was registered under (and its on-disk cache entries,
+        if caching is enabled -- otherwise a later restart would resurrect
+        them from the stale cache). A caller that detaches an intent has no
+        reliable way to know which language(s) it was registered in, so
+        removal is unconditional over all of them."""
+        if self.cache is not None:
+            self.cache.remove(label)
+        with self._lock:
+            matching = {l for l in self._label_set
+                        if l == label or l.startswith(label + self._LANG_SEP)}
+            if not matching:
+                return
+            self._consolidate()
+            if len(self._labels):
+                mask = ~np.isin(self._labels, list(matching))
+                self._embeddings = self._embeddings[mask]
+                self._labels = self._labels[mask]
+                self._recompute_derived()
+            # strip any not-yet-folded pending chunk(s) too: _consolidate()
+            # may have failed (MemoryError) and left _pending untouched
+            self._pending = [(c, l) for c, l in self._pending
+                              if not len(l) or l[0] not in matching]
+            self._label_set -= matching
+            self._rebuild_langs_by_label()
+
+    def remove_skill(self, skill_id: str) -> None:
+        """Remove all prototypes whose label starts with ``<skill_id>:``
+        (and their on-disk cache entries, if caching is enabled)."""
+        if self.cache is not None:
+            self.cache.remove_skill(skill_id)
+        with self._lock:
+            if not len(self):
+                return
+            self._consolidate()
+            prefix = skill_id + ":"
+            if len(self._labels):
+                mask = np.array([not str(lbl).startswith(prefix) for lbl in self._labels])
+                self._embeddings = self._embeddings[mask]
+                self._labels = self._labels[mask]
+                self._recompute_derived()
+            # strip any not-yet-folded pending chunk(s) too: _consolidate()
+            # may have failed (MemoryError) and left _pending untouched
+            self._pending = [(c, l) for c, l in self._pending
+                              if not len(l) or not str(l[0]).startswith(prefix)]
+            remaining = (set(np.unique(self._labels)) if len(self._labels) else set())
+            remaining |= {l[0] for _, l in self._pending if len(l)}
+            self._label_set = remaining
+            self._rebuild_langs_by_label()
+
+    # ------------------------------------------------------------------
+    # Inference
+    # ------------------------------------------------------------------
+
+    def scores(self, query_embedding: np.ndarray,
+               lang: Optional[str] = None) -> Dict[str, float]:
+        """Return the max cosine similarity per label.
+
+        Deliberately does *not* call ``_consolidate()``: this runs on the
+        bus dispatch thread for every live utterance, and a label's
+        prototypes are always fully contained in either the consolidated
+        store or exactly one pending chunk (``add()``/``remove()`` fold a
+        label's old rows away before a re-registration appends its new
+        ones), so scoring each pending chunk separately and merging the
+        per-label results is equivalent to scoring the consolidated whole
+        -- without ever needing the consolidation copy. Forcing that copy
+        here is what wedged live matching behind a registration burst: the
+        first utterance after a burst paid for the whole backlog's
+        transient allocation on the dispatch thread.
+
+        Parameters
+        ----------
+        query_embedding:
+            Raw (unnormalised) embedding vector of shape ``(dim,)``.
+        lang:
+            The querying utterance's BCP-47 tag. When given, each bare label
+            is resolved independently: among only the languages *that label*
+            was registered under (see :meth:`add`), the one closest to
+            *lang* (via ``ovos_spec_tools.language.closest_lang``, same
+            dialect-fallback distance OVOS-INTENT-2 §2.2 uses elsewhere) is
+            kept, so a label with a single registered dialect always keeps
+            it and never loses to an unrelated label's dialect tie-break.
+            Never-partitioned prototypes (``add()`` called without a
+            ``lang``) are always scored. ``None`` (the default) disables the
+            filter entirely, scoring every prototype regardless of the
+            language it was registered under, matching the pre-partition
+            behaviour.
+        """
+        with self._lock:
+            if not len(self):
+                return {}
+            consolidated = None
+            if len(self._labels):
+                consolidated = (
+                    self._embeddings, self._orig_labels, self._entry_langs,
+                    self._entry_lang_is_none, self._orig_codes,
+                    self._unique_orig_labels,
+                )
+            pending = list(self._pending)
+            langs_by_label = self._langs_by_label
+        q = query_embedding.astype(np.float32)
+        norm = np.linalg.norm(q)
+        if norm > 0:
+            q = q / norm
+
+        # Per-label dialect winners: one `closest_lang` call per *unique*
+        # bare label already registered with a language (`langs_by_label` is
+        # maintained incrementally by add()/remove()/remove_skill(), never
+        # rebuilt here), not one per stored row.
+        allowed_lang_by_label: Dict[str, str] = {}
+        if lang is not None and langs_by_label:
+            allowed_lang_by_label = {
+                label: closest_lang(lang, sorted(entry_langs))
+                for label, entry_langs in langs_by_label.items()
+            }
+
+        out: Dict[str, float] = {}
+
+        if consolidated is not None:
+            (embeddings, orig_labels, entry_langs, entry_lang_is_none,
+             orig_codes, unique_orig_labels) = consolidated
+            if lang is not None and allowed_lang_by_label:
+                # Vectorised: gather each row's per-label winner via its
+                # (mutation-time-computed) label code, no per-row Python loop.
+                winner_by_code = np.array(
+                    [allowed_lang_by_label.get(l) for l in unique_orig_labels],
+                    dtype=object,
+                )
+                keep = entry_lang_is_none | (entry_langs == winner_by_code[orig_codes])
+                embeddings, orig_labels = embeddings[keep], orig_labels[keep]
+            if len(orig_labels):
+                for lbl, score in score_labels(
+                    q, embeddings, orig_labels,
+                    self.strategy, top_k=self.top_k, tau=self.tau,
+                ).items():
+                    if lbl not in out or score > out[lbl]:
+                        out[lbl] = score
+
+        # Pending (not-yet-consolidated) chunks: each chunk was appended by
+        # a single add() call, so every row in it shares one bare label and
+        # one registration language -- decomposing the first row decides the
+        # whole chunk, no per-row work either.
+        for chunk_embeddings, chunk_labels in pending:
+            if not len(chunk_labels):
+                continue
+            first = str(chunk_labels[0])
+            if self._LANG_SEP in first:
+                orig, entry_lang = self._decompose(first)
+            else:
+                # unpartitioned chunk: the composite IS the bare label
+                # already (see _compose), nothing to decompose or rebuild.
+                orig, entry_lang = first, None
+            if (lang is not None and entry_lang is not None
+                    and entry_lang != allowed_lang_by_label.get(orig)):
+                continue
+            orig_labels = (chunk_labels if entry_lang is None
+                            else np.full(len(chunk_labels), orig, dtype=object))
+            for lbl, score in score_labels(
+                q, chunk_embeddings, orig_labels,
+                self.strategy, top_k=self.top_k, tau=self.tau,
+            ).items():
+                if lbl not in out or score > out[lbl]:
+                    out[lbl] = score
+        return out
+
+    # ------------------------------------------------------------------
+    # Bulk construction helpers (offline / testing)
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def build(
+        cls,
+        model,
+        sentences: List[str],
+        labels: List[str],
+        k: Optional[int] = None,
+        random_state: int = 42,
+        *,
+        strategy: PrototypeStrategy = PrototypeStrategy.MAX_OVER_ALL,
+        top_k: int = 3,
+        tau: float = 0.1,
+    ) -> "PrototypeIntentStore":
+        """Build a store from parallel *sentences* / *labels* lists."""
+        store = cls(strategy=strategy, top_k=top_k, tau=tau)
+        label_to_sentences: Dict[str, List[str]] = {}
+        for sent, lbl in zip(sentences, labels):
+            label_to_sentences.setdefault(lbl, []).append(sent)
+        for lbl, sents in label_to_sentences.items():
+            store.add(model, lbl, sents, k=k, random_state=random_state)
+        return store
+
+    # ------------------------------------------------------------------
+    # Persistence
+    # ------------------------------------------------------------------
+
+    def save(self, path: str) -> None:
+        """Save to a NumPy ``.npz`` archive."""
+        with self._lock:
+            self._consolidate()
+            np.savez(path, embeddings=self._embeddings, labels=self._labels.astype(str))
+        LOG.info(
+            f"Saved {len(self)} prototypes "
+            f"for {len(self.unique_labels)} labels -> {path}"
+        )
+
+    @classmethod
+    def load(
+        cls,
+        path: str,
+        *,
+        strategy: PrototypeStrategy = PrototypeStrategy.MAX_OVER_ALL,
+        top_k: int = 3,
+        tau: float = 0.1,
+    ) -> "PrototypeIntentStore":
+        """Load from a NumPy ``.npz`` archive."""
+        data = np.load(path, allow_pickle=False)
+        return cls(
+            data["embeddings"].astype(np.float32), data["labels"],
+            strategy=strategy, top_k=top_k, tau=tau,
+        )
+
+    # ------------------------------------------------------------------
+    # Prebuilt artifact export/import (see ovos_m2v_pipeline.prebuilt)
+    # ------------------------------------------------------------------
+
+    def export(
+        self,
+        out_dir: Union[str, Path],
+        *,
+        model_id: str,
+        model2vec_version: str,
+        cache_keys: Optional[Dict[str, str]] = None,
+        plugin_version: str = "",
+    ) -> Path:
+        """Export the store as a prebuilt, shareable artifact directory.
+
+        See ``ovos_m2v_pipeline.prebuilt.export_store`` for the artifact
+        layout and manifest fields. *cache_keys* maps each stored label to
+        the cache key its registration would compute live (see
+        ``compute_cache_key``), so a prebuilt entry is invalidated by the
+        exact same conditions as the on-disk registration cache.
+        """
+        from ovos_m2v_pipeline.prebuilt import export_store
+        return export_store(
+            self, out_dir, model_id=model_id,
+            model2vec_version=model2vec_version,
+            cache_keys=cache_keys, plugin_version=plugin_version,
+        )
+
+    @classmethod
+    def load_prebuilt(
+        cls,
+        path: Union[str, Path],
+        *,
+        model_id: str,
+        model2vec_version: str,
+        strategy: PrototypeStrategy = PrototypeStrategy.MAX_OVER_ALL,
+        top_k: int = 3,
+        tau: float = 0.1,
+    ) -> Tuple[Optional["PrototypeIntentStore"], Dict[str, str], str]:
+        """Load a prebuilt artifact, verifying it against the live model.
+
+        Returns ``(store_or_None, cache_keys, reason)``. ``store`` is
+        ``None`` when the artifact's manifest disagrees with the running
+        model (id, model2vec version, or embedding dimension) -- the
+        caller falls back to encoding from scratch in that case. *reason*
+        is a human-readable string for logging, always set (also on
+        success, e.g. "ok").
+        """
+        from ovos_m2v_pipeline.prebuilt import load_prebuilt_store
+        return load_prebuilt_store(
+            path, model_id=model_id, model2vec_version=model2vec_version,
+            strategy=strategy, top_k=top_k, tau=tau,
+        )
+
+
+def _parse_intent_file(path: str, ctx: str = "") -> List[str]:
+    """Return expanded, non-empty, non-comment lines from a Padatious ``.intent`` file.
+
+    Template syntax (``(a|b)``, ``[optional]``) is expanded via
+    ``ovos_spec_tools.expansion.expand`` so that every concrete
+    utterance variant is represented as a separate prototype.
+
+    A line that is not parsable as OVOS-INTENT-1 grammar is logged and
+    skipped so that a single bad template never discards the rest of the
+    file (OVOS-INTENT-4 §6.3); *ctx* carries the §5.3 identifier fields
+    for those warnings.
+    """
+    try:
+        sentences: List[str] = []
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if line and not line.lstrip().startswith("#"):
+                    try:
+                        # lazy + bounded: a combinatorial template must
+                        # not materialize its full product just to be
+                        # sampled down at store ingest. iter_expand yields
+                        # before it validates, so collect into a local list
+                        # and keep it only once the template expands whole.
+                        produced = list(islice(iter_expand(line),
+                                               MAX_ENTITY_EXPANSIONS))
+                    except Exception as exc:
+                        LOG.warning(f"skipping malformed template {line!r}: "
+                                    f"{exc} {ctx}")
+                    else:
+                        sentences.extend(produced)
+        return sentences
+    except OSError as exc:
+        LOG.warning(f"Could not read intent file '{path}': {exc}")
+        return []
+
+
+def _raw_intent_lines(path: str) -> List[str]:
+    """Return the raw, pre-expansion non-comment lines of a Padatious
+    ``.intent`` file, for prototype-cache key hashing (see
+    ``ovos_m2v_pipeline.cache.compute_cache_key``).
+
+    Unlike ``_parse_intent_file`` this never expands OVOS-INTENT-1 template
+    syntax: the cache key is over the raw templates, not their expansion. A
+    read failure yields an empty list -- callers treat that as "skip caching
+    for this registration", never as a reason to reject it.
+    """
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return [line.strip() for line in fh
+                    if line.strip() and not line.strip().startswith("#")]
+    except OSError:
+        return []
+
 
 class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
-    """
-    A pipeline that integrates Model2Vec with OVOS for intent matching.
+    """A pipeline that integrates Model2Vec with OVOS for intent matching.
 
-    This class uses Model2Vec for intent recognition, only considering loaded Adapt and Padatious intents
-    retrieved from the message bus.
+    Two operating modes are supported via ``config["mode"]``:
+
+    ``"classifier"`` (default)
+        Loads a ``StaticModelPipeline`` (embedding model + trained linear
+        classifier head).  Scores are softmax probabilities.
+
+    ``"prototype"``
+        Loads a bare ``StaticModel`` (embeddings only, **no training step**).
+        At runtime, builds a ``PrototypeIntentStore`` from the example
+        utterances supplied by Padatious intent registrations.  Scores are
+        cosine similarities.
+
+        Padatious ``.intent`` files are read directly when
+        ``padatious:register_intent`` fires; the file path is taken from
+        ``message.data["file_name"]``.  Adapt intents are tracked by label
+        name only and are not matched in prototype mode.
+
+    ``revision`` : str, optional (default: ``None``)
+        Git revision (commit SHA, branch, or tag) to pin the Hugging Face
+        Hub model to, passed through to ``from_pretrained``. Unset loads
+        whatever revision the Hub currently resolves as latest.
+
+    Configuration keys (prototype mode)
+    ------------------------------------
+    ``prototype_k`` : int, optional (default: unlimited)
+        Maximum number of prototype embeddings kept per label (used by the
+        strategies that subsample / cluster — see ``prototype_strategy``).
+        Unset (the default) keeps every registered sample as an anchor so
+        that an exact training sample always scores a perfect match;
+        set an integer to cap memory at the cost of recall.
+    ``prototype_strategy`` : str, default ``"max_over_all"``
+        One of the ``PrototypeStrategy`` values
+        (``mean_centroid`` / ``medoid`` / ``max_over_all`` / ``top_k_mean`` /
+        ``farthest_point`` / ``kmeans_centers`` / ``softmax_weighted``).
+    ``prototype_top_k`` : int, default 3
+        K for ``top_k_mean``.
+    ``prototype_tau`` : float, default 0.1
+        Softmax temperature for ``softmax_weighted``.
     """
 
     def __init__(self, bus: Optional[Union[MessageBusClient, FakeBus]] = None,
                  config: Optional[Dict] = None):
-        """
-        Initializes the Model2VecIntentPipeline with configuration and event handlers.
-
-        Args:
-            bus: The message bus client used to interact with the system.
-            config: Optional configuration dictionary for setting pipeline options.
-
-        Registers message bus event handlers to synchronize intents on relevant system events.
-        """
         config = config or Configuration().get('intents', {}).get("ovos_m2v_pipeline") or dict()
         super().__init__(bus, config)
-        model_path = self.config.get("model", "Jarbas/ovos-model2vec-intents-distiluse-base-multilingual-cased-v2")
+        lang = Configuration().get("lang", "en-us")
+        model_path = _resolve_model_id(self.config, lang)
         if not model_path:
             raise FileNotFoundError("'model' not set in configuration for ovos_m2v_pipeline")
 
-        # Load the model
-        self.model = StaticModelPipeline.from_pretrained(model_path)
-
-        self.intents = []
-        self.ignore_labels = self.config.get("ignore_intents") or []
-
-        LOG.info(f"Loaded Model2VecIntents pipeline with model: '{model_path}'")
-
-        # Register event handlers for intent synchronization
-        self.bus.on("mycroft.ready", self.handle_sync_intents)
-        self.bus.on("padatious:register_intent", self.handle_sync_intents)
-        self.bus.on("register_intent", self.handle_sync_intents)
-        self.bus.on("detach_intent", self.handle_sync_intents)
-        self.bus.on("detach_skill", self.handle_sync_intents)
-
+        self.intents: set = set()
+        self.ignore_labels: List[str] = self.config.get("ignore_intents") or []
+        #: Merged `label_map` layers: built-in defaults < model manifest
+        #: (`labels.json`, when the loaded model ships one) < user config.
+        #: Consumed by `_apply_special_label_map` to turn a raw model label
+        #: into `(skill_id, canonical_label)`.
+        manifest = _load_labels_manifest(model_path)
+        manifest_map = {k: v for k, v in manifest.items() if k != "valid_labels"}
+        user_map = self.config.get("label_map") or {}
+        self.label_map: Dict[str, Any] = {**_SPECIAL_LABEL_MAP, **manifest_map, **user_map}
+        #: Allow-list of raw model labels eligible to match in classifier mode
+        #: (`_match_classifier`), checked BEFORE `label_map` resolution
+        #: (pre-mapping): a manifest's `valid_labels` describes the model's
+        #: label vocabulary, not the post-map bus topics. `None` disables the
+        #: allow-list check. Not consulted in prototype mode
+        #: (`_match_prototype`): the prototype store is itself the allow-list,
+        #: since it only ever holds runtime-registered labels.
+        self.valid_labels: Optional[List[str]] = self.config.get("valid_labels")
+        if self.valid_labels is None:
+            manifest_valid = manifest.get("valid_labels")
+            if isinstance(manifest_valid, list):
+                self.valid_labels = manifest_valid
         self._syncing = False
+        #: OVOS-INTENT-4 §7 entity value sets, keyed by the owning skill_id
+        #: (§8.3 targets (skill_id, entity_name, lang)): one skill's entity
+        #: never fills or removes another skill's.
+        self.entities: Dict[str, Dict[str, List[str]]] = {}
+        #: OVOS-INTENT-4 §8.5 disabled labels, keyed by the session_id the
+        #: disable arrived under: the definition stays registered, the label
+        #: is only excluded from match candidacy for that session.
+        self._disabled: Dict[str, Set[str]] = {}
+        #: OVOS-CONTEXT-1 §6/§6.1 gating declarations per registered label,
+        #: keyed by label -> (requires_context, excludes_context). Each list
+        #: holds bare-string keys or ``{"key", "scope"}`` mappings and is
+        #: evaluated at match time via ``gate_satisfied``.
+        self._context_gates: Dict[str, Tuple[list, list]] = {}
+        #: Per-label suppression phrases (OVOS-INTENT-4 §6.1 ``blacklist``),
+        #: keyed by intent label. A candidate is dropped at match time when the
+        #: utterance contains one of its label's blacklisted phrases. Named and
+        #: matched consistently with the padacioso engine's ``excluded_keywords``.
+        self.excluded_keywords: Dict[str, List[str]] = {}
+        #: Declared slot names per registered label (OVOS-CONTEXT-1 §7),
+        #: parsed from the label's original template samples before entity
+        #: expansion rewrites ``{slot}`` placeholders into concrete values.
+        #: Used to fill declared slots from live intent context independently
+        #: of ``requires_context`` (which gates the match, not the fill).
+        self._intent_slots: Dict[str, List[str]] = {}
+        #: skill_ids that already triggered the frozen-classifier INTENT-4
+        #: warning (see ``_handle_intent4_register_template``), so the
+        #: warning logs once per skill rather than once per template.
+        self._intent4_frozen_warned: set = set()
+        #: model labels for which the colon-less `label_map` target warning
+        #: has already been logged, so it logs once per label rather than
+        #: once per match (mirrors `_intent4_frozen_warned`).
+        self._label_map_warned: set = set()
+
+        mode = self.config.get("mode", "classifier")
+        self._mode = mode
+        self._model_path = model_path
+        #: guards `self.model` (assigned exactly once, by `_load_model_now`)
+        #: and `self._pending_additions` (mutated from bus-handler threads
+        #: before the model exists, and drained once it does).
+        self._model_lock = threading.RLock()
+        self.model = None
+        self._model_load_thread: Optional[threading.Thread] = None
+        self._warmup_logged = False
+        #: consecutive failed load attempts, and the monotonic time (if any)
+        #: before which a new attempt should not be started -- see
+        #: `_MODEL_LOAD_RETRY_BASE_S` / `_MODEL_LOAD_RETRY_CAP_S`.
+        self._model_load_failures: int = 0
+        self._model_load_retry_at: Optional[float] = None
+        #: registrations that arrived before the model finished loading:
+        #: (label, sentences, k, cache_key, lang) tuples, encoded exactly
+        #: once by `_flush_pending_additions` when the deferred load
+        #: completes.
+        self._pending_additions: List[Tuple[str, List[str], Optional[int], Optional[str], Optional[str]]] = []
+        #: how long a match call waits for a cold-start model load before
+        #: giving up on THIS utterance and warming up in the background.
+        self._model_load_budget: float = float(self.config.get("model_load_budget", 0.5))
+        preload = bool(self.config.get("preload_model", False))
+
+        if mode == "prototype":
+            self._prototype_k: Optional[int] = self.config.get("prototype_k")
+            self._prototype_strategy: PrototypeStrategy = PrototypeStrategy(
+                self.config.get("prototype_strategy",
+                                PrototypeStrategy.MAX_OVER_ALL.value)
+            )
+            self._prototype_top_k: int = self.config.get("prototype_top_k", 3)
+            self._prototype_tau: float = self.config.get("prototype_tau", 0.1)
+
+            #: boot-time persistence for add()'s encode step (see
+            #: ovos_m2v_pipeline.cache): each registration's inputs (model
+            #: id, model2vec version, anchor-selection params, raw samples)
+            #: hash to a cache key, so an unchanged registration across
+            #: restarts loads its embeddings from disk instead of
+            #: re-encoding. `prototype_cache: false` disables it outright.
+            self._model_id = model_path
+            import model2vec
+            self._model2vec_version = getattr(model2vec, "__version__", "")
+            self._prototype_cache_enabled: bool = bool(
+                self.config.get("prototype_cache", True))
+            cache = None
+            if self._prototype_cache_enabled:
+                cache_dir = self.config.get("prototype_cache_dir") or str(
+                    Path(get_xdg_data_save_path()) / "m2v_prototypes")
+                cache = PrototypeCache(Path(cache_dir))
+
+            self.prototype_store: Optional[PrototypeIntentStore] = PrototypeIntentStore(
+                strategy=self._prototype_strategy,
+                top_k=self._prototype_top_k,
+                tau=self._prototype_tau,
+                cache=cache,
+            )
+
+            #: label -> cache key recorded by a loaded prebuilt artifact (see
+            #: ``prebuilt_prototypes`` below); a live registration whose own
+            #: computed cache key matches skips the encoder entirely, since
+            #: the artifact already carries that label's centroids.
+            self._prebuilt_cache_keys: Dict[str, str] = {}
+            #: True from construction until `_validate_prebuilt_dim` has run
+            #: against the real, loaded model -- see that method. A
+            #: registration's prebuilt-cache-key fast path is only trusted
+            #: once this is True, so registrations that arrive before the
+            #: model loads buffer and re-encode normally instead of risking
+            #: a dimension-mismatched artifact.
+            self._prebuilt_validated: bool = False
+            #: True while a prebuilt store is loaded but not yet validated
+            #: against the real model dimension (see `_validate_prebuilt_dim`).
+            self._prebuilt_active: bool = False
+            #: the artifact loaded from `prebuilt_prototypes`, held aside --
+            #: never installed as `self.prototype_store` directly. The live
+            #: store is the registration allow-list (see `_match_prototype`)
+            #: and must start exactly as empty as it would with no prebuilt
+            #: artifact at all; `_install_prebuilt_label` copies one label's
+            #: rows across only once a live registration actually earns them.
+            self._prebuilt_store: Optional[PrototypeIntentStore] = None
+            prebuilt_path = self.config.get("prebuilt_prototypes")
+            if prebuilt_path:
+                from ovos_m2v_pipeline.prebuilt import load_prebuilt_store
+                prebuilt_store, prebuilt_keys, reason = load_prebuilt_store(
+                    prebuilt_path, model_id=self._model_id,
+                    model2vec_version=self._model2vec_version,
+                    strategy=self._prototype_strategy,
+                    top_k=self._prototype_top_k, tau=self._prototype_tau,
+                )
+                if prebuilt_store is not None:
+                    self._prebuilt_store = prebuilt_store
+                    self._prebuilt_cache_keys = prebuilt_keys
+                    self._prebuilt_active = True
+                    LOG.info(f"prebuilt prototypes loaded from "
+                             f"'{prebuilt_path}': {reason}")
+                else:
+                    LOG.warning(f"prebuilt prototypes at '{prebuilt_path}' "
+                                f"not used: {reason}")
+
+            self.bus.on("mycroft.ready", self._handle_ready_prototype)
+            # Legacy registration topics (kept alongside OVOS-INTENT-4).
+            self.bus.on("padatious:register_intent", self._handle_register_padatious)
+            self.bus.on("register_intent", self._handle_register_adapt)
+            self.bus.on("detach_intent", self._handle_detach_intent)
+            self.bus.on("detach_skill", self._handle_detach_skill)
+            # OVOS-INTENT-4 registration topics. m2v matches on example
+            # utterances, so it is a TEMPLATE-style engine: it consumes
+            # `ovos.intent.register.template` (§6) and NOT
+            # `ovos.intent.register.keyword` (§11).
+            self._wire_intent4_handlers()
+
+            LOG.info(
+                f"Registered Model2VecIntents pipeline (prototype mode) "
+                f"with model: '{model_path}' (model load deferred until first use)"
+            )
+        else:
+            self.prototype_store = None
+
+            # Register event handlers for intent synchronization
+            self.bus.on("mycroft.ready", self.handle_sync_intents)
+            self.bus.on("padatious:register_intent", self.handle_sync_intents)
+            self.bus.on("register_intent", self.handle_sync_intents)
+            self.bus.on("detach_intent", self.handle_sync_intents)
+            self.bus.on("detach_skill", self.handle_sync_intents)
+            # OVOS-INTENT-4 registration topics. In classifier mode the model
+            # is frozen, so registrations only (de)gate which trained classes
+            # are eligible — exactly like the legacy manifest sync above.
+            self._wire_intent4_handlers()
+
+            LOG.info(
+                f"Registered Model2VecIntents pipeline with model: '{model_path}' "
+                f"(model load deferred until first use)"
+            )
+
+            # Seed the intent allowlist from skills loaded before this pipeline.
+            # Bus events keep it in sync for skills that load/unload later.
+            self._initial_intent_sync()
+
+        if preload:
+            self._ensure_model(background_ok=False)
+
+    def _cached_snapshot_if_current(self, repo_id: str) -> Optional[str]:
+        """Return the cached snapshot for ``repo_id`` if it is confirmed
+        current, else ``None``.
+
+        A pinned commit hash is content-addressed and immutable, so
+        ``snapshot_download`` already resolves it from cache with no Hub
+        contact at all -- this helper is only useful with no revision
+        pinned. Confirming a bare repo id's cached snapshot is still the
+        newest one otherwise costs a full ``snapshot_download`` etag round
+        trip per file, and on an unreachable Hub, huggingface_hub's own
+        per-file connect/backoff on top of that -- minutes, not seconds.
+        Instead this does one cheap ``HfApi.model_info`` call, bounded by
+        ``_HUB_REVISION_PROBE_TIMEOUT_S``, and compares its ``sha`` against
+        the cached snapshot's commit. Any failure (nothing cached yet, the
+        probe times out, the Hub is unreachable) returns ``None`` or the
+        cache as-is -- never blocks on the Hub.
+        """
+        import huggingface_hub
+        import huggingface_hub.utils
+        try:
+            cached = huggingface_hub.snapshot_download(
+                repo_id, repo_type="model", local_files_only=True)
+        except huggingface_hub.utils.LocalEntryNotFoundError:
+            return None  # nothing cached yet; a real download is unavoidable
+        cached_commit = Path(cached).name
+        try:
+            info = huggingface_hub.HfApi().model_info(
+                repo_id, timeout=_HUB_REVISION_PROBE_TIMEOUT_S)
+        except Exception:
+            # huggingface_hub's HTTP backend (requests, httpx, ...) and its
+            # exception types have moved before and will again; a probe
+            # that exists purely to avoid blocking boot must never itself
+            # become a way to block boot, so any failure here -- timeout,
+            # connection error, malformed response -- falls back to the
+            # cache exactly like an unreachable Hub does everywhere else
+            # in this method.
+            LOG.warning(f"Hub unreachable confirming '{repo_id}' is "
+                        f"current; using cached snapshot '{cached}'")
+            return cached
+        return cached if info.sha == cached_commit else None
+
+    def _resolve_model_revision(self, model_path: str) -> str:
+        """Resolve ``config["revision"]`` to a path ``from_pretrained`` accepts.
+
+        model2vec's ``from_pretrained`` does not talk to the Hub itself: it
+        resolves a repo id via ``maybe_get_cached_model_path``, which -- with
+        no revision pinned -- just returns the newest snapshot already on
+        disk BY MTIME, never checking whether the Hub has since moved on. A
+        stale local snapshot (e.g. from before a model was relabelled) is
+        then loaded forever, silently, with no way to tell from the logs.
+
+        So every repo-id load, pinned or not, is resolved through
+        ``huggingface_hub.snapshot_download`` ourselves and the resulting
+        local path handed to ``from_pretrained`` instead of the repo id:
+        pinned, it downloads that exact revision; unset, it is first
+        checked against the Hub with one bounded, cheap call
+        (``_cached_snapshot_if_current``) and only actually re-downloaded
+        when that call says the cache is stale. A local path (already on
+        disk) skips all of this and is returned unchanged. If the Hub
+        can't be reached (offline, network error) this falls back to
+        whatever snapshot is already cached, logging which one.
+        """
+        if Path(model_path).exists():
+            return model_path
+        revision = self.config.get("revision")
+        import huggingface_hub
+        import huggingface_hub.constants
+        import huggingface_hub.utils
+        import requests
+        pin = f" @ {revision}" if revision else ""
+        if huggingface_hub.constants.HF_HUB_OFFLINE:
+            resolved = huggingface_hub.snapshot_download(
+                model_path, repo_type="model", revision=revision,
+                local_files_only=True)
+            LOG.warning(f"HF_HUB_OFFLINE is set; using cached snapshot "
+                        f"'{resolved}' for '{model_path}'{pin} without "
+                        f"checking the Hub")
+            return resolved
+        if revision is None:
+            current = self._cached_snapshot_if_current(model_path)
+            if current is not None:
+                LOG.info(f"Resolved Model2Vec model '{model_path}' to "
+                         f"cached snapshot '{current}' (Hub confirmed "
+                         f"current)")
+                return current
+        try:
+            resolved = huggingface_hub.snapshot_download(
+                model_path, repo_type="model", revision=revision)
+        except (huggingface_hub.utils.HfHubHTTPError,
+                huggingface_hub.utils.HFValidationError,
+                ConnectionError, requests.exceptions.RequestException):
+            resolved = huggingface_hub.snapshot_download(
+                model_path, repo_type="model", revision=revision,
+                local_files_only=True)
+            LOG.warning(f"Hub unreachable resolving '{model_path}'{pin}; "
+                        f"using cached snapshot '{resolved}'")
+        LOG.info(f"Resolved Model2Vec model '{model_path}' to snapshot "
+                 f"'{resolved}'")
+        return resolved
+
+    def _load_model_now(self) -> None:
+        """Load ``self.model`` and drain any buffered prototype registrations.
+
+        Runs either synchronously (``preload_model: true``, or a caller with
+        ``background_ok=False``) or on a background thread kicked off by
+        ``_ensure_model``; either way at most one load is in flight at a
+        time thanks to ``_model_load_thread`` being created/cleared under
+        ``_model_lock``.
+
+        On failure, clears ``_model_load_thread`` so a later ``_ensure_model``
+        call can start a fresh attempt (never retried automatically here --
+        a broken model id must not spin the loader on every utterance) and
+        schedules that retry no sooner than the current backoff window
+        (``_MODEL_LOAD_RETRY_BASE_S``, doubling, capped at
+        ``_MODEL_LOAD_RETRY_CAP_S``). A dev-eager-load-at-construction repo
+        raised loudly at boot and stayed dead until a restart fixed the
+        config; this instead keeps retrying on its own once the underlying
+        cause (e.g. a network blip) clears.
+        """
+        start = time.monotonic()
+        try:
+            # Resolving the revision does its own network round trip; a bad
+            # revision or a transient hub failure must hit the same
+            # failure-accounting path as a `from_pretrained` failure below.
+            model_path = self._resolve_model_revision(self._model_path)
+            if self._mode == "prototype":
+                from model2vec import StaticModel
+                model = StaticModel.from_pretrained(model_path)
+            else:
+                model = StaticModelPipeline.from_pretrained(model_path)
+            # `_ensure_model` checks `self.model is not None` before it
+            # ever looks at `_model_load_thread`, so the thread handle
+            # must not be cleared until `self.model` is visible under the
+            # same lock acquisition -- otherwise a concurrent caller can
+            # land in the gap between the two and observe "no thread in
+            # flight, no model loaded", spawning a second loader for the
+            # load that just succeeded.
+            with self._model_lock:
+                self.model = model
+                self._model_load_failures = 0
+                self._model_load_retry_at = None
+                self._model_load_thread = None
+                if self.prototype_store is not None:
+                    self._validate_prebuilt_dim()
+                    self._flush_pending_additions()
+        except Exception:
+            with self._model_lock:
+                self._model_load_failures += 1
+                backoff = min(
+                    _MODEL_LOAD_RETRY_BASE_S * (2 ** (self._model_load_failures - 1)),
+                    _MODEL_LOAD_RETRY_CAP_S,
+                )
+                self._model_load_retry_at = time.monotonic() + backoff
+                self._warmup_logged = False
+            LOG.exception(f"failed to load deferred Model2Vec model "
+                          f"'{self._model_path}' (attempt {self._model_load_failures}); "
+                          f"retrying in {backoff:.0f}s")
+            return
+        finally:
+            # Safety net for a `BaseException` that skips the `except`
+            # above: `self._model_load_thread` must never survive this
+            # call. On the success path it is already `None` by the time
+            # this runs (cleared above in the same locked block as the
+            # `self.model` assignment), so this is a no-op there.
+            with self._model_lock:
+                self._model_load_thread = None
+        LOG.info(f"Model2Vec model '{self._model_path}' loaded in "
+                 f"{time.monotonic() - start:.2f}s (deferred load)")
+
+    def _ensure_model(self, background_ok: bool = True) -> bool:
+        """Make sure ``self.model`` is loaded, returning ``True`` once it is.
+
+        The first caller (construction with ``preload_model``, or the first
+        match) starts the load thread; every other caller just waits on it.
+        When ``background_ok`` and the load has not finished within
+        ``model_load_budget`` seconds, returns ``False`` so the caller can
+        skip this one utterance instead of blocking the bus thread
+        indefinitely — the load keeps running in the background and later
+        calls pick up the now-ready model.
+
+        A load that previously failed is not retried on every call: while
+        inside the current backoff window (see ``_load_model_now``) this
+        returns ``False`` immediately without spawning a new thread; once
+        the window elapses, the next caller starts a fresh attempt.
+        """
+        if self.model is not None:
+            return True
+        if not hasattr(self, "_model_lock"):
+            # object built via `__new__`, bypassing `__init__` (white-box
+            # tests): there is nothing to defer, `self.model` is simply unset
+            return False
+        with self._model_lock:
+            if self.model is not None:
+                return True
+            if self._model_load_thread is None:
+                retry_at = self._model_load_retry_at
+                if retry_at is not None and time.monotonic() < retry_at:
+                    # still backing off after a previous failure
+                    return False
+                self._model_load_thread = threading.Thread(
+                    target=self._load_model_now,
+                    name="m2v-deferred-model-load", daemon=True)
+                self._model_load_thread.start()
+            thread = self._model_load_thread
+        if not background_ok:
+            thread.join()
+            return self.model is not None
+        thread.join(timeout=self._model_load_budget)
+        if self.model is None:
+            if not self._warmup_logged:
+                self._warmup_logged = True
+                LOG.info("Model2Vec model is still warming up; skipping this "
+                         "utterance, matching resumes once it is ready")
+            return False
+        return True
+
+    def _validate_prebuilt_dim(self) -> None:
+        """Confirm a loaded prebuilt artifact's embedding dimension matches
+        the real, now-loaded model.
+
+        ``load_prebuilt_store`` runs at construction time, before the model
+        (loaded on a background thread by ``_load_model_now``) exists to
+        compare against -- it can only check the artifact's own internal
+        manifest/npz consistency. A model retrained in place under the same
+        id and ``model2vec`` version can still change its output dimension,
+        and ``PrototypeIntentStore.scores`` has no dimension guard of its
+        own: every match against a mismatched store raises. Mirrors the
+        guard ``PrototypeCache.load(expected_dim=...)`` already applies to
+        the on-disk cache.
+
+        Must be called with ``self._model_lock`` held and ``self.model``
+        set, before any buffered or new registration can use
+        ``self._prebuilt_cache_keys`` (see the fast-path checks in
+        ``_handle_register_padatious`` / the INTENT-4 template handler).
+        """
+        if not self._prebuilt_active:
+            return
+        self._prebuilt_active = False
+        expected_dim = getattr(self.model, "dim", None)
+        if isinstance(expected_dim, int) and self._prebuilt_store is not None:
+            embeddings = self._prebuilt_store.embeddings
+            store_dim = embeddings.shape[1] if embeddings.ndim == 2 and len(embeddings) else 0
+            if store_dim and expected_dim != store_dim:
+                LOG.warning(
+                    f"prebuilt prototypes discarded: embedding dimension "
+                    f"mismatch (prebuilt {store_dim}, running model "
+                    f"{expected_dim}); every registration will re-encode"
+                )
+                self._prebuilt_store = None
+                self._prebuilt_cache_keys = {}
+        self._prebuilt_validated = True
+
+    def _install_prebuilt_label(self, label: str, lang: Optional[str]) -> int:
+        """Copy a held-aside prebuilt artifact's rows for *label*/*lang* into
+        the live store, in place of encoding.
+
+        Returns the number of prototype rows installed. ``0`` means the
+        artifact holds nothing under this exact internal (label, lang)
+        partition -- e.g. a stale label that no longer has a matching
+        registration, or a mismatched language -- and the caller must fall
+        back to the normal encode path. The caller is responsible for
+        already having confirmed the registration's own cache key matches
+        the artifact's recorded key for *label*; this only extracts rows,
+        it never itself decides whether they still apply.
+        """
+        if self._prebuilt_store is None:
+            return 0
+        internal_label = self.prototype_store._compose(label, lang)
+        embeddings = self._prebuilt_store.embeddings
+        if not len(embeddings):
+            return 0
+        mask = self._prebuilt_store._labels == internal_label
+        if not mask.any():
+            return 0
+        return self.prototype_store._add_anchors(internal_label, embeddings[mask])
+
+    def _flush_pending_additions(self) -> None:
+        """Encode every registration buffered while the model was loading.
+
+        Must be called with ``self._model_lock`` held and ``self.model`` set
+        (see ``_load_model_now``); each entry is encoded exactly once.
+        """
+        pending, self._pending_additions = self._pending_additions, []
+        for label, sentences, k, cache_key, lang in pending:
+            try:
+                self.prototype_store.add(self.model, label, sentences, k=k,
+                                         cache_key=cache_key, lang=lang)
+            except Exception as exc:
+                LOG.error(f"deferred prototype add failed for '{label}': {exc}")
+
+    def _add_prototypes(self, label: str, sentences: List[str],
+                        k: Optional[int], cache_key: Optional[str],
+                        lang: Optional[str] = None) -> int:
+        """Encode *sentences* now if the model is loaded, otherwise buffer
+        the raw registration for ``_flush_pending_additions`` to encode once
+        the deferred load completes."""
+        # `_model_lock` is only absent for objects built via `__new__` that
+        # skip `__init__` entirely (a handful of white-box tests) -- those
+        # already hand-set `self.model`, so fall back to the pre-deferred
+        # encode-now behaviour rather than crash.
+        lock = getattr(self, "_model_lock", None)
+        if lock is None:
+            return self.prototype_store.add(self.model, label, sentences, k=k,
+                                            cache_key=cache_key, lang=lang)
+        with lock:
+            if self.model is None:
+                self._pending_additions.append((label, list(sentences), k, cache_key, lang))
+                return len(sentences)
+            return self.prototype_store.add(self.model, label, sentences, k=k,
+                                            cache_key=cache_key, lang=lang)
+
+    def _forget_pending(self, label: str) -> None:
+        """Drop any buffered-but-unencoded registration for *label* (mirrors
+        ``prototype_store.remove`` for entries that never reached the store)."""
+        pending = getattr(self, "_pending_additions", None)
+        if pending:
+            self._pending_additions = [p for p in pending if p[0] != label]
+
+    def _forget_pending_skill(self, skill_id: str) -> None:
+        """Drop buffered-but-unencoded registrations owned by *skill_id*
+        (mirrors ``prototype_store.remove_skill``)."""
+        pending = getattr(self, "_pending_additions", None)
+        if pending:
+            prefix = skill_id + ":"
+            self._pending_additions = [p for p in pending
+                                       if not p[0].startswith(prefix)]
+
+    def _initial_intent_sync(self) -> None:
+        """Query adapt + padatious manifests once at startup.
+
+        Skills loaded *before* this pipeline never emit `register_intent`, so
+        without this pull they would stay invisible until the next
+        `mycroft.ready` / register / detach event.
+        """
+        timeout = self.config.get("timeout", 1)
+        adapt: List[str] = []
+        padatious: List[str] = []
+        try:
+            adapt = self._get_adapt_intents(timeout)
+        except RuntimeError:
+            LOG.debug("Model2Vec: adapt manifest not available at startup")
+        try:
+            padatious = self._get_padatious_intents(timeout)
+        except RuntimeError:
+            LOG.debug("Model2Vec: padatious manifest not available at startup")
+        if adapt or padatious:
+            self.intents = list(set(adapt + padatious))
+            LOG.debug(f"Model2Vec seeded {len(self.intents)} intents on startup")
+
+    # ------------------------------------------------------------------
+    # Classifier-mode intent synchronisation
+    # ------------------------------------------------------------------
 
     def _get_adapt_intents(self, timeout: int = 1) -> List[str]:
         """
@@ -105,31 +1582,767 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         if self._syncing:
             return
         self._syncing = True
-        time.sleep(3)
-        timeout = self.config.get("timeout", 1)
         try:
-            self.intents = list(set(self._get_adapt_intents(timeout) + self._get_padatious_intents(timeout)))
+            time.sleep(3)
+            timeout = self.config.get("timeout", 1)
+            self.intents = set(
+                self._get_adapt_intents(timeout) + self._get_padatious_intents(timeout)
+            )
             LOG.debug(f"Model2Vec registered intents: {len(self.intents)}")
         except RuntimeError:
             pass
-        self._syncing = False
+        finally:
+            self._syncing = False
 
-    def _match(self, utterance: str) -> Iterable[Tuple[str, str, float]]:
+    def _allowed_special_labels(self, message: Optional[Message]) -> set:
+        """Return the special labels enabled by the caller's session pipeline.
+
+        `ocp:play`, `common_query:common_query`, and `stop:stop` are only
+        meaningful when their respective downstream pipelines are present in
+        ``session.pipeline``.  If we cannot determine the session (no message
+        or no session in context) we fall back to all special labels so the
+        plugin keeps working in headless / test contexts.
         """
-        Matches the most likely intent for a given list of utterances using Model2Vec.
+        if message is None:
+            return set(_SPECIAL_LABELS)
+        try:
+            sess = SessionManager.get(message)
+            sess_pipeline = list(sess.pipeline or [])
+        except Exception:
+            return set(_SPECIAL_LABELS)
+        if not sess_pipeline:
+            return set(_SPECIAL_LABELS)
+        allowed = set()
+        for label, needle in _SPECIAL_LABEL_PIPELINES.items():
+            if any(needle in p for p in sess_pipeline):
+                allowed.add(label)
+        return allowed
+
+    # ------------------------------------------------------------------
+    # Prototype-mode intent registration
+    # ------------------------------------------------------------------
+
+    def _prototype_cache_key(
+        self, raw_samples: List[str],
+        entity_values: Optional[Dict[str, List[str]]] = None,
+        lang: Optional[str] = None,
+    ) -> Optional[str]:
+        """Hash a registration's inputs into a prototype-cache key, or
+        ``None`` when caching is disabled / there is nothing to hash.
+
+        Never raises: a hashing failure just disables caching for this one
+        registration (``add()`` still runs the normal encode path), it is
+        never a reason to reject the registration itself.
+
+        Computed whenever there are samples to hash, independently of
+        ``prototype_cache`` (the on-disk cache is only consulted/written by
+        ``PrototypeIntentStore.add()`` when ``self.cache`` is set): a
+        loaded prebuilt artifact's cache keys (``self._prebuilt_cache_keys``)
+        are compared against this same key regardless of whether the live
+        on-disk cache is enabled.
+        """
+        if not raw_samples:
+            return None
+        try:
+            return compute_cache_key(
+                self._model_id, self._model2vec_version,
+                {"k": self._prototype_k,
+                 "strategy": self._prototype_strategy.value,
+                 "max_expansions": MAX_ENTITY_EXPANSIONS},
+                raw_samples, entity_values, lang=lang,
+            )
+        except Exception as exc:
+            LOG.warning(f"prototype cache: failed to compute cache key, "
+                        f"registration will re-encode: {exc}")
+            return None
+
+    @staticmethod
+    def _spec_skill_id(message: Message, topic: str) -> str:
+        """The skill a §§5-8 message acts on: the payload, never the context.
+
+        ``message.data["skill_id"]`` names the target and is a required
+        field. ``message.context["skill_id"]`` names the source that
+        emitted the message and is provenance only, so it is never
+        substituted for a missing target: doing so would hand the
+        registration to whoever emitted it. A payload that differs from
+        the context is a cross-skill registration, which is allowed (an
+        operator scripting on a skill's behalf) and is logged so
+        provenance stays visible. An absent payload identity resolves to
+        "" and the caller rejects the message as malformed.
+        """
+        skill_id = message.data.get("skill_id", "")
+        ctx_id = message.context.get("skill_id", "")
+        if skill_id and ctx_id and skill_id != ctx_id:
+            LOG.info(f"{topic}: registration for {skill_id!r} sent by "
+                     f"{ctx_id!r} (message.context['skill_id'])")
+        return skill_id
+
+    @staticmethod
+    def _legacy_skill_id(message: Message, topic: str) -> str:
+        """The skill a legacy-wire message acts on.
+
+        The legacy topics carry no required payload identity, so the
+        context is the only source when the payload omits one.
+        """
+        data_id = message.data.get("skill_id", "")
+        ctx_id = message.context.get("skill_id", "")
+        if not data_id and not ctx_id:
+            LOG.warning(f"{topic}: no skill_id in message.data or "
+                        f"message.context; dropping")
+        return data_id or ctx_id
+
+    def _handle_ready_prototype(self, message: Message) -> None:
+        LOG.info(
+            f"Model2Vec prototype store ready: {len(self.prototype_store)} prototypes "
+            f"for {len(self.prototype_store.unique_labels)} labels"
+        )
+
+    def _handle_register_padatious(self, message: Message) -> None:
+        """Build prototypes from a Padatious ``.intent`` file or inline samples.
+
+        ``message.data["samples"]`` (pre-expanded list) is preferred when
+        present; otherwise the file at ``message.data["file_name"]`` is read
+        and its template syntax is expanded lazily via ``iter_expand``.
+        """
+        name: str = message.data.get("name", "")
+        if name.endswith(".intent"):
+            # ovos-workshop dual-registers one intent on both wire contracts
+            # (legacy name suffixed ".intent", spec name suffixless); fold to
+            # one canonical label or the store holds every prototype twice
+            name = name[:-len(".intent")]
+        # ignore_labels entries may be written in either wire form
+        if not name or name in self.ignore_labels                 or f"{name}.intent" in self.ignore_labels:
+            return
+
+        skill_id = self._legacy_skill_id(message, message.msg_type)
+        if not skill_id:
+            return
+        ctx = (f"[skill_id={skill_id!r} name={name!r} "
+               f"lang={message.data.get('lang')!r} topic={message.msg_type}]")
+
+        inline = message.data.get("samples") or []
+        if inline:
+            inline = [strip_type_prefixes(s) for s in inline]
+            raw_samples: List[str] = list(inline)
+            sentences: List[str] = []
+            for s in inline:
+                try:
+                    produced = list(islice(iter_expand(s),
+                                           MAX_ENTITY_EXPANSIONS))
+                except Exception as exc:
+                    LOG.warning(f"skipping malformed template {s!r}: {exc} {ctx}")
+                else:
+                    sentences.extend(produced)
+        else:
+            file_name: str = message.data.get("file_name", "")
+            raw_samples = ([strip_type_prefixes(s) for s in _raw_intent_lines(file_name)]
+                           if file_name else [])
+            sentences = ([strip_type_prefixes(s) for s in _parse_intent_file(file_name, ctx)]
+                        if file_name else [])
+
+        if not sentences:
+            # zero valid templates -> the whole registration is malformed
+            LOG.warning(f"rejecting registration: no valid template remains {ctx}")
+            return
+        reg_lang = message.data.get("lang")
+        # fill any ``{slot}`` placeholders (OVOS-INTENT-4 §7 entity hints, also
+        # used ad-hoc by some legacy skills) the same way the INTENT-4 template
+        # path does. Prototypes are embedded once, at registration time, and
+        # the store keeps no link back to `self.entities` to re-embed from --
+        # entities registered so far are the only ones visible, so this is a
+        # one-shot fill just like the INTENT-4 path (neither re-expands on
+        # later entity registration).
+        sentences = self._expand_entities(sentences, skill_id)
+        slots = {slot for s in raw_samples for slot in _SLOT_RE.findall(s)}
+        entity_values = self._entity_values(skill_id, slots)
+        cache_key = self._prototype_cache_key(raw_samples, entity_values, lang=reg_lang)
+        if (cache_key is not None
+                and self._prebuilt_validated
+                and self._prebuilt_cache_keys.get(name) == cache_key
+                and self._install_prebuilt_label(name, reg_lang)):
+            # A prebuilt artifact already carries centroids for this exact
+            # registration (same model, same model2vec version, same raw
+            # templates/entities -- the identical condition that would make
+            # the on-disk PrototypeCache a hit). Skip the encoder entirely.
+            self.intents.add(name)
+            self._store_context_gate(name, message)
+            LOG.debug(f"prototype '{name}': using prebuilt centroids, "
+                      f"encoder not called")
+            return
+        try:
+            n = self._add_prototypes(name, sentences, self._prototype_k, cache_key,
+                                     lang=reg_lang)
+        except Exception as exc:
+            LOG.error(f"Failed to add prototypes for Padatious intent "
+                      f"'{name}': {exc}")
+            return
+        self.intents.add(name)
+        self._store_context_gate(name, message)
+        LOG.debug(f"Prototype store: added {n} prototype(s) for '{name}'")
+
+    def _handle_register_adapt(self, message: Message) -> None:
+        """Track Adapt intent labels (no example sentences -> no prototypes)."""
+        name: str = message.data.get("name", "")
+        if name and name not in self.ignore_labels:
+            self.intents.add(name)
+
+    def _handle_detach_intent(self, message: Message) -> None:
+        name: str = message.data.get("intent_name", "")
+        if name.endswith(".intent"):
+            # mirror the registration-side dealiasing
+            name = name[:-len(".intent")]
+        if name:
+            self.prototype_store.remove(name)
+            self._forget_pending(name)
+            self.intents.discard(name)
+            self._context_gates.pop(name, None)
+            self._intent_slots.pop(name, None)
+            self._forget_disabled(name)
+            LOG.debug(f"Prototype store: removed prototypes for '{name}'")
+
+    def _handle_detach_skill(self, message: Message) -> None:
+        skill_id: str = self._legacy_skill_id(message, message.msg_type)
+        if skill_id:
+            self.prototype_store.remove_skill(skill_id)
+            self._forget_pending_skill(skill_id)
+            self.intents = {i for i in self.intents if not i.startswith(skill_id + ":")}
+            self._context_gates = {l: g for l, g in self._context_gates.items()
+                                   if not l.startswith(skill_id + ":")}
+            self._intent_slots = {l: s for l, s in self._intent_slots.items()
+                                  if not l.startswith(skill_id + ":")}
+            self._forget_disabled_skill(skill_id)
+            self.entities.pop(skill_id, None)
+            LOG.debug(f"Prototype store: removed prototypes for skill '{skill_id}'")
+
+    # ------------------------------------------------------------------
+    # OVOS-INTENT-4 registration (template method) — consumed in addition
+    # to the legacy topics. m2v is a template-style engine (it matches on
+    # example utterances), so it subscribes to `ovos.intent.register.template`
+    # (§6) and `ovos.entity.register` (§7), plus the shared deregister /
+    # enable / disable topics (§8). It deliberately does NOT consume
+    # `ovos.intent.register.keyword` (§11 — keyword engines only).
+    # ------------------------------------------------------------------
+
+    def _wire_intent4_handlers(self) -> None:
+        """Subscribe to the OVOS-INTENT-4 registration topics (§4)."""
+        self.bus.on(SpecMessage.INTENT_REGISTER_TEMPLATE.value,
+                    self._handle_intent4_register_template)
+        self.bus.on(SpecMessage.ENTITY_REGISTER.value,
+                    self._handle_intent4_register_entity)
+        self.bus.on(SpecMessage.INTENT_DEREGISTER.value,
+                    self._handle_intent4_deregister_intent)
+        self.bus.on(SpecMessage.ENTITY_DEREGISTER.value,
+                    self._handle_intent4_deregister_entity)
+        self.bus.on(SpecMessage.SKILL_DEREGISTER.value,
+                    self._handle_intent4_deregister_skill)
+        self.bus.on(SpecMessage.INTENT_ENABLE.value,
+                    self._handle_intent4_enable)
+        self.bus.on(SpecMessage.INTENT_DISABLE.value,
+                    self._handle_intent4_disable)
+
+    @staticmethod
+    def _intent4_label(message: Message) -> str:
+        """Build the internal ``<skill_id>:<intent_name>`` label from §3.2 fields."""
+        skill_id = Model2VecIntentPipeline._spec_skill_id(message, message.msg_type)
+        intent_name = message.data.get("intent_name", "")
+        if not skill_id or not intent_name:
+            return ""
+        return f"{skill_id}:{intent_name}"
+
+    @staticmethod
+    def _intent4_control_label(message: Message) -> str:
+        """Build the ``<skill_id>:<intent_name>`` label for ``ovos.intent.enable``
+        / ``ovos.intent.disable`` (§8.5).
+
+        Enable and disable take the same shape as the rest of §§5-8 and are
+        not an exception to it: ``message.data["skill_id"]`` names the
+        **target** intent's skill, while ``message.context["skill_id"]``
+        names the **source** requesting the control action, and the two MAY
+        differ (cross-skill control, e.g. an admin UI or a conflict-resolving
+        skill suppressing another skill's intent, is the point of §8.5).
+        """
+        target_skill_id = message.data.get("skill_id", "")
+        intent_name = message.data.get("intent_name", "")
+        if not target_skill_id or not intent_name:
+            return ""
+        source_skill_id = message.context.get("skill_id", "")
+        if source_skill_id and source_skill_id != target_skill_id:
+            LOG.debug(f"{message.msg_type}: cross-skill control "
+                      f"source={source_skill_id!r} target={target_skill_id!r} "
+                      f"(OVOS-INTENT-4 §3.2/§8.5 exemption)")
+        return f"{target_skill_id}:{intent_name}"
+
+    def _intent4_warn(self, topic: str, message: Message, reason: str) -> None:
+        """Log a malformed-registration rejection at WARN (§5.3 / §6.3 / §7.2)."""
+        LOG.warning(
+            f"rejecting {topic} registration: {reason} "
+            f"[skill_id={message.data.get('skill_id')!r} "
+            f"name={message.data.get('intent_name') or message.data.get('entity_name')!r} "
+            f"lang={message.data.get('lang')!r}]"
+        )
+
+    def _expand_entities(self, samples: List[str], skill_id: str) -> List[str]:
+        """Fill ``{slot}`` placeholders in template *samples* with registered
+        entity values (OVOS-INTENT-4 §7). Samples without placeholders, or whose
+        entity is unregistered, are passed through with the placeholder left
+        literal (entities are an optional hint, §7).
+
+        Delegates to :func:`ovos_m2v_pipeline.slots.expand_entities`, the
+        single implementation shared with ``train/build_dataset.py`` so the
+        training corpus and the runtime prototype encoder fill slots the
+        same way.
+        """
+        return expand_entities(samples, self.entities.get(skill_id, {}))
+
+    def _entity_values(self, skill_id: str, slots: Iterable[str]) -> Dict[str, List[str]]:
+        """The owning skill's registered values for the slots a template names."""
+        own = self.entities.get(skill_id, {})
+        return {slot: own[slot.lower()] for slot in slots if slot.lower() in own}
+
+    def _handle_intent4_register_template(self, message: Message) -> None:
+        """Register a template intent (§6): bracket-expand + entity-fill the
+        ``samples`` and embed them as prototypes (prototype mode) or track the
+        label name (classifier mode)."""
+        topic = SpecMessage.INTENT_REGISTER_TEMPLATE.value
+        label = self._intent4_label(message)
+        if not label:
+            self._intent4_warn(topic, message, "missing skill_id or intent_name")
+            return
+        if label in self.ignore_labels:
+            return
+        intent_name = message.data.get("intent_name", "")
+        if intent_name in RESERVED_INTENT_NAMES:  # §5.3: reserved by another spec
+            self._intent4_warn(topic, message,
+                               f"intent_name {intent_name!r} is reserved "
+                               "(OVOS-PIPELINE-1 §7.3)")
+            return
+        samples = message.data.get("samples")
+        if not samples:  # missing or empty -> malformed (§6.3)
+            self._intent4_warn(topic, message, "samples missing or empty")
+            return
+        samples = [strip_type_prefixes(s) for s in samples]
+        required = message.data.get("required_slots") or []
+        declared = {slot for s in samples for slot in _SLOT_RE.findall(s)}
+        undeclared = [r for r in required if r not in declared]
+        if undeclared:  # §6.3: required_slots must name declared slots
+            self._intent4_warn(topic, message,
+                               f"required_slots {undeclared!r} not declared "
+                               "by any sample template")
+            return
+
+        blacklist = message.data.get("blacklist")
+        if blacklist:  # §6.1 suppression phrases: drop matches containing these
+            self.excluded_keywords[label] = list(blacklist)
+
+        # Classifier mode is frozen: only gate the (already trained) label.
+        if self.prototype_store is None:
+            skill_id = self._spec_skill_id(message, topic)
+            if skill_id and skill_id not in self._intent4_frozen_warned:
+                self._intent4_frozen_warned.add(skill_id)
+                LOG.warning(
+                    "Model2VecIntentPipeline is a frozen classifier and cannot "
+                    "match registered skill intents; use "
+                    "ovos-m2v-prototype-pipeline-* to match INTENT-4 "
+                    f"registrations from {skill_id}"
+                )
+            self.intents.add(label)
+            self._store_context_gate(label, message)
+            LOG.debug(f"Model2Vec: tracking INTENT-4 template label '{label}'")
+            return
+
+        # Entities registered so far are the only ones visible here: the
+        # prototypes built below are embedded once, at registration time,
+        # and the store keeps no link back to `self.entities` to re-embed
+        # from later, so this is a one-shot fill just like the legacy-wire
+        # path (neither re-expands on a later `ovos.entity.register`).
+        expanded: List[str] = []
+        skill_id = label.split(":", 1)[0]
+        for s in self._expand_entities(list(samples), skill_id):
+            if len(expanded) >= MAX_ENTITY_EXPANSIONS:
+                break
+            try:
+                produced = list(islice(
+                    iter_expand(s),
+                    MAX_ENTITY_EXPANSIONS - len(expanded)))
+            except Exception as exc:
+                # skip the unparsable template whole, keep the valid ones
+                # (§6.3). iter_expand yields before it validates, so a
+                # partial run must not reach `expanded`.
+                LOG.warning(
+                    f"skipping malformed template {s!r}: {exc} "
+                    f"[skill_id={message.data.get('skill_id')!r} "
+                    f"name={message.data.get('intent_name')!r} "
+                    f"lang={message.data.get('lang')!r} topic={topic}]")
+            else:
+                expanded.extend(produced)
+        expanded = [s for s in (e.strip() for e in expanded) if s]
+        if not expanded:  # zero non-empty expansions -> malformed (§6.3)
+            self._intent4_warn(topic, message, "samples expand to zero non-empty templates")
+            return
+        # entity values referenced by this template's slots: part of the
+        # cache key because they feed `_expand_entities` above, but they
+        # come from a `set` upstream (`_handle_intent4_register_entity`) so
+        # their list order is unstable across runs -- compute_cache_key()
+        # sorts them before hashing.
+        slots = {slot for s in samples for slot in _SLOT_RE.findall(s)}
+        entity_values = self._entity_values(skill_id, slots)
+        reg_lang = message.data.get("lang")
+        cache_key = self._prototype_cache_key(list(samples), entity_values, lang=reg_lang)
+        if (cache_key is not None
+                and self._prebuilt_validated
+                and self._prebuilt_cache_keys.get(label) == cache_key
+                and self._install_prebuilt_label(label, reg_lang)):
+            # See the matching shortcut in _handle_register_padatious.
+            self.intents.add(label)
+            self._store_context_gate(label, message)
+            LOG.debug(f"prototype '{label}': using prebuilt centroids, "
+                      f"encoder not called")
+            return
+        n = self._add_prototypes(label, expanded, self._prototype_k, cache_key,
+                                 lang=reg_lang)
+        self.intents.add(label)
+        self._store_context_gate(label, message)
+        LOG.debug(f"Prototype store: added {n} prototype(s) for INTENT-4 template '{label}'")
+
+    def _store_context_gate(self, label: str, message: Message) -> None:
+        """Record OVOS-CONTEXT-1 §6/§6.1 ``requires_context`` /
+        ``excludes_context`` declarations for ``label`` (if any) so they can be
+        enforced at match time, plus the label's declared slot names so
+        OVOS-CONTEXT-1 §7 can fill them from live context. Absent declarations
+        clear any stale entry."""
+        requires = message.data.get("requires_context")
+        excludes = message.data.get("excludes_context")
+        if requires or excludes:
+            self._context_gates[label] = (requires or [], excludes or [])
+        else:
+            self._context_gates.pop(label, None)
+
+        # Parse declared slot names from the ORIGINAL samples, before entity
+        # expansion rewrites the ``{slot}`` placeholders into concrete
+        # values. Type prefixes (OVOS-INTENT-1 §3.4, e.g. ``{number:amount}``)
+        # are stripped first, same as the registration handlers, or
+        # `_SLOT_RE` (which never matches the colon) misses the slot
+        # entirely and OVOS-CONTEXT-1 §7 has nothing to fill.
+        slot_names: List[str] = []
+        for sample in message.data.get("samples") or []:
+            for slot in _SLOT_RE.findall(strip_type_prefixes(sample)):
+                if slot not in slot_names:
+                    slot_names.append(slot)
+        if slot_names:
+            self._intent_slots[label] = slot_names
+        else:
+            self._intent_slots.pop(label, None)
+
+    def _handle_intent4_register_entity(self, message: Message) -> None:
+        """Register an entity value-set hint (§7). No-op in classifier mode."""
+        topic = SpecMessage.ENTITY_REGISTER.value
+        name: str = message.data.get("entity_name", "")
+        samples = message.data.get("samples")
+        skill_id = self._spec_skill_id(message, topic)
+        if not name or not skill_id:
+            self._intent4_warn(topic, message, "missing skill_id or entity_name")
+            return
+        if not samples:  # missing or empty -> malformed (§7.2)
+            self._intent4_warn(topic, message, "samples missing or empty")
+            return
+        if self.prototype_store is None:
+            return  # classifier model is frozen; no slot-fill to perform
+        values: set = set()
+        for s in samples:
+            if len(values) >= MAX_ENTITY_EXPANSIONS:
+                break
+            try:
+                produced = {v for v in (x.strip() for x in
+                                        islice(iter_expand(s),
+                                               MAX_ENTITY_EXPANSIONS)) if v}
+            except Exception as exc:
+                # skip the unparsable entry whole, keep the valid ones
+                # (§7.2). iter_expand yields before it validates, so a
+                # partial run must not reach `values`.
+                LOG.warning(
+                    f"skipping malformed entity sample {s!r}: {exc} "
+                    f"[skill_id={message.data.get('skill_id')!r} "
+                    f"name={name!r} "
+                    f"lang={message.data.get('lang')!r} topic={topic}]")
+            else:
+                values |= produced
+        if not values:  # zero valid entries -> malformed (§7.2)
+            self._intent4_warn(topic, message, "no valid entity sample remains")
+            return
+        self.entities.setdefault(skill_id, {})[name.lower()] = list(values)
+        LOG.debug(f"Model2Vec: registered INTENT-4 entity '{name}' ({len(values)} values)")
+
+    def _handle_intent4_deregister_intent(self, message: Message) -> None:
+        """Remove one intent (§8.2)."""
+        label = self._intent4_label(message)
+        if not label:
+            self._intent4_warn(message.msg_type, message,
+                               "missing skill_id or intent_name")
+            return
+        if self.prototype_store is not None:
+            self.prototype_store.remove(label)
+            self._forget_pending(label)
+        self.intents.discard(label)
+        self._context_gates.pop(label, None)
+        self._intent_slots.pop(label, None)
+        self.excluded_keywords.pop(label, None)
+        self._forget_disabled(label)
+        LOG.debug(f"Model2Vec: deregistered INTENT-4 intent '{label}'")
+
+    def _handle_intent4_deregister_entity(self, message: Message) -> None:
+        """Remove one entity (§8.3). No-op in classifier mode."""
+        name: str = message.data.get("entity_name", "")
+        skill_id = self._spec_skill_id(message, message.msg_type)
+        if not name or not skill_id:
+            self._intent4_warn(message.msg_type, message,
+                               "missing skill_id or entity_name")
+            return
+        self.entities.get(skill_id, {}).pop(name.lower(), None)
+        LOG.debug(f"Model2Vec: deregistered INTENT-4 entity '{skill_id}:{name}'")
+
+    def _handle_intent4_deregister_skill(self, message: Message) -> None:
+        """Remove every intent and entity owned by a skill (§8.4)."""
+        skill_id: str = self._spec_skill_id(message, message.msg_type)
+        if not skill_id:
+            self._intent4_warn(message.msg_type, message, "missing skill_id")
+            return
+        if self.prototype_store is not None:
+            self.prototype_store.remove_skill(skill_id)
+            self._forget_pending_skill(skill_id)
+        self.intents = {i for i in self.intents if not i.startswith(skill_id + ":")}
+        self._context_gates = {l: g for l, g in self._context_gates.items()
+                               if not l.startswith(skill_id + ":")}
+        self._intent_slots = {l: s for l, s in self._intent_slots.items()
+                              if not l.startswith(skill_id + ":")}
+        self.excluded_keywords = {i: kw for i, kw in self.excluded_keywords.items()
+                                  if not i.startswith(skill_id + ":")}
+        self._forget_disabled_skill(skill_id)
+        self.entities.pop(skill_id, None)
+        LOG.debug(f"Model2Vec: deregistered all INTENT-4 registrations for skill '{skill_id}'")
+
+    def _handle_intent4_disable(self, message: Message) -> None:
+        """Exclude an intent from match candidacy without losing its
+        definition (§8.5), for the session the message arrived under."""
+        label = self._intent4_control_label(message)
+        if not label or not self._is_registered(label):
+            return  # not registered: nothing to change (§8.5)
+        session_id = SessionManager.get(message).session_id
+        self._disabled.setdefault(session_id, set()).add(label)
+        LOG.debug(f"Model2Vec: disabled INTENT-4 intent '{label}' for session '{session_id}'")
+
+    def _handle_intent4_enable(self, message: Message) -> None:
+        """Re-arm a disabled intent (§8.5) for the session the message
+        arrived under. The prototypes were never dropped, so matching
+        resumes at once."""
+        label = self._intent4_control_label(message)
+        if not label:
+            return
+        session_id = SessionManager.get(message).session_id
+        disabled = self._disabled.get(session_id)
+        if disabled:
+            disabled.discard(label)
+            if not disabled:
+                del self._disabled[session_id]
+        LOG.debug(f"Model2Vec: enabled INTENT-4 intent '{label}' for session '{session_id}'")
+
+    def _is_registered(self, label: str) -> bool:
+        if label in self.intents:
+            return True
+        return (self.prototype_store is not None
+                and label in self.prototype_store.unique_labels)
+
+    def _forget_disabled(self, label: str) -> None:
+        """Drop a deregistered label from every session's disabled set:
+        deregistering resets enabled/disabled state (§8.1, §8.5)."""
+        for session_id in list(self._disabled):
+            self._disabled[session_id].discard(label)
+            if not self._disabled[session_id]:
+                del self._disabled[session_id]
+
+    def _forget_disabled_skill(self, skill_id: str) -> None:
+        for label in {l for s in self._disabled.values() for l in s
+                      if l.startswith(skill_id + ":")}:
+            self._forget_disabled(label)
+
+    # ------------------------------------------------------------------
+    # Matching
+    # ------------------------------------------------------------------
+
+    def _apply_special_label_map(self, label: str) -> Tuple[str, str]:
+        """Return ``(skill_id, canonical_label)`` after applying ``self.label_map``.
+
+        ``self.label_map`` entries are either the built-in ``(skill_id,
+        canonical_label)`` tuples, or a ``skill_id:intent`` string (from a
+        model manifest or user config). A string target that does not
+        contain a colon does not name a `skill_id:intent` topic; it is used
+        as-is (with a warning) rather than inventing one.
+        """
+        target = self.label_map.get(label)
+        if target is None:
+            return label.split(":")[0], label
+        if isinstance(target, (list, tuple)) and len(target) == 2:
+            skill_id, canonical_label = target
+            return skill_id, canonical_label
+        if isinstance(target, str):
+            if ":" not in target:
+                if label not in self._label_map_warned:
+                    self._label_map_warned.add(label)
+                    LOG.warning(f"Model2Vec: label_map target '{target}' for "
+                                f"'{label}' is not in 'skill_id:intent' form; "
+                                f"using as-is")
+                return target, target
+            return target.split(":")[0], target
+        if label not in self._label_map_warned:
+            self._label_map_warned.add(label)
+            LOG.warning(f"Model2Vec: unsupported label_map target for "
+                        f"'{label}': {target!r}; using as-is")
+        return label.split(":")[0], label
+
+    def _excluded_labels(self, utterance: str) -> List[str]:
+        """Labels whose §6.1 ``blacklist`` phrases occur in *utterance*.
+
+        Uses the same word-boundary convention as the padacioso engine's
+        ``_filter``: single-word phrases must match a whole token, multi-word
+        phrases match on a ``\\b``-delimited substring.
+        """
+        if not self.excluded_keywords:
+            return []
+        excluded: List[str] = []
+        q_lower = utterance.lower()
+        query_words = set(q_lower.split())
+        for label, phrases in self.excluded_keywords.items():
+            def _kw_hit(kw: str, _qw=query_words, _ql=q_lower) -> bool:
+                kw = kw.lower()
+                if " " not in kw:
+                    return kw in _qw
+                return bool(re.search(r"\b" + re.escape(kw) + r"\b", _ql))
+            if any(_kw_hit(p) for p in phrases):
+                excluded.append(label)
+        return excluded
+
+    def _session_disabled(self, message: Optional[Message]) -> frozenset:
+        """Labels disabled (§8.5) for the caller's session.
+
+        A disable that arrived under the default session is device-wide.
+        The default session holds the registrations every other session
+        inherits (§11.2), so suppressing a label there suppresses it for
+        a satellite running on its own session id too. A disable under a
+        named session stays inside that session.
+        """
+        if not self._disabled:
+            return frozenset()
+        inherited = frozenset(self._disabled.get(DEFAULT_SESSION_ID, ()))
+        try:
+            session_id = SessionManager.get(message).session_id
+        except Exception:
+            return inherited
+        return inherited | frozenset(self._disabled.get(session_id, ()))
+
+    def _session_blacklists(self, message: Optional[Message]) -> Tuple[frozenset, frozenset]:
+        """``(blacklisted_intents, blacklisted_skills)`` for the caller's session.
+
+        Mirrors adapt/padatious: candidates whose intent label or skill_id is
+        blacklisted in the session are dropped at match time.
+        """
+        if message is None:
+            return frozenset(), frozenset()
+        try:
+            sess = SessionManager.get(message)
+        except Exception:
+            return frozenset(), frozenset()
+        return (frozenset(sess.blacklisted_intents or []),
+                frozenset(sess.blacklisted_skills or []))
+
+    def _match(self, utterance: str,
+               message: Optional[Message] = None,
+               lang: Optional[str] = None) -> Iterable[Tuple[str, str, float, Dict[str, Any]]]:
+        """Yield ``(skill_id, label, score, slots)`` tuples sorted by score
+        descending, where ``slots`` carries the OVOS-CONTEXT-1 §7
+        context-supplied slot values for the label (empty when none apply).
+
+        Candidates suppressed by a §6.1 template ``blacklist`` phrase, or by the
+        session's ``blacklisted_intents`` / ``blacklisted_skills``, are dropped.
 
         Args:
-            utterances: A list of utterances to match against the model.
-            lang: The language of the input utterance.
-            message: The incoming message containing additional context.
-
-        Returns:
-            An IntentHandlerMatch if a high-confidence match is found, None otherwise.
+            utterance: The utterance to match.
+            message: The incoming bus message (used to read session.pipeline for
+                     special-label gating, plus the session blacklists).
+            lang: The utterance's BCP-47 tag. In prototype mode, restricts
+                  candidates to the language partition of the store closest
+                  to it (see ``PrototypeIntentStore.scores``); unused in
+                  classifier mode, where the model is trained language-agnostic.
         """
+        if not self._ensure_model():
+            # cold start still warming up in the background (see
+            # `_ensure_model`) -- no match for THIS utterance, matching
+            # resumes automatically once the deferred load completes.
+            return
+        if self.prototype_store is not None:
+            candidates = self._match_prototype(utterance, message, lang)
+        else:
+            candidates = self._match_classifier(utterance, message)
+        # OVOS-CONTEXT-1 §6/§6.1 context gate + OVOS-INTENT-4 §6.1 blacklist +
+        # session blacklists — applied together so a candidate must survive all
+        # three to be yielded. Surviving candidates additionally receive their
+        # OVOS-CONTEXT-1 §7 context-supplied slots.
+        #
+        # The OVOS-INTENT-4 per-slot entity `.blacklist` remains a no-op for
+        # m2v: this is a semantic *label* classifier and never extracts a slot
+        # value from the utterance, so there is no utterance-supplied value to
+        # exclude. Registered entities feed `_expand_entities` at registration
+        # time to widen a label's prototypes; they are not extracted at match.
+        #
+        # §7 does apply: an m2v template may DECLARE a `{slot}`. Because the
+        # utterance never fills that slot, live intent context is the only
+        # source — so any declared slot with a live non-null context entry fills
+        # directly (there is no utterance-produced value to override, §7). The
+        # fill is independent of `requires_context`: the gate flags gate the
+        # match, they do not scope the fill.
+        intent_context = (SessionManager.get(message).intent_context or {}) \
+            if (self._context_gates or self._intent_slots) else {}
+        excluded = self._excluded_labels(utterance)
+        blacklisted_intents, blacklisted_skills = self._session_blacklists(message)
+        disabled = self._session_disabled(message)
+        for skill_id, label, score in candidates:
+            if label in disabled:
+                LOG.debug(f"discarding match: {label} - disabled in session (§8.5)")
+                continue
+            # `ignore_intents` (deny-list) applied post-mapping against the
+            # canonical label so it works uniformly across classifier and
+            # prototype mode, and covers special (OCP/stop/query) labels once
+            # mapped. `valid_labels` is checked earlier, against the raw model
+            # label, in `_match_classifier`/`_match_prototype` (see there for
+            # why).
+            if label in self.ignore_labels:
+                LOG.debug(f"discarding match: {label} - in ignore_intents")
+                continue
+            gate = self._context_gates.get(label)
+            if gate is not None:
+                requires, excludes = gate
+                if not gate_satisfied(intent_context, requires, excludes, owner_id=skill_id):
+                    LOG.debug(f"discarding '{label}': CONTEXT-1 gate not satisfied")
+                    continue
+            if label in excluded:
+                LOG.debug(f"discarding match: {label} - utterance hits §6.1 blacklist")
+                continue
+            if label in blacklisted_intents or skill_id in blacklisted_skills:
+                LOG.debug(f"discarding match: {label} - blacklisted in session")
+                continue
+            slots: Dict[str, Any] = {}
+            slot_names = self._intent_slots.get(label)
+            if slot_names:
+                slots = context_slot_candidates(intent_context, slot_names,
+                                                owner_id=skill_id)
+            yield skill_id, label, score, slots
+
+    def _match_classifier(self, utterance: str,
+                           message: Optional[Message] = None) -> Iterable[Tuple[str, str, float]]:
+        """Classifier-mode matching using softmax probabilities."""
         inputs = [utterance]
         probs_ = self.model.predict_proba(inputs)
-        # Include special-case labels even if not in self.intents
-        mask = np.isin(self.model.classes_, list(self.intents) + list(_SPECIAL_LABELS))
+        # Include special-case labels gated by the session's active pipelines.
+        special = self._allowed_special_labels(message)
+        mask = np.isin(self.model.classes_, list(self.intents) + list(special))
         if not mask.any():
             LOG.warning("No model classes match registered intents")
             return
@@ -149,19 +2362,62 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             for label, prob in class_probs:
                 LOG.debug(f"Match candidate: {label} - prob: {prob}")
 
+                # `valid_labels` describes the model's raw label vocabulary
+                # (labels.json), so it is checked BEFORE the special-label map
+                # below rewrites e.g. "ocp:play" to "ovos.common_play.play_search"
+                # — otherwise a manifest listing the raw training labels would
+                # silently discard every OCP/stop/common_query match.
+                if self.valid_labels is not None and label not in self.valid_labels:
+                    LOG.debug(f"discarding match: {label} - not in valid_labels")
+                    continue
+
                 # HACK: special case for OCP, it isnt a regular intent
-                skill_id = label.split(":")[0]
-                if label == "ocp:play":
-                    skill_id = "ovos.common_play"
-                    label = "ovos.common_play.play_search"
-                elif label == "common_query:common_query":
-                    skill_id = "common_query.openvoiceos"
-                    label = "common_query.question"
-                elif label == "stop:stop":
-                    skill_id = "stop.openvoiceos"
-                    label = "mycroft.stop"
+                skill_id, label = self._apply_special_label_map(label)
 
                 yield skill_id, label, float(prob)
+
+    def _match_prototype(self, utterance: str,
+                         message: Optional[Message] = None,
+                         lang: Optional[str] = None) -> Iterable[Tuple[str, str, float]]:
+        """Cosine nearest-neighbour against the prototype store.
+
+        Special labels (ocp:play, common_query:common_query, stop:stop) are
+        only forwarded when the matching downstream pipeline is present in the
+        caller's session, consistent with classifier mode.
+
+        ``lang``, the utterance's BCP-47 tag, restricts candidates to
+        prototypes registered in that language's partition of the store (see
+        ``PrototypeIntentStore.scores``) -- without it, prototypes registered
+        for one language would compete for utterances in every other
+        language sharing the same multilingual embedding space.
+        """
+        emb = self.model.encode([utterance], use_multiprocessing=False)[0]
+        label_scores = self.prototype_store.scores(emb, lang=lang)
+        special = self._allowed_special_labels(message)
+        # secondary key on the label breaks ties deterministically: label
+        # registration order (a concurrent bus-executor race across boots,
+        # see PrototypeIntentStore._lock) must never decide the winner.
+        for label, score in sorted(label_scores.items(),
+                                    key=lambda x: (-x[1], x[0])):
+            LOG.debug(f"Match candidate: {label} - cosine: {score:.4f}")
+            if label in self.ignore_labels:
+                continue
+            # Gate special labels the same way as classifier mode
+            if label in _SPECIAL_LABELS and label not in special:
+                LOG.debug(f"discarding special label: {label} - not in session pipeline")
+                continue
+            # `valid_labels` is NOT applied here: it is a classifier-only
+            # allow-list drawn from the model manifest's frozen training
+            # vocabulary. Prototype labels are registered at runtime and are
+            # legitimately absent from that manifest, so the prototype store
+            # already IS the allow-list — every label it holds was explicitly
+            # registered.
+            skill_id, label = self._apply_special_label_map(label)
+            yield skill_id, label, score
+
+    # ------------------------------------------------------------------
+    # Confidence-tier API
+    # ------------------------------------------------------------------
 
     def match_high(self, utterances: List[str], lang: str, message: Message) -> Optional[IntentHandlerMatch]:
         """
@@ -175,22 +2431,23 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         Returns:
             An IntentHandlerMatch if a high-confidence match is found, None otherwise.
         """
+        if not utterances:
+            return None
         min_conf = self.config.get("conf_high", 0.7)
         LOG.debug(f"Matching intents via Model2Vec (min_conf: {min_conf}) - {utterances[0]}")
-        for skill_id, label, prob in self._match(utterances[0]):
+        for skill_id, label, prob, slots in self._match(utterances[0], message, lang):
             if prob < min_conf:
                 LOG.debug(f"discarding match: {label} - confidence < {min_conf}")
                 return None
             match = IntentHandlerMatch(
                 match_type=label,
-                match_data={"utterance": utterances[0], "confidence": prob},
+                match_data={"utterance": utterances[0], "confidence": prob, **slots},
                 skill_id=skill_id or "ovos-m2v-pipeline",
                 utterance=utterances[0]
             )
             LOG.debug(f"Match candidate: {match}")
             return match
         return None
-
 
     def match_medium(self, utterances: List[str], lang: str, message: Message) -> Optional[IntentHandlerMatch]:
         """
@@ -202,17 +2459,19 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             message: The incoming message containing additional context.
 
         Returns:
-            An IntentHandlerMatch if a medium -confidence match is found, None otherwise.
+            An IntentHandlerMatch if a medium-confidence match is found, None otherwise.
         """
+        if not utterances:
+            return None
         min_conf = self.config.get("conf_medium", 0.5)
         LOG.debug(f"Matching intents via Model2Vec (min_conf: {min_conf}) - {utterances[0]}")
-        for skill_id, label, prob in self._match(utterances[0]):
+        for skill_id, label, prob, slots in self._match(utterances[0], message, lang):
             if prob < min_conf:
                 LOG.debug(f"discarding match: {label} - confidence < {min_conf}")
                 return None
             match = IntentHandlerMatch(
                 match_type=label,
-                match_data={"utterance": utterances[0], "confidence": prob},
+                match_data={"utterance": utterances[0], "confidence": prob, **slots},
                 skill_id=skill_id or "ovos-m2v-pipeline",
                 utterance=utterances[0]
             )
@@ -232,18 +2491,54 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         Returns:
             An IntentHandlerMatch if a low-confidence match is found, None otherwise.
         """
+        if not utterances:
+            return None
         min_conf = self.config.get("conf_low", 0.15)
         LOG.debug(f"Matching intents via Model2Vec (min_conf: {min_conf}) - {utterances[0]}")
-        for skill_id, label, prob in self._match(utterances[0]):
+        for skill_id, label, prob, slots in self._match(utterances[0], message, lang):
             if prob < min_conf:
                 LOG.debug(f"discarding match: {label} - confidence < {min_conf}")
                 return None
             match = IntentHandlerMatch(
                 match_type=label,
-                match_data={"utterance": utterances[0], "confidence": prob},
+                match_data={"utterance": utterances[0], "confidence": prob, **slots},
                 skill_id=skill_id or "ovos-m2v-pipeline",
                 utterance=utterances[0]
             )
             LOG.debug(f"Match candidate: {match}")
             return match
         return None
+
+
+class Model2VecPrototypePipeline(Model2VecIntentPipeline):
+    """Prototype-mode Model2Vec pipeline exposed as a standalone OVOS plugin.
+
+    Identical to ``Model2VecIntentPipeline`` with ``mode`` forced to
+    ``"prototype"``.  Configuration is read from
+    ``intents.ovos_m2v_prototype_pipeline`` so it can coexist with the
+    classifier plugin in the same OVOS instance.
+
+    Example ``mycroft.conf``::
+
+        "intents": {
+            "ovos-m2v-pipeline": {
+                "model": "OpenVoiceOS/ovos-m2v-intents-multilingual"
+            },
+            "ovos-m2v-prototype-pipeline": {
+                "model": "minishlab/M2V_multilingual_output",
+                "prototype_k": 5
+            }
+        }
+    """
+
+    def __init__(
+        self,
+        bus: Optional[Union[MessageBusClient, FakeBus]] = None,
+        config: Optional[Dict] = None,
+    ) -> None:
+        if config is None:
+            config = (
+                Configuration().get("intents", {}).get("ovos_m2v_prototype_pipeline") or {}
+            )
+        config["mode"] = "prototype"
+        super().__init__(bus, config)
