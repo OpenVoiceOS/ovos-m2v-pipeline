@@ -36,7 +36,7 @@ jobs:
           uv pip install --system -e .
           uv pip install --system --prerelease=allow pytest pytest-timeout ovoscope
       - name: Cache HuggingFace models
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/huggingface
           key: hf-models-${{ runner.os }}-m2v-distiluse-v1
