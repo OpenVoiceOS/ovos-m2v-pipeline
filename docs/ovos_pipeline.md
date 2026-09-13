@@ -114,7 +114,7 @@ The same applies to `ovos-m2v-prototype-pipeline-high/medium/low`.
 
 You control which tiers are active and where they sit relative to other matchers by placing (or omitting) these entries in the `pipeline` list. OVOS evaluates the list top-to-bottom and stops at the first match.
 
-In classifier mode the scores are softmax probabilities (0-1). In prototype mode the scores are cosine similarities (0-1 in practice). You may need to tune `conf_*` downward.
+In classifier mode the scores are softmax probabilities (0-1). In prototype mode the scores are cosine similarities (0-1 in practice), which cluster in a lower and narrower band than softmax output. `Model2VecPrototypePipeline` (and any classifier-entry-point pipeline configured with `"mode": "prototype"`) therefore uses its own defaults instead of the classifier ones: `conf_high` `0.60`, `conf_medium` `0.45`, `conf_low` `0.30`. These were calibrated against the default multilingual model's cosine-similarity distribution for matching vs. non-matching utterances (see `scripts/calibrate_prototype_thresholds.py`). Set `conf_*` explicitly in your config to override them.
 
 An empty utterance list always returns `None` without attempting inference.
 

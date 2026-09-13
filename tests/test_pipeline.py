@@ -906,5 +906,77 @@ class TestSpecialLabelGating(unittest.TestCase):
         self.assertEqual(results[0][1], "ovos.common_play.play_search")
 
 
+# ---------------------------------------------------------------------------
+# Mode-dependent conf_* defaults (cosine vs. softmax scores)
+# ---------------------------------------------------------------------------
+
+class TestModeDependentConfDefaults(unittest.TestCase):
+    """Prototype-mode scores are raw cosine similarities, not softmax
+    probabilities, so the tier defaults must differ from classifier mode
+    (see `docs/ovos_pipeline.md` and `scripts/calibrate_prototype_thresholds.py`).
+    """
+
+    def test_classifier_defaults_unchanged(self):
+        p = _make_pipeline()
+        self.assertEqual(p._default_conf("conf_high"), 0.7)
+        self.assertEqual(p._default_conf("conf_medium"), 0.5)
+        self.assertEqual(p._default_conf("conf_low"), 0.15)
+
+    def test_prototype_defaults_differ_from_classifier(self):
+        p = _make_prototype_pipeline()
+        self.assertEqual(p._default_conf("conf_high"), 0.6)
+        self.assertEqual(p._default_conf("conf_medium"), 0.45)
+        self.assertEqual(p._default_conf("conf_low"), 0.3)
+        # sanity: genuinely different from the classifier-mode defaults,
+        # not an accidental match
+        self.assertNotEqual(p._default_conf("conf_high"), 0.7)
+        self.assertNotEqual(p._default_conf("conf_medium"), 0.5)
+        self.assertNotEqual(p._default_conf("conf_low"), 0.15)
+
+    def test_prototype_entry_point_class_gets_prototype_defaults(self):
+        import sys
+        from unittest.mock import MagicMock, patch
+
+        mock_embed_model = MagicMock()
+        mock_embed_model.encode.return_value = np.zeros((1, 4), dtype=np.float32)
+        fake_m2v = MagicMock()
+        fake_m2v.StaticModel.from_pretrained.return_value = mock_embed_model
+
+        with patch("ovos_m2v_pipeline.StaticModelPipeline"), \
+             patch("ovos_m2v_pipeline.Configuration", return_value={}), \
+             patch.dict(sys.modules, {"model2vec": fake_m2v}):
+            from ovos_m2v_pipeline import Model2VecPrototypePipeline
+            from ovos_utils.fakebus import FakeBus
+            p = Model2VecPrototypePipeline(bus=FakeBus(), config={"model": "fake-embed-model"})
+
+        self.assertEqual(p._default_conf("conf_high"), 0.6)
+        self.assertEqual(p._default_conf("conf_medium"), 0.45)
+        self.assertEqual(p._default_conf("conf_low"), 0.3)
+
+    def test_explicit_config_overrides_prototype_default(self):
+        p = _make_prototype_pipeline(config={"conf_high": 0.95})
+        self.assertEqual(p.config.get("conf_high", p._default_conf("conf_high")), 0.95)
+
+    def test_match_high_uses_prototype_default_min_conf(self):
+        # A cosine score below the classifier-mode default (0.7) but above
+        # the prototype-mode default (0.6) must still match in prototype mode.
+        from ovos_m2v_pipeline import PrototypeIntentStore
+
+        p = _make_prototype_pipeline()
+        store = PrototypeIntentStore()
+        store.add(p.model, "skill_a:my.intent", ["hello"], k=None)
+        p.prototype_store = store
+        p.intents = {"skill_a:my.intent"}
+
+        def fake_scores(emb, lang=None):
+            return {"skill_a:my.intent": 0.65}
+
+        p.prototype_store.scores = fake_scores
+        msg = Message("recognizer_loop:utterance")
+        result = p.match_high(["hello"], "en", msg)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.match_data["confidence"], 0.65)
+
+
 if __name__ == "__main__":
     unittest.main()
