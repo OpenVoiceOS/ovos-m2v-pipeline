@@ -126,6 +126,22 @@ ovos-m2v-prototypes export \
   --skill-id my-skill.openvoiceos
 ```
 
+The corpus that `train/build_dataset.py` builds is the other source, and it is
+the one to use for a published artifact. It carries the translated, tracker,
+golden and augmented rows a skill's own templates do not, and its slots are
+filled rather than left literal, so prototypes built from it describe the same
+data a classifier is fitted on:
+
+```bash
+ovos-m2v-prototypes export \
+  --out ./intent-prototypes \
+  --model OpenVoiceOS/ovos-m2v-intents-multilingual \
+  --from-dataset train/dataset
+```
+
+Every `(label, lang)` pair in `train.parquet` becomes one prototype set;
+`--lang` narrows the export to a single locale.
+
 The output directory holds `prototypes.npz` (the L2-normalised centroid
 vectors) and `manifest.json` (the model id and revision, the `model2vec`
 version, the embedding dimension, the prototype strategy and its parameters,

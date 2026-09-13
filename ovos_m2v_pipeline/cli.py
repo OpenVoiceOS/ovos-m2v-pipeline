@@ -138,12 +138,68 @@ def _build_from_cache(cache_dir: Path, model_id: str, model2vec_version: str,
     return store, model_id, model2vec_version, cache_keys
 
 
+def _build_from_dataset(
+    dataset: Path, model_id: str, lang: Optional[str],
+    k: Optional[int], strategy: str,
+) -> "tuple":
+    """Encode the built training corpus into a store, one label per language.
+
+    ``build_dataset.py`` writes ``train.parquet`` with a ``lang``, ``label``
+    and ``utterance`` column per row. The corpus already carries the
+    translated, tracker, golden and augmented rows a skill's own ``.intent``
+    templates do not, and its slots are filled rather than left literal, so
+    prototypes built from it describe the same data a classifier fits on.
+    """
+    import model2vec
+    import pandas as pd
+    from model2vec import StaticModel
+
+    from ovos_m2v_pipeline import PrototypeIntentStore, MAX_ENTITY_EXPANSIONS
+    from ovos_m2v_pipeline.cache import compute_cache_key
+    from ovos_m2v_pipeline.strategies import PrototypeStrategy
+
+    train_path = dataset / "train.parquet"
+    if not train_path.is_file():
+        raise FileNotFoundError(f"no 'train.parquet' under {dataset}")
+
+    rows = pd.read_parquet(train_path, columns=["lang", "label", "utterance"])
+    if lang:
+        rows = rows[rows["lang"] == lang]
+    if rows.empty:
+        raise ValueError(f"no rows in {train_path} for lang {lang!r}")
+
+    model = StaticModel.from_pretrained(model_id)
+    model2vec_version = getattr(model2vec, "__version__", "")
+    store = PrototypeIntentStore(strategy=PrototypeStrategy(strategy))
+
+    cache_keys: Dict[str, str] = {}
+    for (label, one_lang), group in rows.groupby(["label", "lang"], sort=True):
+        sentences = sorted(set(group["utterance"].astype(str)))
+        if not sentences:
+            continue
+        cache_key = compute_cache_key(
+            model_id, model2vec_version,
+            {"k": k, "strategy": strategy,
+             "max_expansions": MAX_ENTITY_EXPANSIONS},
+            sentences, lang=one_lang,
+        )
+        store.add(model, str(label), sentences, k=k, cache_key=cache_key,
+                  lang=one_lang)
+        cache_keys[str(label)] = cache_key
+    return store, model_id, model2vec_version, cache_keys
+
+
 def _cmd_export(args: argparse.Namespace) -> int:
     from ovos_m2v_pipeline.version import __version__ as plugin_version
 
     if args.skill_dir:
         store, model_id, model2vec_version, cache_keys = _build_from_skill_dir(
             Path(args.skill_dir), args.skill_id, args.model, args.lang,
+            args.prototype_k, args.prototype_strategy,
+        )
+    elif args.from_dataset:
+        store, model_id, model2vec_version, cache_keys = _build_from_dataset(
+            Path(args.from_dataset), args.model, args.lang,
             args.prototype_k, args.prototype_strategy,
         )
     elif args.from_cache:
@@ -153,8 +209,8 @@ def _cmd_export(args: argparse.Namespace) -> int:
             getattr(model2vec, "__version__", ""), args.prototype_strategy,
         )
     else:
-        print("error: one of --skill-dir or --from-cache is required",
-              file=sys.stderr)
+        print("error: one of --skill-dir, --from-dataset or --from-cache "
+              "is required", file=sys.stderr)
         return 2
 
     if args.labels:
@@ -164,8 +220,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
         cache_keys = {k: v for k, v in cache_keys.items() if k in wanted}
 
     if len(store.unique_labels) == 0:
-        print("error: no labels found to export "
-              "(no readable '.intent' files under the given source)",
+        print("error: no labels found to export under the given source",
               file=sys.stderr)
         return 1
 
@@ -201,6 +256,10 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("--lang", default=None,
                          help="only export this locale from --skill-dir "
                               "(default: every locale under 'locale/')")
+    export.add_argument("--from-dataset",
+                         help="path to a corpus built by "
+                              "train/build_dataset.py (containing "
+                              "'train.parquet')")
     export.add_argument("--from-cache",
                          help="path to an existing PrototypeCache directory "
                               "(prototype_cache_dir) to export as-is")
@@ -220,8 +279,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[List[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    if args.command == "export" and bool(args.skill_dir) == bool(args.from_cache):
-        parser.error("pass exactly one of --skill-dir or --from-cache")
+    sources = [args.skill_dir, args.from_dataset, args.from_cache] \
+        if args.command == "export" else []
+    if args.command == "export" and sum(bool(s) for s in sources) != 1:
+        parser.error("pass exactly one of --skill-dir, --from-dataset "
+                     "or --from-cache")
     if args.command == "export" and args.skill_dir and not args.skill_id:
         parser.error("--skill-id is required with --skill-dir")
     return args.func(args)
