@@ -68,7 +68,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
       - name: Post / update PR comment
         if: always() && github.event_name == 'pull_request'
-        uses: marocchino/sticky-pull-request-comment@v2
+        uses: marocchino/sticky-pull-request-comment@v3.0.5
         with:
           header: live-fixture-test
           message: ${{ steps.report.outputs.body }}
