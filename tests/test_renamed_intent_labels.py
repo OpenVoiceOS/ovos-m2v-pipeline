@@ -71,6 +71,13 @@ class TestRenamedLabelAtInference(unittest.TestCase):
         self.assertEqual([r[1] for r in p._match("what time is it")], [NEW])
 
 
+class TestSpeedtestRename(unittest.TestCase):
+    def test_speedtest_rename_is_listed(self):
+        self.assertEqual(
+            RENAMED_LABELS["ovos-skill-speedtest.openvoiceos:SpeedtestIntent"],
+            "ovos-skill-speedtest.openvoiceos:speedtest_intent")
+
+
 class TestRenameTable(unittest.TestCase):
     def test_every_entry_keeps_its_skill_and_names_a_compliant_intent(self):
         legal = re.compile(r"^[a-z0-9_]+$")  # OVOS-INTENT-2 §2
