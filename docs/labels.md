@@ -274,9 +274,13 @@ and a label with no test rows is never measured again while it still occupies
 probability mass in the head. So on top of the ratio, a label with at least
 ten rows gets at least two test rows and a label with five to nine gets at
 least one, taking its smallest train-side groups first so the overall ratio
-barely moves. A label attested by a single group is the one case that cannot
-be honoured: moving its only group whole would leave the label untrained, so
-it keeps none and is listed in the manifest's `labels_without_test_rows`.
+barely moves. A label always keeps at least one group in train, so the floor
+cannot always be honoured. A label attested by a single group keeps no test
+rows. A label with two or more groups also stays under the floor when the
+groups it can give up hold too few rows. The manifest lists every label under
+its floor in `labels_below_test_floor`, with its floor, its test rows and the
+row count of each group. A label with no test rows is also listed in
+`labels_without_test_rows`.
 
 ## Renames, merges, and the unification wave
 

@@ -81,3 +81,40 @@ def test_the_split_is_deterministic():
     a, _ = split(df)
     b, _ = split(df)
     assert list(a["utterance"]) == list(b["utterance"])
+
+
+def sized_corpus(spec):
+    """A frame of `(label, [rows per group])` pairs."""
+    rows = []
+    for label, sizes in spec:
+        for t, per in enumerate(sizes):
+            for r in range(per):
+                rows.append({"lang": "en-US", "label": label,
+                             "template": f"{label}:{t}",
+                             "utterance": f"{label} {t} {r}"})
+    return pd.DataFrame(rows)
+
+
+def test_the_floor_moves_the_smallest_groups_first():
+    # groups of 1, 2 and 30 rows: at seed 0 the ratio puts none of them in
+    # test, so the floor moves the 1-row and 2-row groups. A largest-first
+    # order moves the 30-row group instead and shifts the ratio for nothing.
+    df = sized_corpus([("big:one", [40] * 60), ("thin:mixed", [1, 2, 30])])
+    _train, test = split(df, seed=0)
+    moved = set(test.loc[test["label"] == "thin:mixed", "template"])
+    assert moved == {"thin:mixed:0", "thin:mixed:1"}
+
+
+def test_every_label_under_its_floor_is_reported_with_its_group_sizes():
+    # a two-group label whose only movable group holds one row stays under
+    # its floor of two. It still has a test row, so labels_without_test_rows
+    # misses it; the report must not.
+    df = sized_corpus([("big:one", [40] * 60), ("two:uneven", [30, 1])])
+    report = {}
+    _train, test = build_dataset.template_split(df, "label", 0.2, 0, report=report)
+    assert (test["label"] == "two:uneven").sum() == 1
+    below = report["labels_below_test_floor"]
+    assert below["names"] == {
+        "two:uneven": {"floor": 2, "test_rows": 1, "group_rows": [30, 1]}}
+    # positive control: a label that meets its floor is not listed
+    assert below["labels"] == 1 and "big:one" not in below["names"]

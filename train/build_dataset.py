@@ -996,7 +996,8 @@ def per_label_test_floor(n_rows: int) -> int:
     return 1 if n_rows < 10 else 2
 
 
-def template_split(df: pd.DataFrame, label_col: str, test_size: float, seed: int):
+def template_split(df: pd.DataFrame, label_col: str, test_size: float, seed: int,
+                   report: dict | None = None):
     """Stratified train/test split over groups of rows, never single rows.
 
     A group is every row a template produced plus every row carrying the
@@ -1009,6 +1010,10 @@ def template_split(df: pd.DataFrame, label_col: str, test_size: float, seed: int
     across until the floor is met, smallest first so the overall ratio moves
     as little as possible. A label keeps at least one group in train, so a
     label attested by a single group cannot reach the floor and keeps none.
+    A label with several groups can stay under the floor too, when the groups
+    it may give up hold too few rows. When *report* is given, every label left
+    under its floor is written to ``report["labels_below_test_floor"]`` with
+    its floor, its test rows and the row count of each of its groups.
     """
     from sklearn.model_selection import train_test_split
     df = df.assign(_group=_split_groups(df))
@@ -1043,6 +1048,20 @@ def template_split(df: pd.DataFrame, label_col: str, test_size: float, seed: int
             train_keys.discard(key)
             test_keys.add(key)
             test_rows[label] += group_rows[key]
+
+    if report is not None:
+        below = {}
+        for label, n_rows in sorted(df[label_col].value_counts().items()):
+            floor = per_label_test_floor(int(n_rows))
+            if test_rows[label] >= floor:
+                continue
+            keys = [k for k, v in label_of.items() if v == label]
+            below[label] = {
+                "floor": floor,
+                "test_rows": int(test_rows[label]),
+                "group_rows": sorted((int(group_rows[k]) for k in keys), reverse=True),
+            }
+        report["labels_below_test_floor"] = {"labels": len(below), "names": below}
 
     is_train = df["_group"].isin(train_keys)
     return df[is_train].drop(columns=["_group"]), df[~is_train].drop(columns=["_group"])
@@ -1329,7 +1348,7 @@ def main(argv=None):
 
     sp = cfg["split"]
     train, test = template_split(df, sp["stratify"], test_size=sp["test_size"],
-                                 seed=sp["seed"])
+                                 seed=sp["seed"], report=report)
     train = train.drop(columns=["template"])
     test = test.drop(columns=["template"])
     out = Path(args.out)
