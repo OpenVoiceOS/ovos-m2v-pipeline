@@ -118,3 +118,38 @@ def test_every_label_under_its_floor_is_reported_with_its_group_sizes():
         "two:uneven": {"floor": 2, "test_rows": 1, "group_rows": [30, 1]}}
     # positive control: a label that meets its floor is not listed
     assert below["labels"] == 1 and "big:one" not in below["names"]
+
+
+def test_a_group_that_carries_two_labels_counts_for_both():
+    # with --allow-ambiguous one utterance can carry two labels, and the
+    # shared utterance ties a template of each label into one group. The
+    # group counts toward both labels: the report must match the real test
+    # rows, and moving it for one label must not empty the other's train side.
+    shapes = [([12, 12, 12], [12, 12], 1), ([12, 1, 12], [0, 30], 2),
+              ([12, 12], [0, 1, 30], 2)]
+    for a_sizes, b_sizes, shared_b in shapes:
+        rows = [{"lang": "en-US", "label": "big:one", "template": f"big:{t}",
+                 "utterance": f"big {t} {r}"} for t in range(60) for r in range(40)]
+        for label, sizes in (("amb:a", a_sizes), ("amb:b", b_sizes)):
+            rows += [{"lang": "en-US", "label": label, "template": f"{label}:{t}",
+                      "utterance": f"{label} {t} {r}"}
+                     for t, per in enumerate(sizes) for r in range(per)]
+        rows.append({"lang": "en-US", "label": "amb:a", "template": "amb:a:0",
+                     "utterance": "the same sentence"})
+        rows += [{"lang": "en-US", "label": "amb:b", "template": "amb:b:0",
+                  "utterance": "the same sentence" if r == 0 else f"amb:b shared {r}"}
+                 for r in range(shared_b)]
+        df = pd.DataFrame(rows)
+        for seed in range(10):
+            report = {}
+            train, test = build_dataset.template_split(df, "label", 0.2, seed,
+                                                       report=report)
+            names = report["labels_below_test_floor"]["names"]
+            case = (a_sizes, b_sizes, seed)
+            for label, n in df["label"].value_counts().items():
+                actual = int((test["label"] == label).sum())
+                floor = build_dataset.per_label_test_floor(int(n))
+                assert (actual < floor) == (label in names), (case, label, names)
+                if label in names:
+                    assert names[label]["test_rows"] == actual, (case, label)
+                assert (train["label"] == label).any(), (case, label)

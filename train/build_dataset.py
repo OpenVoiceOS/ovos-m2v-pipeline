@@ -1030,24 +1030,39 @@ def template_split(df: pd.DataFrame, label_col: str, test_size: float, seed: int
     train_keys = set(pd.concat([train_g, forced_train])["_group"])
     test_keys = set(test_g["_group"])
 
-    label_of = dict(zip(groups["_group"], groups[label_col]))
+    # a group can carry rows of two labels when a shared utterance ties them
+    # (only with --allow-ambiguous); count every label a group carries.
+    label_group_rows = df.groupby(["_group", label_col]).size()
+    labels_in = collections.defaultdict(dict)
+    for (key, label), n in label_group_rows.items():
+        labels_in[key][label] = int(n)
     group_rows = df.groupby("_group").size().to_dict()
     train_by_label = collections.defaultdict(list)
     for key in train_keys:
-        train_by_label[label_of[key]].append(key)
+        for label in labels_in[key]:
+            train_by_label[label].append(key)
     test_rows = collections.Counter()
     for key in test_keys:
-        test_rows[label_of[key]] += group_rows[key]
+        for label, n in labels_in[key].items():
+            test_rows[label] += n
 
+    train_groups = collections.Counter(
+        label for key in train_keys for label in labels_in[key])
     for label, n_rows in sorted(df[label_col].value_counts().items()):
         floor = per_label_test_floor(int(n_rows))
-        # smallest first, and never the label's last train group
-        movable = sorted(train_by_label[label], key=lambda k: (group_rows[k], k))
-        while test_rows[label] < floor and len(movable) > 1:
-            key = movable.pop(0)
+        # smallest first, and never the last train group of any label the
+        # group carries
+        for key in sorted((k for k in train_by_label[label] if k in train_keys),
+                          key=lambda k: (group_rows[k], k)):
+            if test_rows[label] >= floor:
+                break
+            if any(train_groups[other] < 2 for other in labels_in[key]):
+                continue
             train_keys.discard(key)
             test_keys.add(key)
-            test_rows[label] += group_rows[key]
+            for other, n in labels_in[key].items():
+                test_rows[other] += n
+                train_groups[other] -= 1
 
     if report is not None:
         below = {}
@@ -1055,11 +1070,11 @@ def template_split(df: pd.DataFrame, label_col: str, test_size: float, seed: int
             floor = per_label_test_floor(int(n_rows))
             if test_rows[label] >= floor:
                 continue
-            keys = [k for k, v in label_of.items() if v == label]
             below[label] = {
                 "floor": floor,
                 "test_rows": int(test_rows[label]),
-                "group_rows": sorted((int(group_rows[k]) for k in keys), reverse=True),
+                "group_rows": sorted((labels_in[k][label] for k in labels_in
+                                      if label in labels_in[k]), reverse=True),
             }
         report["labels_below_test_floor"] = {"labels": len(below), "names": below}
 
