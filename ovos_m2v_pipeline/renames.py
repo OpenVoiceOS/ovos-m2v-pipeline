@@ -26,6 +26,9 @@ RENAMED_LABELS = {
     "ovos-skill-date-time.openvoiceos:is.leap.year": "ovos-skill-date-time.openvoiceos:is_leap_year",
     "ovos-skill-date-time.openvoiceos:next.leap.year": "ovos-skill-date-time.openvoiceos:next_leap_year",
     "ovos-skill-date-time.openvoiceos:time.until": "ovos-skill-date-time.openvoiceos:time_until",
+    # ovos-skill-speedtest: resource base names made OVOS-INTENT-2 §2
+    # compliant (lowercase letters, digits and underscores).
+    "ovos-skill-speedtest.openvoiceos:SpeedtestIntent": "ovos-skill-speedtest.openvoiceos:speedtest_intent",
     "ovos-skill-date-time.openvoiceos:weekday.for.date": "ovos-skill-date-time.openvoiceos:weekday_for_date",
     "ovos-skill-date-time.openvoiceos:weekday.matches.date": "ovos-skill-date-time.openvoiceos:weekday_matches_date",
     "ovos-skill-date-time.openvoiceos:what.day.is.it": "ovos-skill-date-time.openvoiceos:what_day_is_it",
