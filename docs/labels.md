@@ -125,6 +125,17 @@ writes therefore carries no flat label map at all. Aliasing is resolved at
 build time instead, in the corpus, where it can be reviewed — not at match
 time, where it would be invisible.
 
+One case cannot wait for the next build: a skill renames an intent file after
+a model was published. The skill then registers the new name, the published
+model still emits the old label, and classifier mode drops a label no skill
+registers. `ovos_m2v_pipeline/renames.py` holds `RENAMED_LABELS`, a reviewed
+table of full labels, old to new. At match time the plugin keeps an old label
+and routes it to the new name only when the skill registers the new name and
+not the old one, so an install that still runs the pre-rename skill is not
+affected. A user `label_map` entry for the old label turns the rename off for
+that label. The builder applies the same table, so the next model trains the
+new name.
+
 What it does carry is two keys. `valid_labels` is the allow-list the plugin
 applies after mapping. `families` gives each canonical label its family:
 

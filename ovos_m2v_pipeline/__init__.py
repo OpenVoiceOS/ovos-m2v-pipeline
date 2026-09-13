@@ -26,6 +26,7 @@ from ovos_utils.fakebus import FakeBus
 from ovos_utils.log import LOG
 
 from ovos_m2v_pipeline.cache import PrototypeCache, compute_cache_key
+from ovos_m2v_pipeline.renames import RENAMED_LABELS
 from ovos_m2v_pipeline.strategies import (
     PrototypeStrategy,
     select_anchors,
@@ -2365,7 +2366,13 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         probs_ = self.model.predict_proba(inputs)
         # Include special-case labels gated by the session's active pipelines.
         special = self._allowed_special_labels(message)
-        mask = np.isin(self.model.classes_, list(self.intents) + list(special))
+        # A model trained before a skill renamed an intent file still emits the
+        # old label. Keep it when the skill registers the new name (and not the
+        # old one), so the renamed intent stays reachable; it is resolved to the
+        # new name below.
+        renamed = self._renamed_labels_to_route()
+        mask = np.isin(self.model.classes_,
+                       list(self.intents) + list(special) + list(renamed))
         if not mask.any():
             LOG.warning("No model classes match registered intents")
             return
@@ -2394,10 +2401,25 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                     LOG.debug(f"discarding match: {label} - not in valid_labels")
                     continue
 
+                # old model label of a renamed intent -> the name registered now
+                label = renamed.get(label, label)
+
                 # HACK: special case for OCP, it isnt a regular intent
                 skill_id, label = self._apply_special_label_map(label)
 
                 yield skill_id, label, float(prob)
+
+    def _renamed_labels_to_route(self) -> Dict[str, str]:
+        """``RENAMED_LABELS`` entries to apply for the intents registered now.
+
+        An entry applies when the skill registers the new name and not the old
+        one. A skill that still registers the old name keeps it, and a user
+        ``label_map`` entry for the old label takes precedence over the rename.
+        """
+        user_map = self.config.get("label_map") or {}
+        return {old: new for old, new in RENAMED_LABELS.items()
+                if new in self.intents and old not in self.intents
+                and old not in user_map}
 
     def _match_prototype(self, utterance: str,
                          message: Optional[Message] = None,

@@ -28,6 +28,7 @@ import pandas as pd
 import yaml
 from ovos_spec_tools.expansion import iter_expand
 
+from ovos_m2v_pipeline.renames import RENAMED_LABELS
 from ovos_m2v_pipeline.slots import (
     expand_entities,
     MAX_ENTITY_EXPANSIONS,
@@ -243,7 +244,9 @@ def norm_skill(skill_id: str) -> str:
 
 def make_label(skill_id: str, intent: str) -> str:
     label = f"{norm_skill(skill_id)}:{norm_intent(intent)}"
-    return LABEL_ALIASES.get(label, label)
+    label = LABEL_ALIASES.get(label, label)
+    # a skill renamed the intent file: train the name it registers now
+    return RENAMED_LABELS.get(label, label)
 
 
 def family_of(label: str) -> str:
