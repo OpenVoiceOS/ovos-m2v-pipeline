@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.13.13a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.13a2) (2026-09-13)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.13a1...0.13.13a2)
+
 ## [0.13.13a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.13a1) (2026-09-13)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.12a1...0.13.13a1)
@@ -381,10 +385,6 @@
 ## [0.5.7a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.5.7a1) (2026-08-17)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.5.6a1...0.5.7a1)
-
-**Merged pull requests:**
-
-- fix: amortize prototype-store growth and log build progress [\#65](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/65) ([JarbasAl](https://github.com/JarbasAl))
 
 ## [0.5.6a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.5.6a1) (2026-08-17)
 
