@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.11a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.11a1) (2026-09-13)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.10a1...0.13.11a1)
+
+**Merged pull requests:**
+
+- fix: a cached snapshot missing files of its revision is not current [\#182](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/182) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.13.10a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.10a1) (2026-09-13)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.9a1...0.13.10a1)
@@ -387,10 +395,6 @@
 ## [0.5.4a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.5.4a1) (2026-07-24)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.5.3a1...0.5.4a1)
-
-**Merged pull requests:**
-
-- fix: warn when the frozen classifier receives INTENT-4 registrations it cannot match [\#57](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/57) ([JarbasAl](https://github.com/JarbasAl))
 
 ## [0.5.3a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.5.3a1) (2026-07-17)
 
