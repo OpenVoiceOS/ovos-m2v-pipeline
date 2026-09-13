@@ -1219,7 +1219,30 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             LOG.warning(f"Hub unreachable confirming '{repo_id}' is "
                         f"current; using cached snapshot '{cached}'")
             return cached
-        return cached if info.sha == cached_commit else None
+        if info.sha != cached_commit:
+            return None
+        # A snapshot directory exists as soon as ONE file of the revision is
+        # cached -- e.g. a lone ``hf_hub_download(repo, "config.json")`` from
+        # ovoscope.m2v_model_labels. Its name still matches the Hub sha, so
+        # without this check the weights are never fetched and every load
+        # fails with "Could not find expected model files".
+        missing = self._missing_snapshot_files(cached, info)
+        if missing:
+            LOG.info(f"Cached snapshot '{cached}' of '{repo_id}' is "
+                     f"incomplete (missing {missing}); downloading")
+            return None
+        return cached
+
+    @staticmethod
+    def _missing_snapshot_files(snapshot: str, info) -> List[str]:
+        """Files the Hub lists for ``info``'s revision that are not under
+        ``snapshot``. An ``info`` without a usable file list yields ``[]``:
+        the sha match alone then decides, as before."""
+        try:
+            names = [s.rfilename for s in info.siblings]
+        except (AttributeError, TypeError):
+            return []
+        return [n for n in names if not (Path(snapshot) / n).exists()]
 
     def _resolve_model_revision(self, model_path: str) -> str:
         """Resolve ``config["revision"]`` to a path ``from_pretrained`` accepts.

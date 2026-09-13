@@ -188,5 +188,41 @@ class TestCachedSnapshotIfCurrent(unittest.TestCase):
         self.assertEqual(result, "/cache/fake-repo/snapshots/abc123")
 
 
+class TestPartialSnapshotIsNotCurrent(unittest.TestCase):
+    """A snapshot directory whose name matches the Hub sha but that holds only
+    some of the revision's files (``hf_hub_download(repo, "config.json")``
+    alone creates one) must not be returned as current, or the weights are
+    never downloaded."""
+
+    FILES = ["config.json", "model.safetensors", "tokenizer.json",
+             "onnx/model.onnx"]
+
+    def _probe(self, present):
+        import tempfile
+        from pathlib import Path
+        root = tempfile.mkdtemp(prefix="m2v-partial-snapshot-")
+        snapshot = Path(root) / "snapshots" / "abc123"
+        for name in present:
+            (snapshot / name).parent.mkdir(parents=True, exist_ok=True)
+            (snapshot / name).write_text("x")
+        pipeline = _make_pipeline({"model": "OpenVoiceOS/fake-repo"})
+        siblings = [MagicMock(rfilename=n) for n in self.FILES]
+        with patch("huggingface_hub.snapshot_download",
+                   return_value=str(snapshot)), \
+             patch("huggingface_hub.HfApi") as mock_api:
+            mock_api.return_value.model_info.return_value = MagicMock(
+                sha="abc123", siblings=siblings)
+            return pipeline._cached_snapshot_if_current(
+                "OpenVoiceOS/fake-repo"), str(snapshot)
+
+    def test_config_only_snapshot_is_not_current(self):
+        result, _ = self._probe(["config.json"])
+        self.assertIsNone(result)
+
+    def test_complete_snapshot_is_current(self):
+        result, snapshot = self._probe(self.FILES)
+        self.assertEqual(result, snapshot)
+
+
 if __name__ == "__main__":
     unittest.main()
