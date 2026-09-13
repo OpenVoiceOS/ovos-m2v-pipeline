@@ -5,7 +5,9 @@ consumes `ovos.intent.register.template` (§6) and `ovos.entity.register`
 (§7) in addition to the legacy `padatious:register_intent` topics. It does
 NOT consume `ovos.intent.register.keyword` (§11).
 """
+import shutil
 import sys
+import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -14,6 +16,7 @@ from ovos_bus_client.message import Message
 from ovos_spec_tools import SpecMessage
 from ovos_spec_tools.intent_topics import RESERVED_INTENT_NAMES
 from ovos_spec_tools.context import context_slot_candidates
+from ovos_spec_tools.expansion import iter_expand
 
 
 def _make_prototype_pipeline(config=None):
@@ -1268,6 +1271,107 @@ class TestIntent4MalformedRegistration(unittest.TestCase):
         self._register(p, "set_volume", ["set volume to {number:level}"],
                        required_slots=["level"])
         self.assertIn("music.skill:set_volume", p.intents)
+
+class TestIntent4PartialExpansionDiscarded(unittest.TestCase):
+    """OVOS-INTENT-4 §6.3: a template that raises part-way through expansion
+    contributes nothing.
+
+    ``iter_expand`` is a generator. It yields before it validates, so
+    ``'[maybe]'`` yields ``'maybe'`` and then raises. Collecting straight into
+    the sample list keeps whatever arrived before the exception, and the
+    registration is then built from text the WARN line says was skipped."""
+
+    MALFORMED = ["(open the door", "[maybe]"]
+
+    def setUp(self):
+        # the prototype cache defaults to the real XDG data path, where a
+        # centroid written by one run is reused by the next one without the
+        # encoder. Point it somewhere private so these assertions describe
+        # this registration and not a leftover.
+        self._cache = tempfile.mkdtemp(prefix="m2v-proto-test-")
+        self.addCleanup(shutil.rmtree, self._cache, True)
+
+    def _pipeline(self):
+        return _make_prototype_pipeline({"prototype_cache_dir": self._cache})
+
+    def _spec_register(self, p, samples):
+        p._handle_intent4_register_template(Message(
+            SpecMessage.INTENT_REGISTER_TEMPLATE.value,
+            data={"skill_id": "music.skill", "intent_name": "play_song",
+                  "lang": "en-US", "samples": samples},
+            context={"skill_id": "music.skill"},
+        ))
+
+    def _legacy_register(self, p, samples):
+        p._handle_register_padatious(Message(
+            "padatious:register_intent",
+            data={"skill_id": "music.skill", "name": "play_song",
+                  "lang": "en-US", "samples": samples},
+            context={"skill_id": "music.skill"},
+        ))
+
+    def test_iter_expand_yields_before_it_raises(self):
+        # the premise the rest of the class rests on, asserted rather than
+        # assumed: a caller that collects lazily inherits the partial output.
+        produced = []
+        with self.assertRaises(Exception):
+            for value in iter_expand("[maybe]"):
+                produced.append(value)
+        self.assertEqual(produced, ["maybe"])
+
+    def test_spec_template_all_samples_malformed_not_indexed(self):
+        p = self._pipeline()
+        self._spec_register(p, self.MALFORMED)
+        self.assertNotIn("music.skill:play_song", p.intents)
+        self.assertNotIn("music.skill:play_song",
+                         set(p.prototype_store.unique_labels))
+        self.assertEqual(len(p.prototype_store), 0)
+
+    def test_spec_template_partial_expansion_never_reaches_the_encoder(self):
+        p = self._pipeline()
+        p.model.encode.reset_mock()
+        self._spec_register(p, self.MALFORMED)
+        encoded = [text for call in p.model.encode.call_args_list
+                   for text in call.args[0]]
+        self.assertEqual(encoded, [])
+
+    def test_legacy_template_all_samples_malformed_not_indexed(self):
+        p = self._pipeline()
+        self._legacy_register(p, self.MALFORMED)
+        self.assertNotIn("music.skill:play_song", p.intents)
+        self.assertEqual(len(p.prototype_store), 0)
+
+    def _register_entity(self, p, samples):
+        p._handle_intent4_register_entity(Message(
+            SpecMessage.ENTITY_REGISTER.value,
+            data={"skill_id": "music.skill", "entity_name": "engine",
+                  "lang": "en-US", "samples": samples},
+            context={"skill_id": "music.skill"},
+        ))
+
+    def test_entity_all_samples_malformed_not_stored(self):
+        # §7.2: zero valid entries is malformed. Entity values feed slot
+        # filling, so a kept partial spreads past the registration itself.
+        p = self._pipeline()
+        self._register_entity(p, ["[maybe]"])
+        self.assertNotIn("engine", p.entities.get("music.skill", {}))
+
+    def test_entity_partial_expansion_not_kept_beside_a_valid_entry(self):
+        p = self._pipeline()
+        self._register_entity(p, ["[maybe]", "spotify"])
+        values = p.entities["music.skill"]["engine"]
+        self.assertEqual(sorted(values), ["spotify"])
+
+    def test_valid_sample_beside_a_malformed_one_survives(self):
+        # the malformed template contributes nothing; the valid one still
+        # registers, so the fix rejects the partial output and not the batch.
+        p = self._pipeline()
+        self._spec_register(p, ["[maybe]", "play some music"])
+        self.assertIn("music.skill:play_song", p.intents)
+        encoded = [text for call in p.model.encode.call_args_list
+                   for text in call.args[0]]
+        self.assertEqual(encoded, ["play some music"])
+
 
 class TestIntent4EntityScope(unittest.TestCase):
     """OVOS-INTENT-4 §7 / §8.3: entities belong to the registering skill."""

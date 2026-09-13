@@ -897,12 +897,16 @@ def _parse_intent_file(path: str, ctx: str = "") -> List[str]:
                     try:
                         # lazy + bounded: a combinatorial template must
                         # not materialize its full product just to be
-                        # sampled down at store ingest
-                        sentences.extend(islice(iter_expand(line),
-                                                MAX_ENTITY_EXPANSIONS))
+                        # sampled down at store ingest. iter_expand yields
+                        # before it validates, so collect into a local list
+                        # and keep it only once the template expands whole.
+                        produced = list(islice(iter_expand(line),
+                                               MAX_ENTITY_EXPANSIONS))
                     except Exception as exc:
                         LOG.warning(f"skipping malformed template {line!r}: "
                                     f"{exc} {ctx}")
+                    else:
+                        sentences.extend(produced)
         return sentences
     except OSError as exc:
         LOG.warning(f"Could not read intent file '{path}': {exc}")
@@ -1723,10 +1727,12 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             sentences: List[str] = []
             for s in inline:
                 try:
-                    sentences.extend(islice(iter_expand(s),
-                                            MAX_ENTITY_EXPANSIONS))
+                    produced = list(islice(iter_expand(s),
+                                           MAX_ENTITY_EXPANSIONS))
                 except Exception as exc:
                     LOG.warning(f"skipping malformed template {s!r}: {exc} {ctx}")
+                else:
+                    sentences.extend(produced)
         else:
             file_name: str = message.data.get("file_name", "")
             raw_samples = ([strip_type_prefixes(s) for s in _raw_intent_lines(file_name)]
@@ -1955,16 +1961,20 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             if len(expanded) >= MAX_ENTITY_EXPANSIONS:
                 break
             try:
-                expanded.extend(islice(
+                produced = list(islice(
                     iter_expand(s),
                     MAX_ENTITY_EXPANSIONS - len(expanded)))
             except Exception as exc:
-                # skip the unparsable template, keep the valid ones (§6.3)
+                # skip the unparsable template whole, keep the valid ones
+                # (§6.3). iter_expand yields before it validates, so a
+                # partial run must not reach `expanded`.
                 LOG.warning(
                     f"skipping malformed template {s!r}: {exc} "
                     f"[skill_id={message.data.get('skill_id')!r} "
                     f"name={message.data.get('intent_name')!r} "
                     f"lang={message.data.get('lang')!r} topic={topic}]")
+            else:
+                expanded.extend(produced)
         expanded = [s for s in (e.strip() for e in expanded) if s]
         if not expanded:  # zero non-empty expansions -> malformed (§6.3)
             self._intent4_warn(topic, message, "samples expand to zero non-empty templates")
@@ -2042,17 +2052,20 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             if len(values) >= MAX_ENTITY_EXPANSIONS:
                 break
             try:
-                for v in islice(iter_expand(s), MAX_ENTITY_EXPANSIONS):
-                    v = v.strip()
-                    if v:
-                        values.add(v)
+                produced = {v for v in (x.strip() for x in
+                                        islice(iter_expand(s),
+                                               MAX_ENTITY_EXPANSIONS)) if v}
             except Exception as exc:
-                # skip the unparsable entry, keep the valid ones (§7.2)
+                # skip the unparsable entry whole, keep the valid ones
+                # (§7.2). iter_expand yields before it validates, so a
+                # partial run must not reach `values`.
                 LOG.warning(
                     f"skipping malformed entity sample {s!r}: {exc} "
                     f"[skill_id={message.data.get('skill_id')!r} "
                     f"name={name!r} "
                     f"lang={message.data.get('lang')!r} topic={topic}]")
+            else:
+                values |= produced
         if not values:  # zero valid entries -> malformed (§7.2)
             self._intent4_warn(topic, message, "no valid entity sample remains")
             return
