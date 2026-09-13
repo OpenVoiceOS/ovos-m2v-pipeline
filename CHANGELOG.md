@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.9a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.9a1) (2026-09-13)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.8a1...0.13.9a1)
+
+**Merged pull requests:**
+
+- fix: discard malformed template's partial expansion in \_entity\_values [\#169](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/169) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.13.8a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.8a1) (2026-09-13)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.7a1...0.13.8a1)
@@ -387,10 +395,6 @@
 ## [0.5.2a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.5.2a1) (2026-07-16)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.5.1a1...0.5.2a1)
-
-**Merged pull requests:**
-
-- fix: log skipped templates with full registration identifiers [\#52](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/52) ([JarbasAl](https://github.com/JarbasAl))
 
 ## [0.5.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.5.1a1) (2026-07-16)
 
