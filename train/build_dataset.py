@@ -498,12 +498,11 @@ def _entity_values(repo: Path, rev: str, path: str) -> List[str]:
         if not line or line.startswith("#"):
             continue
         try:
-            for v in iter_expand(line):
-                v = v.strip()
-                if v:
-                    values.append(v)
+            expanded = [v.strip() for v in iter_expand(line)]
         except Exception:
             continue
+        else:
+            values.extend(v for v in expanded if v)
     return values
 
 
