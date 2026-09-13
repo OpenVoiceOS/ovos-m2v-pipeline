@@ -7,19 +7,24 @@ side that the pinned sha does not register rescues nothing -- the corpus
 rows that alias was meant to save still drop as `unresolved_labels`, and the
 comment lies about what the table does.
 
-This test does not reach the network or a local skill clone, and it does not
-derive its ground truth from `LABEL_ALIASES` itself -- that would make every
-alias trivially pass no matter what it claimed. `PINNED_REGISTRATIONS` below
-is the real intent set each skill in `train/sources.yaml`'s `skill_refs`
-registers at its pinned sha, read once (offline, from a local workspace
-checkout of the real skill repos already fetched to those shas) and frozen
-here as fixture data. The test rebuilds those skills as fixture git repos
-carrying exactly that intent set, then runs `build_dataset.build_registry` /
-the alias table over the fixtures exactly as the real builder does. An alias
-edit that points at a label outside this frozen set fails here; a real
-skill's registrations moving without a matching update to this fixture is a
-gap this test cannot see, so a wave that re-pins `sources.yaml` must refresh
-`PINNED_REGISTRATIONS` from the new sha at the same time.
+`PINNED_REGISTRATIONS` below is the real intent set each aliased skill
+registers, read with `build_dataset.registered_intents` from the real skill
+repo and frozen here. It does not derive from `LABEL_ALIASES`, so an alias
+cannot pass because the table claims it. The snapshot is keyed by the sha it
+was read at, in `PINNED_REFS`. The test rebuilds those skills as fixture git
+repos carrying exactly that intent set, then runs
+`build_dataset.build_registry` over them as the real builder does.
+
+Three checks keep the snapshot honest:
+
+- `test_the_snapshot_is_keyed_by_the_shas_sources_yaml_pins` reads
+  `train/sources.yaml`. A re-pin of an aliased skill fails it until
+  `PINNED_REFS` and `PINNED_REGISTRATIONS` are refreshed from the new sha.
+- `test_the_snapshot_matches_the_real_repos_at_the_pinned_shas` reads each
+  real repo at the sha `sources.yaml` pins, over the network. It runs only
+  when `M2V_NETWORK=1`.
+- the positive control proves the fixture registry builder finds a label
+  that is present.
 """
 import ast
 import importlib.util
@@ -104,6 +109,31 @@ PINNED_REGISTRATIONS = {
     },
 }
 
+#: The `skill_refs` entry and the sha each `PINNED_REGISTRATIONS` set was
+#: read at. A re-pin in `train/sources.yaml` must update both tables.
+PINNED_REFS = {
+    "ovos-skill-alerts.openvoiceos":
+        ("ovos/skills/ovos-skill-alerts", "610c20dfa454d58f2c0f5a146f2608d7381f4d2e"),
+    "ovos-skill-confucius-quotes.openvoiceos":
+        ("ovos/skills/ovos-skill-confucius-quotes", "761cc592e98bf6a863ddd60b28fb38b8e4fec1e0"),
+    "ovos-skill-fuster-quotes.openvoiceos":
+        ("ovos/skills/ovos-skill-fuster-quotes", "6016ba23add80775cf054c0de50706cd454c5029"),
+    "ovos-skill-mark1-ctrl.openvoiceos":
+        ("ovos/skills/ovos-skill-mark1-ctrl", "da7b84176ed2039f5d8929e9dde6cc73fa82dc7a"),
+    "ovos-skill-volume.openvoiceos":
+        ("ovos/skills/ovos-skill-volume", "0286bd62d6fc652370d81680e87f447afcce7194"),
+    "ovos-skill-weather.openvoiceos":
+        ("ovos/skills/ovos-skill-weather", "5e544d9285ddc7ba93809b7312a11d5427be6d54"),
+    "ovos-skill-wolfie.openvoiceos":
+        ("ovos/skills/ovos-skill-wolfie", "df96eedd4cdd27c9f231ae55bb83d66feb8db552"),
+    "ovos-skill-wordnet.openvoiceos":
+        ("ovos/skills/ovos-skill-wordnet", "c2f0ddf6167e745a9db9e4b6c2f32fdbeb41b630"),
+    "skill-ovos-wallpapers.openvoiceos":
+        ("ovos/skills/ovos-skill-wallpapers", "6d227920176cbc0849e47deec00a1aabd0436b3d"),
+}
+
+SOURCES = Path(__file__).resolve().parents[1] / "train" / "sources.yaml"
+
 #: Every skill a `LABEL_ALIASES` value names must have a frozen registration
 #: set above, or the test below would silently skip checking it.
 _ALIASED_SKILLS = {v.partition(":")[0] for v in SKILL_ALIASES.values()}
@@ -170,3 +200,66 @@ def test_every_skill_alias_resolves_at_the_pinned_revision(tmp_path):
     assert not failing, (
         f"{len(failing)}/{len(checked)} LABEL_ALIASES values do not resolve "
         f"at the pinned revision they claim to: {failing}")
+
+
+def _sources_refs() -> dict:
+    import yaml
+    return yaml.safe_load(SOURCES.read_text(encoding="utf-8"))["skill_refs"]["refs"]
+
+
+def test_the_snapshot_is_keyed_by_the_shas_sources_yaml_pins():
+    assert set(PINNED_REFS) == set(PINNED_REGISTRATIONS)
+    refs = _sources_refs()
+    stale = {skill_id: (path, sha, refs.get(path))
+             for skill_id, (path, sha) in sorted(PINNED_REFS.items())
+             if refs.get(path) != sha}
+    assert not stale, (
+        "train/sources.yaml re-pins an aliased skill; refresh PINNED_REFS and "
+        f"PINNED_REGISTRATIONS from the new sha: {stale}")
+
+
+def _fetch(url: str) -> bytes:
+    import urllib.request
+    req = urllib.request.Request(url, headers={"User-Agent": "m2v-alias-census"})
+    token = os.environ.get("GITHUB_TOKEN")
+    if token and url.startswith("https://api.github.com/"):
+        req.add_header("Authorization", f"Bearer {token}")
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return resp.read()
+
+
+def _registered_at(repo: str, sha: str) -> set:
+    """`build_dataset.registered_intents`, read from GitHub at *sha*."""
+    import json
+    tree = json.loads(_fetch(
+        f"https://api.github.com/repos/{repo}/git/trees/{sha}?recursive=1"))
+    assert not tree.get("truncated"), f"{repo}@{sha}: tree listing truncated"
+    declared, stems = set(), set()
+    for entry in tree["tree"]:
+        path = entry["path"]
+        if entry["type"] != "blob" or path.split("/")[0] in {"test", "tests"}:
+            continue
+        if path.endswith(".intent"):
+            stems.add(Path(path).stem)
+        elif path.endswith(".py"):
+            src = _fetch(f"https://raw.githubusercontent.com/{repo}/{sha}/{path}"
+                         ).decode("utf-8", "replace")
+            declared.update(bd._INTENT_BUILDER_RE.findall(src))
+            declared.update(n[:-len(".intent")]
+                            for n in bd._INTENT_FILE_RE.findall(src))
+    folds = {bd.fold(n) for n in declared}
+    return declared | {s for s in stems if bd.fold(s) not in folds}
+
+
+@pytest.mark.skipif(os.environ.get("M2V_NETWORK") != "1",
+                    reason="reads the real skill repos; set M2V_NETWORK=1")
+def test_the_snapshot_matches_the_real_repos_at_the_pinned_shas():
+    refs = _sources_refs()
+    wrong = {}
+    for skill_id, (path, _sha) in sorted(PINNED_REFS.items()):
+        sha = refs[path]
+        real = _registered_at(f"OpenVoiceOS/{Path(path).name}", sha)
+        if real != PINNED_REGISTRATIONS[skill_id]:
+            wrong[skill_id] = {"missing": sorted(real - PINNED_REGISTRATIONS[skill_id]),
+                               "extra": sorted(PINNED_REGISTRATIONS[skill_id] - real)}
+    assert not wrong, f"frozen registrations differ from the pinned repos: {wrong}"
