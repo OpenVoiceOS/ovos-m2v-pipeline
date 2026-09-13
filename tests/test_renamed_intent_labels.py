@@ -99,3 +99,8 @@ def test_builder_files_pre_rename_rows_under_the_new_label():
     assert builder.make_label("ovos-skill-date-time", "what.time.is.it") == NEW
     # an older spelling that INTENT_ALIASES folds into the dotted name
     assert builder.make_label("ovos-skill-date-time", "handle_show_time") == NEW
+
+
+def test_days_in_history_rename_is_listed():
+    assert RENAMED_LABELS["ovos-skill-days-in-history.openvoiceos:TellMeMoreIntent"] == \
+        "ovos-skill-days-in-history.openvoiceos:tell_me_more_intent"

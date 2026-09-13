@@ -19,6 +19,9 @@ so the builder can read it without the pipeline's runtime dependencies.
 
 #: old label (as the model emits it) -> label the skill registers now
 RENAMED_LABELS = {
+    # ovos-skill-days-in-history: resource base names made OVOS-INTENT-2 §2
+    # compliant (lowercase letters, digits and underscores).
+    "ovos-skill-days-in-history.openvoiceos:TellMeMoreIntent": "ovos-skill-days-in-history.openvoiceos:tell_me_more_intent",
     # ovos-skill-date-time: resource base names made OVOS-INTENT-2 §2
     # compliant (lowercase letters, digits and underscores).
     "ovos-skill-date-time.openvoiceos:date.future.weekend": "ovos-skill-date-time.openvoiceos:date_future_weekend",
