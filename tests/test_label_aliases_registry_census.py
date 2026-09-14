@@ -113,7 +113,7 @@ PINNED_REGISTRATIONS = {
 #: read at. A re-pin in `train/sources.yaml` must update both tables.
 PINNED_REFS = {
     "ovos-skill-alerts.openvoiceos":
-        ("ovos/skills/ovos-skill-alerts", "152330f3635e4668486b7fcd5cd5dae6cc625117"),
+        ("ovos/skills/ovos-skill-alerts", "ab3e82b516aefab3d03be6989548dabebd4594ee"),
     "ovos-skill-confucius-quotes.openvoiceos":
         ("ovos/skills/ovos-skill-confucius-quotes", "eb0dd4cdfffa99b7e369378a4b3150a92f1e73d2"),
     "ovos-skill-fuster-quotes.openvoiceos":
