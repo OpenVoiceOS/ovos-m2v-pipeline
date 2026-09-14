@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
-"""Publish a built corpus to its two Hugging Face dataset repos.
+"""Publish a built corpus to its Hugging Face dataset repo.
 
-The corpus ships as two repos, not one: the training templates and the gold
-evaluation rows. They are separate because consumers pin them separately --
-the plugin arena pins a revision of the eval repo to score against while
-training moves on -- and because a single repo makes it easy to hand somebody
-the gold by accident. Each repo holds one file per locale, `{lang}/
-train_templates.jsonl` and `{lang}/test.jsonl`, which is the layout the v5
-repos already use. A consumer that pins that file pattern keeps working
-across a version bump, and that compatibility is the reason the layout is not
-up for discussion here.
+The corpus ships as ONE repo holding both splits. Each locale directory holds
+`train_templates.jsonl`, and the locales that have gold also hold
+`test.jsonl`. That is the layout the previous release already uses for the
+training split, so a consumer that pins the file pattern `{lang}/test.jsonl`
+or `{lang}/train_templates.jsonl` keeps working across a version bump. That
+compatibility is the reason the layout is not up for discussion here.
 
-The two repos do not hold the same locales. A locale with training rows and
-no gold utterance appears in the templates repo and not in the eval repo, and
-this script never invents an empty file to even them up: an empty
-`test.jsonl` reads as "measured, found nothing" when the truth is "never
-measured". So the locale set comes from what the staged directories actually
-contain and is never a list written down in this file.
+One repo, not two. An earlier draft of this script published the templates
+and the gold to separate repos. A single dataset is easier to pin and easier
+to keep consistent: two repos can disagree about which build they came from,
+and nothing in the pair records that they are meant to be read together. Tag
+the commit instead, and a consumer pins a revision rather than a repo name.
+
+Not every locale has gold. A locale with training rows and no gold utterance
+has no `test.jsonl`, and this script never invents an empty one to even them
+up: an empty `test.jsonl` reads as "measured, found nothing" when the truth
+is "never measured". So the locale set of each split comes from what the
+staged directory holds and is never a list written down in this file.
 
 The upload is additive. `upload_folder` creates or updates the files it is
 given in one commit and deletes nothing else in the repo. The token comes
@@ -26,18 +28,16 @@ out of shell history and out of any log this prints.
 Usage:
 
     python train/publish_corpus.py \
-        --templates-dir staging/m2v-v6-templates \
-        --eval-dir staging/m2v-v6-eval \
-        --templates-repo OpenVoiceOS/ovos-intents-v6-templates \
-        --eval-repo OpenVoiceOS/ovos-intents-v6-eval \
+        --corpus-dir staging/m2v-v6 \
+        --repo OpenVoiceOS/ovos-intents-v5-templates \
+        --tag v6 \
         --dry-run
 
-Drop `--dry-run` to upload. Nothing is uploaded until every check passes for
-both directories, so a half-published pair is not a state this can reach by
-failing partway.
+Drop `--dry-run` to upload. Every check runs against the whole staged tree
+before anything is uploaded, so a failed check cannot leave the repo holding
+one split and not the other.
 """
 import argparse
-import json
 import os
 import sys
 from pathlib import Path
@@ -67,16 +67,20 @@ def count_rows(path: Path) -> int:
         return sum(1 for _ in handle)
 
 
-def inspect(root: Path, filename: str) -> dict:
-    """Read a staged directory and report what it holds.
-
-    Raises SystemExit when the directory could not be published as it stands.
-    """
+def check_root(root: Path) -> None:
+    """The staged tree carries its own card and manifest, or it is not published."""
     if not root.is_dir():
         raise SystemExit(f"[publish] {root} is not a directory")
     missing = [f for f in REQUIRED_ROOT_FILES if not (root / f).is_file()]
     if missing:
         raise SystemExit(f"[publish] {root} is missing {missing}")
+
+
+def inspect(root: Path, filename: str) -> dict:
+    """Read one split of a staged directory and report what it holds.
+
+    Raises SystemExit when the split could not be published as it stands.
+    """
     files = locale_files(root, filename)
     if not files:
         raise SystemExit(f"[publish] {root} holds no {filename} under any locale directory")
@@ -85,7 +89,7 @@ def inspect(root: Path, filename: str) -> dict:
     if empty:
         raise SystemExit(
             f"[publish] {root} has an empty {filename} for {empty}; "
-            "remove the locale instead, an empty file claims a measurement that "
+            "remove the file instead, an empty file claims a measurement that "
             "was never made")
     return {"root": root, "per_locale": per_locale, "rows": sum(per_locale.values())}
 
@@ -101,7 +105,7 @@ def report(name: str, found: dict, expect_rows: int | None) -> None:
             "the staged directory and the build do not agree")
 
 
-def upload(found: dict, repo_id: str, message: str) -> None:
+def upload(root: Path, repo_id: str, message: str, tag: str | None) -> None:
     from huggingface_hub import HfApi
 
     token = os.environ.get("HF_TOKEN")
@@ -111,28 +115,32 @@ def upload(found: dict, repo_id: str, message: str) -> None:
             "an argument or a file")
     api = HfApi(token=token)
     api.create_repo(repo_id, repo_type="dataset", exist_ok=True)
-    api.upload_folder(folder_path=str(found["root"]), repo_id=repo_id,
+    api.upload_folder(folder_path=str(root), repo_id=repo_id,
                       repo_type="dataset", commit_message=message)
-    print(f"[publish] uploaded {found['root']} -> {repo_id}")
+    print(f"[publish] uploaded {root} -> {repo_id}")
+    if tag:
+        api.create_tag(repo_id, tag=tag, repo_type="dataset",
+                       tag_message=message, exist_ok=False)
+        print(f"[publish] tagged {repo_id} {tag}")
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--templates-dir", required=True,
-                    help="staged directory holding {lang}/train_templates.jsonl")
-    ap.add_argument("--eval-dir", required=True,
-                    help="staged directory holding {lang}/test.jsonl")
-    ap.add_argument("--templates-repo", required=True,
-                    help="dataset repo id for the training templates")
-    ap.add_argument("--eval-repo", required=True,
-                    help="dataset repo id for the gold evaluation rows")
+    ap.add_argument("--corpus-dir", required=True,
+                    help="staged directory holding {lang}/train_templates.jsonl "
+                         "and, where there is gold, {lang}/test.jsonl")
+    ap.add_argument("--repo", required=True,
+                    help="dataset repo id that holds both splits")
+    ap.add_argument("--tag", default=None,
+                    help="tag to put on the published commit, so a consumer "
+                         "pins a revision instead of a repo name")
     ap.add_argument("--expect-train-rows", type=int, default=None,
                     help="fail if the staged templates do not hold this many rows")
     ap.add_argument("--expect-test-rows", type=int, default=None,
-                    help="fail if the staged eval rows do not hold this many rows")
+                    help="fail if the staged gold rows do not hold this many rows")
     ap.add_argument("--commit-message", default="publish corpus",
-                    help="commit message for both repos")
+                    help="commit message for the upload")
     ap.add_argument("--dry-run", action="store_true",
                     help="print what would be uploaded, touch no network")
     return ap
@@ -141,10 +149,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def main(argv=None) -> int:
     args = build_arg_parser().parse_args(argv)
 
-    templates = inspect(Path(args.templates_dir), TEMPLATES_FILE)
-    gold = inspect(Path(args.eval_dir), EVAL_FILE)
+    root = Path(args.corpus_dir)
+    check_root(root)
+    templates = inspect(root, TEMPLATES_FILE)
+    gold = inspect(root, EVAL_FILE)
     report("templates", templates, args.expect_train_rows)
-    report("eval", gold, args.expect_test_rows)
+    report("gold", gold, args.expect_test_rows)
 
     no_gold = sorted(set(templates["per_locale"]) - set(gold["per_locale"]))
     if no_gold:
@@ -161,8 +171,7 @@ def main(argv=None) -> int:
         print("[publish] dry run, nothing uploaded")
         return 0
 
-    upload(templates, args.templates_repo, args.commit_message)
-    upload(gold, args.eval_repo, args.commit_message)
+    upload(root, args.repo, args.commit_message, args.tag)
     return 0
 
 

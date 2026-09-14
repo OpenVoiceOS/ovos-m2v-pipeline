@@ -159,33 +159,36 @@ folded into `metrics.json` when a model is actually trained.
 
 ## Publishing the corpus
 
-`train/publish_corpus.py` uploads a built corpus to its two Hugging Face
-dataset repositories. The corpus ships as two repositories: the training
-templates and the gold evaluation rows. Each holds one file per locale,
-`{lang}/train_templates.jsonl` and `{lang}/test.jsonl`. This is the layout the
-v5 repositories use, so a consumer that pins that file pattern keeps working
-across a version change.
+`train/publish_corpus.py` uploads a built corpus to its Hugging Face dataset
+repository. The corpus ships as ONE repository holding both splits. Each
+locale directory holds `train_templates.jsonl`, and the locales that have gold
+also hold `test.jsonl`. This is the file pattern the previous release uses, so
+a consumer that pins it keeps working across a version change.
 
     python train/publish_corpus.py \
-        --templates-dir staging/m2v-v6-templates \
-        --eval-dir staging/m2v-v6-eval \
-        --templates-repo OpenVoiceOS/ovos-intents-v6-templates \
-        --eval-repo OpenVoiceOS/ovos-intents-v6-eval \
+        --corpus-dir staging/m2v-v6-dataset \
+        --repo OpenVoiceOS/ovos-intents-v5-templates \
+        --tag v6 \
         --expect-train-rows 2204034 --expect-test-rows 1412 \
         --dry-run
 
 Remove `--dry-run` to upload. The token comes from the `HF_TOKEN` environment
 variable. The script never reads a token from an argument or a file.
 
-Each directory must hold `README.md` (the dataset card) and `manifest.json`
-at its root. The script reads the locale set from the directories themselves.
-It never uses a list of locales written into the code.
+`--tag` puts a tag on the published commit. A consumer then pins a revision
+rather than a repository name, which is what lets the content version move
+while the repository keeps its name.
+
+The staged directory must hold `README.md` (the dataset card) and
+`manifest.json` at its root. The script reads the locale set of each split
+from the directory itself. It never uses a list of locales written into the
+code.
 
 The script refuses to upload in four cases:
 
 - `HF_TOKEN` is not set.
 - A locale file is empty. An empty `test.jsonl` says "measured, found
-  nothing" when the truth is "never measured". Remove the locale instead.
+  nothing" when the truth is "never measured". Remove the file instead.
 - A locale has gold rows and no training rows. A model cannot be scored on a
   locale it never learned.
 - `--expect-train-rows` or `--expect-test-rows` does not match the staged
@@ -194,5 +197,5 @@ The script refuses to upload in four cases:
 A locale with training rows and no gold is normal, not an error. The script
 prints how many such locales there are and how many rows they hold.
 
-Both directories are read and checked before anything is uploaded, so a
-failed check cannot leave one repository published and the other not.
+The whole tree is read and checked before anything is uploaded, so a failed
+check cannot leave the repository holding one split and not the other.
