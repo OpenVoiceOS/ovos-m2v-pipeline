@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.14a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.14a1) (2026-09-14)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.13a8...0.13.14a1)
+
+**Merged pull requests:**
+
+- fix: guarantee every evaluable label some test rows \(re-cut of \#130 on dev\) [\#178](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/178) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.13.13a8](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.13a8) (2026-09-14)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.13a7...0.13.13a8)
@@ -381,10 +389,6 @@
 ## [0.7.0a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.7.0a2) (2026-08-31)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.7.0a1...0.7.0a2)
-
-**Merged pull requests:**
-
-- Wire boot-time prototype cache to registration inputs [\#75](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/75) ([JarbasAl](https://github.com/JarbasAl))
 
 ## [0.7.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.7.0a1) (2026-08-31)
 
