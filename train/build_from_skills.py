@@ -78,6 +78,65 @@ COMPLIANT_BASE_NAME = re.compile(r"^[a-z0-9_]+$")
 EXPANSION_CAP = 2000
 
 
+def strip_groups(text: str) -> str:
+    """*text* with every balanced `(...)` and `[...]` group removed.
+
+    Both are grammar: `(a|b)` is an alternation and `[a]` an optional
+    segment, and the expander reads each correctly. What is left is the part
+    of a line the grammar does not account for, so a `|` still in it belongs
+    to nothing: the author wrote an alternation and left off its
+    parentheses.
+    """
+    out = []
+    depth = 0
+    for ch in text:
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth = max(0, depth - 1)
+        elif depth == 0:
+            out.append(ch)
+    return "".join(out)
+
+
+def has_bare_alternation(text: str) -> bool:
+    """A `|` none of the grammar's own groups covers.
+
+    Only the pipe. An optional segment is legal template syntax that expands,
+    so reading `[the]` as a defect drops thousands of sound templates and
+    takes their labels with them -- the build's own label floor catches that,
+    which is how this check was caught being too wide.
+    """
+    return "|" in strip_groups(text)
+
+
+def split_bare_alternation(value: str) -> list:
+    """The alternatives a resource value names, splitting a bare `|`.
+
+    A value is one whole thing, so a `|` in it that no group covers separates
+    two values the author wrote on one line -- `complet|ple|plena` is three
+    Catalan words for one brightness setting. Substituted whole, it ships as
+    the literal string `complet|ple|plena` in a training row, which teaches a
+    model to say the pipe out loud. The scope is unambiguous here, unlike the
+    same mistake in a template, so the value is split rather than dropped.
+    """
+    if not has_bare_alternation(value) or "|" not in strip_groups(value):
+        return [value]
+    parts, depth, current = [], 0, []
+    for ch in value:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(0, depth - 1)
+        if ch == "|" and depth == 0:
+            parts.append("".join(current))
+            current = []
+            continue
+        current.append(ch)
+    parts.append("".join(current))
+    return [p.strip() for p in parts if p.strip()]
+
+
 def git(repo: Path, *args: str) -> str:
     return subprocess.run(["git", "-C", str(repo), *args],
                           capture_output=True, text=True, check=True).stdout
@@ -147,8 +206,10 @@ def skill_id_of(repo_name: str) -> str:
 
 
 def read_skill(repo: Path, rev: str, repo_name: str, stats: collections.Counter,
-               violations: set):
+               violations: set, dropped_templates: list = None):
     """Templates, hints and keywords a skill ships, per language."""
+    if dropped_templates is None:
+        dropped_templates = []
     templates = []                                   # (lang, label, template)
     hints = collections.defaultdict(dict)            # lang -> name -> values
     keywords = collections.defaultdict(dict)         # lang -> name -> words
@@ -175,6 +236,17 @@ def read_skill(repo: Path, rev: str, repo_name: str, stats: collections.Counter,
         if kind == "intent":
             label = f"{skill_id_of(repo_name)}:{name}"
             for line in values:
+                # A `|` the grammar's groups do not cover binds nothing the
+                # grammar defines. Where the same mistake in a resource value
+                # has one possible reading, here it has several -- the author
+                # may have meant two words, two phrases or the whole line --
+                # so the line is dropped and counted rather than expanded to
+                # a guess. `Se espera nieve en el pronostico|` is the shape:
+                # nobody can say what the trailing pipe was for.
+                if has_bare_alternation(line):
+                    stats["template_with_a_bare_alternation_dropped"] += 1
+                    dropped_templates.append(f"{repo_name} {lang}: {line}")
+                    continue
                 templates.append((lang, label, line))
         elif kind == "entity":
             # Two directories differing only in case are one language after
@@ -182,10 +254,18 @@ def read_skill(repo: Path, rev: str, repo_name: str, stats: collections.Counter,
             # two spellings: union the values rather than letting whichever
             # sorts last silently discard the other's.
             existing = hints[lang].setdefault(name.lower(), [])
-            existing.extend(v for v in values if v not in existing)
+            for value in values:
+                alternatives = split_bare_alternation(value)
+                if len(alternatives) > 1:
+                    stats["resource_value_bare_alternation_split"] += 1
+                existing.extend(v for v in alternatives if v not in existing)
         else:
             existing = keywords[lang].setdefault(name.lower(), [])
-            existing.extend(v for v in values if v not in existing)
+            for value in values:
+                alternatives = split_bare_alternation(value)
+                if len(alternatives) > 1:
+                    stats["resource_value_bare_alternation_split"] += 1
+                existing.extend(v for v in alternatives if v not in existing)
     return templates, hints, keywords
 
 
@@ -217,7 +297,7 @@ def fill(template: str, hints: dict, keywords: dict, stats: collections.Counter)
         # through with the placeholder left literal and embeds it that way.
         # The corpus mirrors the runtime rather than discarding the phrasing.
         if any(n not in hints for n in slots):
-            stats["sentence_kept_with_an_unfilled_slot"] += 1
+            stats["sentences_kept_with_an_unfilled_slot_before_filling"] += 1
         filled = [s]
         for slot in sorted(n for n in slots if n in hints):
             nxt = []
@@ -255,13 +335,47 @@ def count_leftover_template_syntax(rows) -> int:
     """Written rows that still carry template syntax other than `{slot}`.
 
     A slot left unfilled (INTENT-1 5.4) is the documented, correct shape of
-    a row -- `{slot}` is excluded. Anything else the grammar defines,
-    alternation or an optional segment, is never a valid training row; this
-    is the check that would have caught the defect the manifest's own
-    per-stage counters did not.
+    a row -- `{slot}` is excluded. Anything else the grammar defines is never
+    a valid training row.
+
+    This counted `(a|b)` and `[a]` only, so it read 0 on a corpus holding 715
+    rows whose alternation had lost its parentheses -- `complet|ple|plena`,
+    the exact shape the expander leaves behind. A detector that cannot see
+    the defect it exists for is worse than no detector: it reports a clean
+    build. A bare `|`, `(`, `)`, `[` or `]` all count now, so a zero here has
+    to be earned.
     """
-    leftover = re.compile(r"\(.*\|.*\)|\[[^\]]*\]")
+    leftover = re.compile(r"[()\[\]|]")
     return sum(1 for row in rows if leftover.search(row["utterance"]))
+
+
+def count_rows_with_an_unfilled_slot(rows) -> int:
+    """Written rows that still carry a `{slot}`.
+
+    Read off the finished corpus, not counted as the expander goes. The
+    per-stage counter says how many SENTENCES were kept with an unfilled
+    slot, before filling multiplied them and before dedup and the gold
+    overlap removed some, so it is not the number of rows that ship and must
+    not be read as one.
+    """
+    return sum(1 for row in rows if re.search(r"\{[^}]+\}", row["utterance"]))
+
+
+def count_ambiguous_rows(rows) -> int:
+    """Rows whose locale and utterance carry a label another row disagrees on.
+
+    Not duplicates. A duplicate is the same sentence for the same label and
+    says nothing new; these are the same sentence for DIFFERENT labels, which
+    is a conflict the model is asked to resolve and cannot. They are counted
+    and named separately because folding them into a duplicate count hides a
+    labelling problem behind a housekeeping figure.
+    """
+    labels = collections.defaultdict(set)
+    for row in rows:
+        labels[(row["lang"], row["utterance"])].add(row["label"])
+    conflicted = {key for key, names in labels.items() if len(names) > 1}
+    return sum(1 for row in rows
+               if (row["lang"], row["utterance"]) in conflicted)
 
 
 def resolve_gold_label(label: str, shipped: set) -> str:
@@ -385,6 +499,7 @@ def main() -> int:
     labels_with_templates = set()
     no_gold, no_resources, resolutions = [], [], []
     violations = set()
+    dropped_templates = []
 
     for key, rev in sorted(refs.items()):
         repo, repo_name = ws / key, key.rsplit("/", 1)[-1]
@@ -392,7 +507,7 @@ def main() -> int:
             stats["skill_missing_clone"] += 1
             continue
         templates, hints, keywords = read_skill(repo, rev, repo_name, stats,
-                                                violations)
+                                                violations, dropped_templates)
         if not templates:
             no_resources.append(repo_name)
         for _, label, _ in templates:
@@ -426,7 +541,7 @@ def main() -> int:
     for row in train:
         key = (row["label"], row["lang"], row["utterance"].lower())
         if key in seen:
-            stats["train_duplicate"] += 1
+            stats["train_duplicate_rows_removed"] += 1
             continue
         seen.add(key)
         deduped.append(row)
@@ -504,6 +619,16 @@ def main() -> int:
         # account of its work.
         "train_rows_with_leftover_template_syntax":
             count_leftover_template_syntax(train),
+        # Both read the finished corpus. The per-stage counters under "stats"
+        # count sentences as the expander sees them, which is a different
+        # number and carries a different name.
+        "train_rows_with_an_unfilled_slot":
+            count_rows_with_an_unfilled_slot(train),
+        "train_rows_ambiguous_same_utterance_different_label":
+            count_ambiguous_rows(train),
+        "templates_dropped_for_a_bare_alternation": len(dropped_templates),
+        "templates_dropped_for_a_bare_alternation_detail":
+            sorted(dropped_templates),
         "gold_flags_are_not_evidence": (
             "every gold sentence in this fleet was written by a model, so the "
             "machine_generated field is unreliable wherever it claims False "

@@ -156,3 +156,46 @@ per-label row counts
 before and after the cap, together with the seed, without fitting; the same
 table and seed are written to `label_cap_report.json` next to the model, and
 folded into `metrics.json` when a model is actually trained.
+
+## Publishing the corpus
+
+`train/publish_corpus.py` uploads a built corpus to its Hugging Face dataset
+repository. The corpus ships as ONE repository holding both splits. Each
+locale directory holds `train_templates.jsonl`, and the locales that have gold
+also hold `test.jsonl`. This is the file pattern the previous release uses, so
+a consumer that pins it keeps working across a version change.
+
+    python train/publish_corpus.py \
+        --corpus-dir staging/m2v-v6-dataset \
+        --repo OpenVoiceOS/ovos-intents-v5-templates \
+        --tag v6 \
+        --expect-train-rows 2204034 --expect-test-rows 1412 \
+        --dry-run
+
+Remove `--dry-run` to upload. The token comes from the `HF_TOKEN` environment
+variable. The script never reads a token from an argument or a file.
+
+`--tag` puts a tag on the published commit. A consumer then pins a revision
+rather than a repository name, which is what lets the content version move
+while the repository keeps its name.
+
+The staged directory must hold `README.md` (the dataset card) and
+`manifest.json` at its root. The script reads the locale set of each split
+from the directory itself. It never uses a list of locales written into the
+code.
+
+The script refuses to upload in four cases:
+
+- `HF_TOKEN` is not set.
+- A locale file is empty. An empty `test.jsonl` says "measured, found
+  nothing" when the truth is "never measured". Remove the file instead.
+- A locale has gold rows and no training rows. A model cannot be scored on a
+  locale it never learned.
+- `--expect-train-rows` or `--expect-test-rows` does not match the staged
+  rows.
+
+A locale with training rows and no gold is normal, not an error. The script
+prints how many such locales there are and how many rows they hold.
+
+The whole tree is read and checked before anything is uploaded, so a failed
+check cannot leave the repository holding one split and not the other.

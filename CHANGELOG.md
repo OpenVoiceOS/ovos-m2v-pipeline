@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.14.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.14.0a1) (2026-09-14)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.15a1...0.14.0a1)
+
+**Merged pull requests:**
+
+- feat: publish\_corpus.py uploads a corpus to its two dataset repos [\#202](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/202) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
+## [0.13.15a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.15a1) (2026-09-14)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.14a1...0.13.15a1)
+
+**Merged pull requests:**
+
+- fix: see a bare alternation, and name what each counter counts [\#203](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/203) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.13.14a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.14a1) (2026-09-14)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.13a8...0.13.14a1)
@@ -358,10 +374,6 @@
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.8.1a1...0.8.2a1)
 
-**Merged pull requests:**
-
-- fix: defer model load and encoding until first use [\#79](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/79) ([JarbasAl](https://github.com/JarbasAl))
-
 ## [0.8.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.8.1a1) (2026-09-01)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.8.0a2...0.8.1a1)
@@ -381,10 +393,6 @@
 ## [0.8.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.8.0a1) (2026-08-31)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.7.0a2...0.8.0a1)
-
-**Merged pull requests:**
-
-- feat: enforce requires\_context / excludes\_context gating on padatious registrations [\#77](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/77) ([JarbasAl](https://github.com/JarbasAl))
 
 ## [0.7.0a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.7.0a2) (2026-08-31)
 

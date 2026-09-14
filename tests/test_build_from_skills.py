@@ -241,3 +241,79 @@ def test_the_post_build_check_counts_leftover_template_syntax():
     ]
     assert bfs.count_leftover_template_syntax(rows_dirty) == 1
     assert bfs.count_leftover_template_syntax(rows_clean) == 0
+
+
+def test_a_bare_alternation_in_a_row_is_counted_not_missed():
+    """The regression the manifest reported as zero.
+
+    `complet|ple|plena` is an alternation whose parentheses the resource
+    author left off. The detector matched `(a|b)` only, so a corpus holding
+    715 of these rows reported a clean build. A fixture row in this shape
+    keeps a zero from that counter honest.
+    """
+    rows = [
+        {"utterance": "baixa la brillantor al complet|ple|plena per cent"},
+        {"utterance": "muss ich mit Schneeansammlungen|Schneeverwehungen rechnen"},
+        {"utterance": "Se espera nieve en el pronostico|"},
+        {"utterance": "play hey jude"},
+        {"utterance": "what type is the pokemon {pokemon}"},
+    ]
+    assert bfs.count_leftover_template_syntax(rows) == 3
+
+
+def test_a_slot_value_carrying_a_bare_alternation_is_split_not_embedded():
+    # The ca-ES brightness entity: three words for one setting, on one line,
+    # with no parentheses. Substituted whole it ships the pipe as text.
+    assert bfs.split_bare_alternation("complet|ple|plena") == [
+        "complet", "ple", "plena"]
+    out = sentences("baixa la brillantor al {brightness}",
+                    hints={"brightness": ["complet", "ple", "plena"]})
+    assert sorted(out) == [
+        "baixa la brillantor al complet",
+        "baixa la brillantor al ple",
+        "baixa la brillantor al plena",
+    ]
+    assert all("|" not in s for s in out)
+
+
+def test_a_value_whose_alternation_is_grouped_is_left_to_the_expander():
+    value = "(lys|mørk) rød"
+    assert bfs.split_bare_alternation(value) == [value]
+
+
+def test_a_value_with_no_alternation_is_one_value():
+    assert bfs.split_bare_alternation("hey jude") == ["hey jude"]
+
+
+def test_a_template_with_a_bare_alternation_has_no_defined_scope():
+    # A value has one possible reading; a template line has several, so the
+    # line is dropped rather than expanded to a guess.
+    assert bfs.has_bare_alternation("enfosqueix|atenua una mica")
+    assert bfs.has_bare_alternation("Se espera nieve en el pronostico|")
+    assert not bfs.has_bare_alternation("(baixa|aumenta) la brillantor")
+    assert not bfs.has_bare_alternation("play {track}")
+    # An optional segment is grammar, not a defect: `expand` reads `[the]`
+    # and returns both readings. Reading it as one drops sound templates and
+    # takes their labels with them.
+    assert not bfs.has_bare_alternation("play [the] music")
+    assert not bfs.has_bare_alternation("play [the] (a|b) music")
+
+
+def test_the_unfilled_slot_counter_reads_the_finished_corpus():
+    rows = [
+        {"utterance": "what type is the pokemon {pokemon}"},
+        {"utterance": "set alarm for {duration}"},
+        {"utterance": "play hey jude"},
+    ]
+    assert bfs.count_rows_with_an_unfilled_slot(rows) == 2
+
+
+def test_ambiguity_is_counted_apart_from_duplication():
+    """The same sentence under two labels is a conflict, not a duplicate."""
+    rows = [
+        {"lang": "en-US", "utterance": "stop", "label": "a:stop"},
+        {"lang": "en-US", "utterance": "stop", "label": "b:halt"},
+        {"lang": "en-US", "utterance": "play hey jude", "label": "c:play"},
+        {"lang": "de-DE", "utterance": "stop", "label": "a:stop"},
+    ]
+    assert bfs.count_ambiguous_rows(rows) == 2
