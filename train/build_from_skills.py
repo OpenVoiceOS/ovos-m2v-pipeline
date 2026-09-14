@@ -347,12 +347,12 @@ def main() -> int:
     # moment the expansion step starts discarding templates again, which is
     # the failure this build already had once and which no count revealed.
     # Measured at the pins in train/sources.yaml. The count falls when a
-    # skill folds intents (date-time, randomness and wallpapers renamed to
-    # underscored base names, volume and weather consolidated into slot
-    # intents, the it-IT count case fix); every such fold is accounted for
-    # in knowledge/wiki/audits/m2v-training/v6-label-floor-diff.md of the
-    # AgentWorkspaces wiki before the floor moves.
-    ap.add_argument("--min-labels", type=int, default=224)
+    # skill folds intents: date-time, randomness, wallpapers and pokepedia
+    # renamed their resources to underscored base names, volume and weather
+    # consolidated several intents into slot intents, and the it-IT count
+    # file lost its capital. Every fold is accounted for against the
+    # previous pins before this floor moves.
+    ap.add_argument("--min-labels", type=int, default=235)
     # Measured on the same tree: 53 distinct locale directories folded to 52
     # once fa-ir/fa-IR merged under OVOS-INTENT-2 2's case-insensitive tag
     # comparison. The prior floor of 53 counted that pair twice.

@@ -249,7 +249,7 @@ skill_refs:
     ovos/skills/ovos-skill-parrot: 7f86f4d3913be83dc7e7181a4ede82ee3c7f4047
     ovos/skills/ovos-skill-personal: 1f7fc7d044d66d75603d7c1a603e81f108c19675
     ovos/skills/ovos-skill-planet-fall-game: 294d2324a0b2cad2743432644bca4827b3dc4f28
-    ovos/skills/ovos-skill-pokepedia: f89ac42ea020640b5a20c6942e90605bbbcca9dc
+    ovos/skills/ovos-skill-pokepedia: 7b2e25148987d947b14c7370d3dac2dde947ca77
     ovos/skills/ovos-skill-randomness: 2351c454f79403718165bfcc972075657eff147f
     ovos/skills/ovos-skill-screenshot: d5abca5349469db9e0fbfa834e7dd6526de182fe
     ovos/skills/ovos-skill-speedtest: db31d0c4f130ae6b9ae0f59c2c9519b86edcedb9
@@ -268,6 +268,8 @@ skill_refs:
     ovos/skills/ovos-skill-zork0-game: 6ae8df93e1f3f92e908bc7f538f0013eea927c4c
     ovos/skills/ovos-skill-zork2-game: 240e1d32ed138f182b270c6f04be195fb1973d7c
     ovos/skills/ovos-skill-zork3-game: cee1fa2ff8c4038e7ef990a2d0e449f618da8272
+    vendor/skill-meal-plan: 85a38cdece1e417e75e1bbf252a0a3a272d14269
+    vendor/skill-musicassistant: ebd7456bb0bb39db4121dfe7174fcab92f6e981c
 
 # Skill-id spellings older corpora use for a pipeline. Resolved to the
 # pipeline id before the registry lookup, since folding cannot bridge them.
@@ -278,6 +280,13 @@ skill_id_aliases:
   ovos-persona: persona
   ovos-core: stop
   ocp: ocp
+  # The corpus carries these under the OpenVoiceOS author suffix the
+  # skill's own maintainer never used; the registered entry point's real
+  # author cannot be reached by folding, so the mapping is spelled here.
+  ovos-skill-color-picker.openvoiceos: ovos-skill-color-picker.krisgesling
+  ovos-skill-easter-eggs.openvoiceos: skill-easter-eggs.openvoiceos
+  skill-musicassistant.openvoiceos: skill-musicassistant.oscillatelabsllc
+  skill-meal-plan.openvoiceos: skill-meal-plan.oscillatelabsllc
 
 # Skill ids that must never reach the corpus.
 skill_blacklist:
