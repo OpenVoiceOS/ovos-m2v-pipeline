@@ -217,8 +217,8 @@ skill_refs:
     ovos/ovos-skill-youtube-music: 0812227128ee80ebec502acce7b2924f5ec0cf66
     ovos/plugins/agents/ovos-skill-ddg: abb036c7dc77ffb28ecff460a0c3f4ffcaa980af
     ovos/skills/adult/ovos-skill-hello-world: a71f4e826f3a6d8c837deb41b1801db8ca86e063
-    ovos/skills/ovos-skill-alerts: 152330f3635e4668486b7fcd5cd5dae6cc625117
-    ovos/skills/ovos-skill-application-launcher: 796d8b10304c65396825e806159f7f09be95a913
+    ovos/skills/ovos-skill-alerts: ab3e82b516aefab3d03be6989548dabebd4594ee
+    ovos/skills/ovos-skill-application-launcher: 5c9e16a4d748768078f612191e365e0a452a3b5e
     ovos/skills/ovos-skill-audio-recording: a482bf3c0e97046a4cdeaeaf72345800efd20537
     ovos/skills/ovos-skill-boot-finished: 93613a23375c7f821ad4a625da51c7c995ea9918
     ovos/skills/ovos-skill-camera: 9ec233371d7c45d42222bef261661160cd6acf39
