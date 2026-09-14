@@ -460,9 +460,13 @@ def main() -> int:
     # resources, and it must never quietly shrink. Both numbers move the
     # moment the expansion step starts discarding templates again, which is
     # the failure this build already had once and which no count revealed.
-    # Measured against #158+#125 merged onto dev (dev@34bfcb2): labels_trained
-    # unmoved by the case-fold fix, so its floor is unchanged.
-    ap.add_argument("--min-labels", type=int, default=227)
+    # Measured at the pins in train/sources.yaml. The count falls when a
+    # skill folds intents: date-time, randomness, wallpapers and pokepedia
+    # renamed their resources to underscored base names, volume and weather
+    # consolidated several intents into slot intents, and the it-IT count
+    # file lost its capital. Every fold is accounted for against the
+    # previous pins before this floor moves.
+    ap.add_argument("--min-labels", type=int, default=235)
     # Measured on the same tree: 53 distinct locale directories folded to 52
     # once fa-ir/fa-IR merged under OVOS-INTENT-2 2's case-insensitive tag
     # comparison. The prior floor of 53 counted that pair twice.
