@@ -156,3 +156,43 @@ per-label row counts
 before and after the cap, together with the seed, without fitting; the same
 table and seed are written to `label_cap_report.json` next to the model, and
 folded into `metrics.json` when a model is actually trained.
+
+## Publishing the corpus
+
+`train/publish_corpus.py` uploads a built corpus to its two Hugging Face
+dataset repositories. The corpus ships as two repositories: the training
+templates and the gold evaluation rows. Each holds one file per locale,
+`{lang}/train_templates.jsonl` and `{lang}/test.jsonl`. This is the layout the
+v5 repositories use, so a consumer that pins that file pattern keeps working
+across a version change.
+
+    python train/publish_corpus.py \
+        --templates-dir staging/m2v-v6-templates \
+        --eval-dir staging/m2v-v6-eval \
+        --templates-repo OpenVoiceOS/ovos-intents-v6-templates \
+        --eval-repo OpenVoiceOS/ovos-intents-v6-eval \
+        --expect-train-rows 2204034 --expect-test-rows 1412 \
+        --dry-run
+
+Remove `--dry-run` to upload. The token comes from the `HF_TOKEN` environment
+variable. The script never reads a token from an argument or a file.
+
+Each directory must hold `README.md` (the dataset card) and `manifest.json`
+at its root. The script reads the locale set from the directories themselves.
+It never uses a list of locales written into the code.
+
+The script refuses to upload in four cases:
+
+- `HF_TOKEN` is not set.
+- A locale file is empty. An empty `test.jsonl` says "measured, found
+  nothing" when the truth is "never measured". Remove the locale instead.
+- A locale has gold rows and no training rows. A model cannot be scored on a
+  locale it never learned.
+- `--expect-train-rows` or `--expect-test-rows` does not match the staged
+  rows.
+
+A locale with training rows and no gold is normal, not an error. The script
+prints how many such locales there are and how many rows they hold.
+
+Both directories are read and checked before anything is uploaded, so a
+failed check cannot leave one repository published and the other not.
