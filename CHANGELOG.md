@@ -1,5 +1,49 @@
 # Changelog
 
+## [0.13.14a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.14a1) (2026-09-14)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.13a8...0.13.14a1)
+
+**Merged pull requests:**
+
+- fix: guarantee every evaluable label some test rows \(re-cut of \#130 on dev\) [\#178](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/178) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
+## [0.13.13a8](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.13a8) (2026-09-14)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.13a7...0.13.13a8)
+
+**Merged pull requests:**
+
+- test: assert LABEL\_ALIASES resolve at pinned refs [\#177](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/177) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
+## [0.13.13a7](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.13a7) (2026-09-13)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.13a6...0.13.13a7)
+
+**Merged pull requests:**
+
+- chore: commit the scripts that built the published v5 models, unchanged [\#171](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/171) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
+## [0.13.13a6](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.13a6) (2026-09-13)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.13a5...0.13.13a6)
+
+## [0.13.13a5](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.13a5) (2026-09-13)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.13a4...0.13.13a5)
+
+## [0.13.13a4](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.13a4) (2026-09-13)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.13a3...0.13.13a4)
+
+## [0.13.13a3](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.13a3) (2026-09-13)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.13a2...0.13.13a3)
+
+## [0.13.13a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.13a2) (2026-09-13)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.13a1...0.13.13a2)
+
 ## [0.13.13a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.13a1) (2026-09-13)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.12a1...0.13.13a1)
@@ -346,25 +390,13 @@
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.7.0a1...0.7.0a2)
 
-**Merged pull requests:**
-
-- Wire boot-time prototype cache to registration inputs [\#75](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/75) ([JarbasAl](https://github.com/JarbasAl))
-
 ## [0.7.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.7.0a1) (2026-08-31)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.6.1a1...0.7.0a1)
 
-**Merged pull requests:**
-
-- feat: configurable label map and valid-label filtering [\#73](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/73) ([JarbasAl](https://github.com/JarbasAl))
-
 ## [0.6.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.6.1a1) (2026-08-31)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.6.0a1...0.6.1a1)
-
-**Merged pull requests:**
-
-- fix: bounded-memory store consolidation and off-dispatch scoring [\#71](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/71) ([JarbasAl](https://github.com/JarbasAl))
 
 ## [0.6.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.6.0a1) (2026-08-31)
 
@@ -374,17 +406,9 @@
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.5.7a1...0.5.8a1)
 
-**Merged pull requests:**
-
-- fix: lazy bounded template expansion in all registration paths [\#67](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/67) ([JarbasAl](https://github.com/JarbasAl))
-
 ## [0.5.7a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.5.7a1) (2026-08-17)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.5.6a1...0.5.7a1)
-
-**Merged pull requests:**
-
-- fix: amortize prototype-store growth and log build progress [\#65](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/65) ([JarbasAl](https://github.com/JarbasAl))
 
 ## [0.5.6a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.5.6a1) (2026-08-17)
 
