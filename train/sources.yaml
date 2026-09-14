@@ -227,6 +227,12 @@ skill_refs:
     ovos/skills/ovos-skill-color-picker: 769869161099a5c10838707f1790a1bfcd4f735f
     ovos/skills/ovos-skill-confucius-quotes: eb0dd4cdfffa99b7e369378a4b3150a92f1e73d2
     ovos/skills/ovos-skill-count: 093fa96d608b5fa086d616ef2e1d53aaa216fd00
+    # date-time is held at this sha on purpose. It is not stale. dev is three
+    # commits ahead, and the gap holds #318, which fills the 18 offset.entity
+    # files that held only comment lines. ovos-skill-date-time#320 replaces
+    # those files with the typed slot {number:offset}, so a move to the dev
+    # head puts a large block of offset rows into the corpus that the next
+    # build removes again. Move this pin when the typed-slot conversion lands.
     ovos/skills/ovos-skill-date-time: 22e185969386ea8aad37e1ec20d39c444274d973
     ovos/skills/ovos-skill-days-in-history: 74e8fd4c46dcb37a4fb260118eb122dcd4cc101f
     ovos/skills/ovos-skill-diagnostics: 45e6954f43cbbf7b1e81f5202e3f26858edecc55
