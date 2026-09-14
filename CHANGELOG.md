@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.13a8](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.13a8) (2026-09-14)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.13a7...0.13.13a8)
+
+**Merged pull requests:**
+
+- test: assert LABEL\_ALIASES resolve at pinned refs [\#177](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/177) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.13.13a7](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.13a7) (2026-09-13)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.13a6...0.13.13a7)
@@ -381,10 +389,6 @@
 ## [0.7.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.7.0a1) (2026-08-31)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.6.1a1...0.7.0a1)
-
-**Merged pull requests:**
-
-- feat: configurable label map and valid-label filtering [\#73](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/73) ([JarbasAl](https://github.com/JarbasAl))
 
 ## [0.6.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.6.1a1) (2026-08-31)
 
