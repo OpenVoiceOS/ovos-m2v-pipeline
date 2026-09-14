@@ -251,10 +251,12 @@ def main(argv=None, predictor=None) -> int:
         "train_sha256": sha256(train_path),
         "skill_refs": refs,
         "gold_rows_read": len(gold) + stats["gold_needs_manual"]
-                          + stats["gold_asserts_a_dialog_not_an_intent"] + stats["gold_unparsable"],
+                          + stats["gold_asserts_a_dialog_not_an_intent"]
+                          + stats["gold_without_utterance"] + stats["gold_unparsable"],
         "excluded": {
             "needs_manual": stats["gold_needs_manual"],
             "no_intent_label": stats["gold_asserts_a_dialog_not_an_intent"],
+            "no_utterance": stats["gold_without_utterance"],
             "unparsable": stats["gold_unparsable"],
             "unresolved_label": stats["unresolved_label"],
             "refused_train_overlap": stats["refused_train_overlap"],

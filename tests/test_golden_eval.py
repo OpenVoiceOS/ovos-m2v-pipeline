@@ -1,10 +1,10 @@
 """The golden evaluation scores a model on each pinned skill's own gold files.
 
 A fixture skill repo carries gold rows that must each land in one bucket: a
-scored row, a needs_manual row, a dialog-only row, a renamed label, a row whose
-text is a training row, and a label the model never trained. A stub predictor
-stands in for the model, so the test checks the selection and the arithmetic,
-not a model download.
+scored row, a needs_manual row, a dialog-only row, a row with no utterance
+text, a renamed label, a row whose text is a training row, and a label the
+model never trained. A stub predictor stands in for the model, so the test
+checks the selection and the arithmetic, not a model download.
 """
 import json
 import os
@@ -64,6 +64,9 @@ def run(tmp_path, monkeypatch):
             {"skill_id": SKILL, "utterance": "maybe later", "intent_label": "bye.intent",
              "needs_manual": True},
             {"skill_id": SKILL, "utterance": "tell me a joke"},
+            # a row with a label and no utterance text: there is nothing to
+            # predict, and the count must say so rather than drop the row
+            {"skill_id": SKILL, "utterance": "   ", "intent_label": "greet.intent"},
             # the training rows contain this text: refused, never scored
             {"skill_id": SKILL, "utterance": "Goodbye!", "intent_label": "bye.intent"},
             # an old label renamed in RENAMED_LABELS below; "countdown" does
@@ -94,12 +97,12 @@ def run(tmp_path, monkeypatch):
 def test_every_row_lands_in_exactly_one_bucket(run):
     code, report, _ = run
     assert code == 0
-    assert report["gold_rows_read"] == 11
-    assert report["excluded"] == {"needs_manual": 1, "no_intent_label": 1, "unparsable": 0,
-                                  "unresolved_label": 1, "refused_train_overlap": 1,
-                                  "gold_duplicates": 0}
+    assert report["gold_rows_read"] == 12
+    assert report["excluded"] == {"needs_manual": 1, "no_intent_label": 1, "no_utterance": 1,
+                                  "unparsable": 0, "unresolved_label": 1,
+                                  "refused_train_overlap": 1, "gold_duplicates": 0}
     assert report["rows_scored"] == 7
-    assert 11 == report["rows_scored"] + sum(report["excluded"].values())
+    assert 12 == report["rows_scored"] + sum(report["excluded"].values())
 
 
 def test_a_gold_row_that_is_a_training_row_is_refused(run):
