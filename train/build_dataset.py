@@ -236,6 +236,45 @@ def norm_skill(skill_id: str) -> str:
     return s
 
 
+def unfillable_slots(dropped) -> dict:
+    """Slots that left their placeholder literal, per label.
+
+    `dropped` is the frame of rows the entity fill could not complete. The
+    result maps a label to the slot names and languages behind that loss, so
+    a report can say which slot cost the label its phrasings.
+    """
+    out = {}
+    for label, lang, utt in zip(dropped["label"], dropped["lang"],
+                                dropped["utterance"]):
+        slots, langs = out.setdefault(label, (set(), set()))
+        slots.update(re.findall(r"\{([^}]+)\}", utt))
+        langs.add(lang)
+    return out
+
+
+def limited_by_unfilled_slots(no_test: set, unfillable: dict) -> dict:
+    """Of the labels with no test rows, those an unfilled slot explains.
+
+    A label here is not short of phrasings. Its phrasings exist in the skill
+    and this corpus cannot expand them, because the pinned refs register no
+    values for the slot they end in. That asks for an entity file or a change
+    in the builder, where a genuinely thin label asks for a contribution, so
+    the two are reported apart and the reason travels with the entry.
+    """
+    limited = {}
+    for label in sorted(no_test & set(unfillable)):
+        slots, langs = unfillable[label]
+        limited[label] = {
+            "slots": sorted(slots),
+            "langs": sorted(langs),
+            "reason": "every phrasing in %s ends in %s, which the pinned refs "
+                      "register no values for" % (
+                          ", ".join(sorted(langs)),
+                          " and ".join("{%s}" % s for s in sorted(slots))),
+        }
+    return limited
+
+
 def make_label(skill_id: str, intent: str) -> str:
     label = f"{norm_skill(skill_id)}:{norm_intent(intent)}"
     return LABEL_ALIASES.get(label, label)
@@ -507,26 +546,56 @@ def _entity_values(repo: Path, rev: str, path: str) -> List[str]:
     return values
 
 
-def collect_entities(cfg, ws) -> Dict[str, List[str]]:
-    """Entity value-sets attested by the pinned refs, keyed by entity name.
+#: The locale directory an `.entity` file sits under. The subtag shape is
+#: checked here so a directory like `locale/vocab` cannot pass as a language.
+def entities_for_lang(entities: Dict[str, Dict[str, List[str]]],
+                      lang: str) -> Dict[str, List[str]]:
+    """Values a row of *lang* may be filled from.
 
-    Mirrors ``Model2VecIntentPipeline.entities``: one flat, skill-agnostic
-    dict, exactly what the runtime accumulates from every skill's own
-    ``ENTITY_REGISTER`` calls. Feeds :func:`ovos_m2v_pipeline.slots.expand_entities`
-    so the corpus builder fills ``{slot}`` templates the same way the
-    runtime prototype pipeline does.
+    The language's own values, over the locale-less files that serve as the
+    fallback. A value another language attests is never borrowed: it yields a
+    sentence in neither language, which is worse for a corpus than a row that
+    keeps its placeholder and is dropped.
     """
-    entities: Dict[str, List[str]] = {}
+    merged = dict(entities.get("", {}))
+    merged.update(entities.get(lang, {}))
+    return merged
 
-    def add(name: str, values: List[str]):
+
+_ENTITY_LOCALE_RE = re.compile(r"(?:^|.*/)locale/([a-z]{2,3}(?:-[A-Za-z]{2,4})?)/", re.I)
+
+
+def collect_entities(cfg, ws) -> Dict[str, Dict[str, List[str]]]:
+    """Entity value-sets attested by the pinned refs, per language.
+
+    A running pipeline holds one language's resources at a time, so its flat
+    ``Model2VecIntentPipeline.entities`` never mixes languages. The corpus
+    reads every locale of every skill at once, and pooling those into one dict
+    fills a Portuguese template with an English value -- a sentence no runtime
+    would ever produce and no speaker would say. Values are therefore kept
+    under the language whose locale directory attests them, with entity files
+    outside a locale tree collected under ``""`` as the fallback for a
+    language that registers nothing of its own.
+
+    Feeds :func:`ovos_m2v_pipeline.slots.expand_entities` one language at a
+    time, so the fill still matches what a live pipeline does for that
+    language.
+    """
+    entities: Dict[str, Dict[str, List[str]]] = {}
+
+    def add(lang: str, name: str, values: List[str]):
         if not values:
             return
-        bucket = entities.setdefault(name.lower(), [])
+        bucket = entities.setdefault(lang, {}).setdefault(name.lower(), [])
         seen = set(bucket)
         for v in values:
             if v not in seen and len(bucket) < MAX_ENTITY_EXPANSIONS:
                 bucket.append(v)
                 seen.add(v)
+
+    def lang_of(path: str) -> str:
+        m = _ENTITY_LOCALE_RE.match(path)
+        return norm_lang(m.group(1)) if m else ""
 
     for repo_name, rev in sorted(cfg["skill_refs"]["refs"].items()):
         repo = ws / repo_name
@@ -534,7 +603,8 @@ def collect_entities(cfg, ws) -> Dict[str, List[str]]:
             if path.split("/")[0] in {"test", "tests"}:
                 continue
             if path.endswith(".entity"):
-                add(Path(path).stem, _entity_values(repo, rev, path))
+                add(lang_of(path), Path(path).stem,
+                    _entity_values(repo, rev, path))
     for src in cfg["git_sources"]:
         if src["kind"] != "plugin_intents":
             continue
@@ -543,7 +613,8 @@ def collect_entities(cfg, ws) -> Dict[str, List[str]]:
         for path in git_ls(repo, src["revision"], entity_glob):
             if path.split("/")[0] in {"test", "tests"}:
                 continue
-            add(Path(path).stem, _entity_values(repo, src["revision"], path))
+            add(lang_of(path), Path(path).stem,
+                _entity_values(repo, src["revision"], path))
     return entities
 
 
@@ -956,19 +1027,26 @@ def main(argv=None):
     entities = collect_entities(cfg, ws)
     n_slot_templates = int(df["utterance"].str.contains("{", regex=False).sum())
 
-    def _fill(u):
+    def _fill(lang, u):
         if "{" not in u:
             return [u]
-        filled = expand_entities([u], entities)
+        filled = expand_entities([u], entities_for_lang(entities, lang))
         if len(filled) <= TEMPLATE_FILL_CAP:
             return filled
         step = (len(filled) - 1) / (TEMPLATE_FILL_CAP - 1)
         return [filled[round(i * step)] for i in range(TEMPLATE_FILL_CAP)]
 
-    df = df.assign(utterance=df["utterance"].map(_fill))
+    df = df.assign(utterance=[_fill(l, u) for l, u
+                              in zip(df["lang"], df["utterance"])])
     df = df.explode("utterance", ignore_index=False)
     still_literal = df["utterance"].str.contains("{", regex=False, na=False)
     n_unfilled_slot = int(still_literal.sum())
+    # A slot the pinned refs register no values for leaves its placeholder
+    # literal, so every phrasing built on it is dropped here. Remember which
+    # label lost phrasings that way, and to which slot, so the floor report
+    # can tell a label starved of phrasings from one whose phrasings exist
+    # and cannot be expanded.
+    unfillable = unfillable_slots(df[still_literal])
     df = df[~still_literal]
 
     # ---- content filters
@@ -1157,8 +1235,15 @@ def main(argv=None):
 
     report["outputs"] = written
     test_rows = test["label"].value_counts()
-    report["labels_without_test_rows"] = sorted(
-        set(df["label"].unique()) - set(test_rows.index))
+    no_test = set(df["label"].unique()) - set(test_rows.index)
+    # A label whose phrasings were dropped for an unfilled slot is not thin:
+    # the phrasings exist in the skill and this corpus cannot expand them. It
+    # is reported apart from the labels that genuinely lack phrasings, with
+    # the slot named, because the two ask for opposite things -- one a change
+    # in the builder or the skill's entity files, the other a contribution.
+    limited = limited_by_unfilled_slots(no_test, unfillable)
+    report["labels_without_test_rows"] = sorted(no_test - set(limited))
+    report["labels_limited_by_unfilled_slots"] = limited
     report["golden_in_split"] = {
         "train": int(train["source"].str.startswith("golden:").sum()),
         "test": int(test["source"].str.startswith("golden:").sum()),
