@@ -340,3 +340,20 @@ word the user said as a search hint, and leaves the vocabulary to the skills
 that answer, has no entity file to ship and no reason to grow one. Such a label
 cannot be scored by a corpus that expands templates, and the manifest entry
 says so rather than implying a gap.
+
+### Entity values do not cross languages
+
+A running pipeline holds one language's resources at a time, so the flat
+`entities` dict it accumulates never mixes languages. The corpus reads every
+locale of every skill at once, and pooling those values fills a Catalan
+template from an English or Italian file.
+
+Values are therefore kept under the language whose locale directory attests
+them. A row is filled from its own language, falling back to entity files that
+sit outside a locale tree, and never from another language. A slot with no
+values in the row's language keeps its placeholder and the row is dropped, the
+same as any other unfilled slot.
+
+This costs rows, and the cost is the point: those rows were sentences in no
+language. A corpus that reports a language it can only produce by borrowing
+another language's words overstates its coverage.

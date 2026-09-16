@@ -546,26 +546,56 @@ def _entity_values(repo: Path, rev: str, path: str) -> List[str]:
     return values
 
 
-def collect_entities(cfg, ws) -> Dict[str, List[str]]:
-    """Entity value-sets attested by the pinned refs, keyed by entity name.
+#: The locale directory an `.entity` file sits under. The subtag shape is
+#: checked here so a directory like `locale/vocab` cannot pass as a language.
+def entities_for_lang(entities: Dict[str, Dict[str, List[str]]],
+                      lang: str) -> Dict[str, List[str]]:
+    """Values a row of *lang* may be filled from.
 
-    Mirrors ``Model2VecIntentPipeline.entities``: one flat, skill-agnostic
-    dict, exactly what the runtime accumulates from every skill's own
-    ``ENTITY_REGISTER`` calls. Feeds :func:`ovos_m2v_pipeline.slots.expand_entities`
-    so the corpus builder fills ``{slot}`` templates the same way the
-    runtime prototype pipeline does.
+    The language's own values, over the locale-less files that serve as the
+    fallback. A value another language attests is never borrowed: it yields a
+    sentence in neither language, which is worse for a corpus than a row that
+    keeps its placeholder and is dropped.
     """
-    entities: Dict[str, List[str]] = {}
+    merged = dict(entities.get("", {}))
+    merged.update(entities.get(lang, {}))
+    return merged
 
-    def add(name: str, values: List[str]):
+
+_ENTITY_LOCALE_RE = re.compile(r"(?:^|.*/)locale/([a-z]{2,3}(?:-[A-Za-z]{2,4})?)/", re.I)
+
+
+def collect_entities(cfg, ws) -> Dict[str, Dict[str, List[str]]]:
+    """Entity value-sets attested by the pinned refs, per language.
+
+    A running pipeline holds one language's resources at a time, so its flat
+    ``Model2VecIntentPipeline.entities`` never mixes languages. The corpus
+    reads every locale of every skill at once, and pooling those into one dict
+    fills a Portuguese template with an English value -- a sentence no runtime
+    would ever produce and no speaker would say. Values are therefore kept
+    under the language whose locale directory attests them, with entity files
+    outside a locale tree collected under ``""`` as the fallback for a
+    language that registers nothing of its own.
+
+    Feeds :func:`ovos_m2v_pipeline.slots.expand_entities` one language at a
+    time, so the fill still matches what a live pipeline does for that
+    language.
+    """
+    entities: Dict[str, Dict[str, List[str]]] = {}
+
+    def add(lang: str, name: str, values: List[str]):
         if not values:
             return
-        bucket = entities.setdefault(name.lower(), [])
+        bucket = entities.setdefault(lang, {}).setdefault(name.lower(), [])
         seen = set(bucket)
         for v in values:
             if v not in seen and len(bucket) < MAX_ENTITY_EXPANSIONS:
                 bucket.append(v)
                 seen.add(v)
+
+    def lang_of(path: str) -> str:
+        m = _ENTITY_LOCALE_RE.match(path)
+        return norm_lang(m.group(1)) if m else ""
 
     for repo_name, rev in sorted(cfg["skill_refs"]["refs"].items()):
         repo = ws / repo_name
@@ -573,7 +603,8 @@ def collect_entities(cfg, ws) -> Dict[str, List[str]]:
             if path.split("/")[0] in {"test", "tests"}:
                 continue
             if path.endswith(".entity"):
-                add(Path(path).stem, _entity_values(repo, rev, path))
+                add(lang_of(path), Path(path).stem,
+                    _entity_values(repo, rev, path))
     for src in cfg["git_sources"]:
         if src["kind"] != "plugin_intents":
             continue
@@ -582,7 +613,8 @@ def collect_entities(cfg, ws) -> Dict[str, List[str]]:
         for path in git_ls(repo, src["revision"], entity_glob):
             if path.split("/")[0] in {"test", "tests"}:
                 continue
-            add(Path(path).stem, _entity_values(repo, src["revision"], path))
+            add(lang_of(path), Path(path).stem,
+                _entity_values(repo, src["revision"], path))
     return entities
 
 
@@ -995,16 +1027,17 @@ def main(argv=None):
     entities = collect_entities(cfg, ws)
     n_slot_templates = int(df["utterance"].str.contains("{", regex=False).sum())
 
-    def _fill(u):
+    def _fill(lang, u):
         if "{" not in u:
             return [u]
-        filled = expand_entities([u], entities)
+        filled = expand_entities([u], entities_for_lang(entities, lang))
         if len(filled) <= TEMPLATE_FILL_CAP:
             return filled
         step = (len(filled) - 1) / (TEMPLATE_FILL_CAP - 1)
         return [filled[round(i * step)] for i in range(TEMPLATE_FILL_CAP)]
 
-    df = df.assign(utterance=df["utterance"].map(_fill))
+    df = df.assign(utterance=[_fill(l, u) for l, u
+                              in zip(df["lang"], df["utterance"])])
     df = df.explode("utterance", ignore_index=False)
     still_literal = df["utterance"].str.contains("{", regex=False, na=False)
     n_unfilled_slot = int(still_literal.sum())
