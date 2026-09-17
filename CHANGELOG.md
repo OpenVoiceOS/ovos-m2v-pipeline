@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.0a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.14.0a2) (2026-09-17)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.14.0a1...0.14.0a2)
+
+**Merged pull requests:**
+
+- chore: add Apache-2.0 license [\#96](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/96) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.14.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.14.0a1) (2026-09-14)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.15a1...0.14.0a1)
@@ -366,10 +374,6 @@
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.8.2a1...0.8.2a2)
 
-**Merged pull requests:**
-
-- chore: reproducible intent dataset pipeline [\#80](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/80) ([JarbasAl](https://github.com/JarbasAl))
-
 ## [0.8.2a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.8.2a1) (2026-09-01)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.8.1a1...0.8.2a1)
@@ -378,17 +382,9 @@
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.8.0a2...0.8.1a1)
 
-**Merged pull requests:**
-
-- fix: check valid\_labels on the raw label before the special-label map [\#82](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/82) ([JarbasAl](https://github.com/JarbasAl))
-
 ## [0.8.0a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.8.0a2) (2026-09-01)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.8.0a1...0.8.0a2)
-
-**Merged pull requests:**
-
-- test: align e2e doubles and labels with the encode kwargs and no-suffix contract [\#81](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/81) ([JarbasAl](https://github.com/JarbasAl))
 
 ## [0.8.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.8.0a1) (2026-08-31)
 
