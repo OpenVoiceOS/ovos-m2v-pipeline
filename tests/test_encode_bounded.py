@@ -74,6 +74,8 @@ def test_padatious_labels_dealias_to_canonical():
     p.intents = set()
     p._context_gates = {}
     p._intent_slots = {}
+    p._intent_slot_types = {}
+    p._intent_slot_positions = {}
     p._disabled = {}
     p.model = mock.Mock()
     p.model.encode.side_effect = \

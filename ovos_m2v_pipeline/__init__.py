@@ -22,6 +22,8 @@ from ovos_spec_tools.language import closest_lang, standardize_lang
 from itertools import islice
 
 from ovos_spec_tools.expansion import iter_expand, strip_type_prefixes
+from ovos_spec_tools import (MalformedTypedSlots, declared_slot_types,
+                             drop_unregistered_typed_slots, validate_typed_slots)
 from ovos_utils.fakebus import FakeBus
 from ovos_utils.log import LOG
 
@@ -1053,6 +1055,15 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         #: Used to fill declared slots from live intent context independently
         #: of ``requires_context`` (which gates the match, not the fill).
         self._intent_slots: Dict[str, List[str]] = {}
+        #: OVOS-INTENT-1 §5.6 declared slot types per label, ``{slot: type}``,
+        #: read from the ``{type:name}`` prefixes of the original samples and
+        #: from a ``slot_types`` payload (ovos-workshop strips the prefix
+        #: and sends the declaration beside the bare samples).
+        self._intent_slot_types: Dict[str, Dict[str, str]] = {}
+        #: Relative position (0..1) of each declared slot in its templates,
+        #: averaged over the samples that name it; picks the nearest map
+        #: entry when several entries share the slot's type.
+        self._intent_slot_positions: Dict[str, Dict[str, float]] = {}
         #: skill_ids that already triggered the frozen-classifier INTENT-4
         #: warning (see ``_handle_intent4_register_template``), so the
         #: warning logs once per skill rather than once per template.
@@ -1843,6 +1854,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             self.intents.discard(name)
             self._context_gates.pop(name, None)
             self._intent_slots.pop(name, None)
+            self._forget_slot_types(name)
             self._forget_disabled(name)
             LOG.debug(f"Prototype store: removed prototypes for '{name}'")
 
@@ -1856,6 +1868,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                                    if not l.startswith(skill_id + ":")}
             self._intent_slots = {l: s for l, s in self._intent_slots.items()
                                   if not l.startswith(skill_id + ":")}
+            self._forget_slot_types_skill(skill_id)
             self._forget_disabled_skill(skill_id)
             self.entities.pop(skill_id, None)
             LOG.debug(f"Prototype store: removed prototypes for skill '{skill_id}'")
@@ -2078,6 +2091,93 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             self._intent_slots[label] = slot_names
         else:
             self._intent_slots.pop(label, None)
+        self._store_slot_types(label, message.data.get("samples") or [],
+                               message.data.get("slot_types"))
+
+    def _store_slot_types(self, label: str, samples: List[str],
+                          payload_types: Any) -> None:
+        """Record the OVOS-INTENT-1 §5.6 declaration for ``label``: the
+        ``{type:name}`` prefixes of the original samples, plus a
+        ``slot_types`` payload when the emitter already stripped them.
+        Also the relative position of every declared slot in the samples
+        that name it, for the nearest-entry rule of `_fill_typed_slots`."""
+        declared: Dict[str, str] = {}
+        try:
+            declared.update(declared_slot_types(samples))
+        except Exception as exc:  # a malformed prefix is the loader's problem
+            LOG.warning(f"ignoring the typed-slot declaration of '{label}': {exc}")
+        if isinstance(payload_types, dict):
+            declared.update({str(k): str(v) for k, v in payload_types.items()})
+        if not declared:
+            self._forget_slot_types(label)
+            return
+        positions: Dict[str, List[float]] = {}
+        for sample in samples:
+            bare = strip_type_prefixes(sample)
+            for m in _SLOT_RE.finditer(bare):
+                if m.group(1) in declared and len(bare) > 0:
+                    positions.setdefault(m.group(1), []).append(m.start() / len(bare))
+        self._intent_slot_types[label] = declared
+        self._intent_slot_positions[label] = {
+            slot: sum(v) / len(v) for slot, v in positions.items()}
+
+    def _forget_slot_types(self, label: str) -> None:
+        self._intent_slot_types.pop(label, None)
+        self._intent_slot_positions.pop(label, None)
+
+    def _forget_slot_types_skill(self, skill_id: str) -> None:
+        for label in [l for l in self._intent_slot_types if l.startswith(skill_id + ":")]:
+            self._forget_slot_types(label)
+
+    def _fill_typed_slots(self, label: str, utterance: str,
+                          message: Optional[Message],
+                          slots: Dict[str, Any]) -> Dict[str, Any]:
+        """OVOS-INTENT-1 §5.6: fill a declared typed slot from the map.
+
+        "An engine MAY use the map to constrain where ``{type:name}``
+        matches — preferring or requiring a span the map lists for that
+        type — and MAY report the corresponding normalized value
+        alongside the match." This engine never extracts a value from the
+        utterance, so the map is its only utterance-supplied source. One
+        entry of the slot's type fills the slot with its surface. Of
+        several, the entry whose relative position in the utterance is
+        nearest the slot's position in its templates fills it. No entry
+        of that type, or no entry whose span holds on this utterance
+        (``utterance[start:end] == surface``): the slot stays unfilled.
+        A slot already filled (OVOS-CONTEXT-1 §7 context) is kept.
+        ``Match.slots[name]`` is the surface string (PIPELINE-1 §4.3).
+        """
+        declared = self._intent_slot_types.get(label)
+        if not declared or message is None:
+            return slots
+        raw = message.data.get("typed_slots")
+        if not isinstance(raw, dict) or not raw:
+            return slots
+        try:
+            typed = drop_unregistered_typed_slots(raw)
+            validate_typed_slots(typed)
+        except MalformedTypedSlots as exc:
+            LOG.warning(f"ignoring a malformed typed_slots map (INTENT-1 5.6): {exc}")
+            return slots
+        positions = self._intent_slot_positions.get(label, {})
+        length = max(1, len(utterance))
+        filled = dict(slots)
+        for slot, slot_type in declared.items():
+            if filled.get(slot) is not None:
+                continue
+            entries = [e for e in typed.get(slot_type, [])
+                       if utterance[e["span"][0]:e["span"][1]] == e["surface"]]
+            if not entries:
+                continue
+            if len(entries) == 1:
+                filled[slot] = entries[0]["surface"]
+                continue
+            want = positions.get(slot)
+            if want is None:
+                continue
+            best = min(entries, key=lambda e: abs(e["span"][0] / length - want))
+            filled[slot] = best["surface"]
+        return filled
 
     def _handle_intent4_register_entity(self, message: Message) -> None:
         """Register an entity value-set hint (§7). No-op in classifier mode."""
@@ -2131,6 +2231,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         self.intents.discard(label)
         self._context_gates.pop(label, None)
         self._intent_slots.pop(label, None)
+        self._forget_slot_types(label)
         self.excluded_keywords.pop(label, None)
         self._forget_disabled(label)
         LOG.debug(f"Model2Vec: deregistered INTENT-4 intent '{label}'")
@@ -2160,6 +2261,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                                if not l.startswith(skill_id + ":")}
         self._intent_slots = {l: s for l, s in self._intent_slots.items()
                               if not l.startswith(skill_id + ":")}
+        self._forget_slot_types_skill(skill_id)
         self.excluded_keywords = {i: kw for i, kw in self.excluded_keywords.items()
                                   if not i.startswith(skill_id + ":")}
         self._forget_disabled_skill(skill_id)
@@ -2379,6 +2481,8 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             if slot_names:
                 slots = context_slot_candidates(intent_context, slot_names,
                                                 owner_id=skill_id)
+            # OVOS-INTENT-1 §5.6: the map fills what context left empty
+            slots = self._fill_typed_slots(label, utterance, message, slots)
             yield skill_id, label, score, slots
 
     def _match_classifier(self, utterance: str,
