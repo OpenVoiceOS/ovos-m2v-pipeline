@@ -599,10 +599,67 @@ def read_tracker(src, ws, rows, stats):
                          utt, src["id"], utt))
 
 
+#: OVOS-INTENT-1 3.7: an inline vocabulary reference `<name>`; `name` has the
+#: slot-name charset, lowercase letters, digits and underscores, no leading digit.
+VOC_REFERENCE = re.compile(r"<([a-z_][a-z0-9_]*)>")
+
+
+def _voc_members(vocabs: dict, name: str, cap: int = 64, _seen=()) -> List[str]:
+    """Sentences the vocabulary *name* stands for, references resolved.
+
+    OVOS-INTENT-1 4.1 step 1: a vocabulary is itself a template set, so a
+    member may hold further `<...>` references, and resolution recurses. A
+    reference to an unavailable vocabulary, or a cycle, is malformed (3.6):
+    raises KeyError.
+    """
+    if name not in vocabs or name in _seen:
+        raise KeyError(name)
+    members = []
+    for line in vocabs[name]:
+        for sent in _resolve_voc(expand_template(line, cap), vocabs, cap, _seen + (name,)):
+            if sent and sent not in members:
+                members.append(sent)
+    return members[:cap]
+
+
+def _resolve_voc(sentences: List[str], vocabs: dict, cap: int = 64, _seen=()) -> List[str]:
+    """Every `<name>` in *sentences* replaced by each member of its vocabulary.
+
+    The template is expanded first with the reference kept as a token, then
+    each token is substituted, so a reference inside an alternative or an
+    optional group needs no nested group. Raises KeyError as `_voc_members`.
+    """
+    out = []
+    for sent in sentences:
+        m = VOC_REFERENCE.search(sent)
+        if not m:
+            out.append(sent)
+            continue
+        grown = [sent[:m.start()] + member + sent[m.end():]
+                 for member in _voc_members(vocabs, m.group(1), cap, _seen)]
+        out.extend(_resolve_voc(grown, vocabs, cap, _seen))
+        if len(out) >= cap:
+            break
+    return [re.sub(r"\s+", " ", s).strip() for s in out[:cap]]
+
+
+def _plugin_vocabs(repo: Path, rev: str, intent_glob: str) -> Dict[str, Dict[str, List[str]]]:
+    """`.voc` template lines beside a plugin's intents, keyed by locale directory, then name."""
+    vocabs: Dict[str, Dict[str, List[str]]] = {}
+    for path in sorted(git_ls(repo, rev, intent_glob.replace(".intent", ".voc"))):
+        if path.split("/")[0] in {"test", "tests"}:
+            continue
+        lines = [l.strip() for l in git_show(repo, rev, path).splitlines()
+                 if l.strip() and not l.strip().startswith("#")]
+        vocabs.setdefault(str(Path(path).parent), {})[Path(path).stem.lower()] = lines
+    return vocabs
+
+
 def read_plugin_intents(src, ws, rows, stats):
     repo = ws / src["path"]
     assert_rev(repo, src["revision"], src["id"])
     pid = src["pipeline_id"]
+    vocabs = _plugin_vocabs(repo, src["revision"], src["files"])
     for name in sorted(git_ls(repo, src["revision"], src["files"])):
         if name.split("/")[0] in {"test", "tests"}:
             # a plugin's own test skill is not a registration
@@ -620,7 +677,17 @@ def read_plugin_intents(src, ws, rows, stats):
         label = make_label(pid, stem)
         for line in git_show(repo, src["revision"], name).splitlines():
             template_key = f"{name}:{line.strip()}"
-            for sent in expand_template(line):
+            sentences = expand_template(line)
+            # OVOS-INTENT-1 3.7: a `<name>` token never reaches an intent
+            # engine, so it never reaches a corpus row either. It resolves
+            # from the `.voc` of the same locale; with no such file the
+            # sentences are malformed (3.6), dropped and counted.
+            try:
+                sentences = _resolve_voc(sentences, vocabs.get(str(Path(name).parent), {}))
+            except KeyError:
+                stats["dropped_unresolved_voc_rows"] += len(sentences)
+                continue
+            for sent in sentences:
                 rows.append((norm_lang(lang), label, norm_utterance(sent), src["id"],
                              template_key))
 
@@ -1275,6 +1342,7 @@ def main(argv=None):
         "dropped_unfilled_slot": n_unfilled_slot,
         "dropped_filters": n_filtered,
         "dropped_localize_voc": int(stats["dropped_voc"]),
+        "dropped_unresolved_voc_rows": int(stats["dropped_unresolved_voc_rows"]),
         "dropped_exact_duplicates": int(n_dedup),
         "dropped_unresolved_labels": n_unresolved,
         "dropped_rare_labels": {"labels": len(rare), "examples": rare[:40]},
