@@ -18,7 +18,9 @@ it.
 Output, under ``--out``: ``{lang}/test.jsonl`` (the layout the Hub repo
 ``OpenVoiceOS/ovos-intents-v5-eval`` publishes), a flat ``test.jsonl`` for the
 census, ``census.json`` (rows in, rows out and the reason for each row dropped,
-per skill per locale) and ``manifest.json``.
+per skill per locale; a cloned skill with no golden file gets a
+``no_gold_file`` cell under the ``-`` locale, so every ``skill_refs`` entry
+with a clone appears) and ``manifest.json``.
 """
 import argparse
 import collections
@@ -73,10 +75,12 @@ def read_gold(repo: Path, rev: str, repo_name: str, stats: collections.Counter,
         stats["skill_id_assumed_from_repo_name"] += 1
     rows = []
     seen = set()
+    gold_files = 0
     for path in tree(repo, rev):
         m = GOLD.match(path or "")
         if not m:
             continue
+        gold_files += 1
         from_name = m.group(1)
         for line in show(repo, rev, path).splitlines():
             line = line.strip()
@@ -117,6 +121,12 @@ def read_gold(repo: Path, rev: str, repo_name: str, stats: collections.Counter,
             rows.append({"lang": lang, "label": label, "utterance": utterance,
                          "source": f"gold:{repo_name}"})
             _count(census, repo_name, lang, "out")
+    if not gold_files:
+        # A cloned skill that ships no golden file is still part of the
+        # build: the census must say it was read and found empty, or a
+        # reader cannot tell it from a skill never looked at.
+        stats["skill_no_gold_file"] += 1
+        _count(census, repo_name, "-", "no_gold_file")
     return rows
 
 

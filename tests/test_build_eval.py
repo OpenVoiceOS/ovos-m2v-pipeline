@@ -52,6 +52,27 @@ def _workspace(tmp_path):
     return sources
 
 
+def test_a_skill_with_no_golden_file_is_in_the_census(tmp_path):
+    """T-3011: a cloned skill that ships no golden file must appear in
+    census.json with a reason, or a reader cannot tell it from a skill the
+    build never looked at (review of #219: 21 of 64 skill_refs absent)."""
+    sources = _workspace(tmp_path)
+    ws = tmp_path / "ws"
+    sha = _repo(ws / "ovos" / "ovos-skill-nogold", {"setup.py": SETUP.replace("demo", "nogold"),
+                                                      "README.md": "no golden file\n"})
+    cfg = yaml.safe_load(sources.read_text())
+    cfg["skill_refs"]["refs"]["ovos/ovos-skill-nogold"] = sha
+    sources.write_text(yaml.safe_dump(cfg))
+    out = tmp_path / "eval"
+    assert build_eval.main(["--sources", str(sources), "--out", str(out)]) == 0
+    census = json.loads((out / "census.json").read_text())
+    assert set(census) == {"ovos-skill-demo", "ovos-skill-nogold"}
+    assert census["ovos-skill-nogold"] == {"-": {"in": 0, "out": 0, "no_gold_file": 1}}
+    assert "no_gold_file" not in json.dumps(census["ovos-skill-demo"])
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["test_rows"] == 2
+
+
 def test_rows_land_per_locale_with_a_census(tmp_path):
     sources = _workspace(tmp_path)
     out = tmp_path / "eval"
