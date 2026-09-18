@@ -1583,7 +1583,9 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         except RuntimeError:
             LOG.debug("Model2Vec: padatious manifest not available at startup")
         if adapt or padatious:
-            self.intents = list(set(adapt + padatious))
+            # a set, as everywhere else: the registration handlers call
+            # self.intents.add / .discard on it
+            self.intents = set(adapt + padatious)
             LOG.debug(f"Model2Vec seeded {len(self.intents)} intents on startup")
 
     # ------------------------------------------------------------------
