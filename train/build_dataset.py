@@ -328,6 +328,14 @@ def fold(name: str) -> str:
     return re.sub(r"[.\-_\s]", "", str(name)).lower()
 
 
+#: Vendor token that a repository name carries and an entry point need not.
+#: `ovos-skill-easter-eggs` is the repository; the skill registers
+#: `skill-easter-eggs.openvoiceos`. Folding without this token lets the two
+#: meet, and `reduce_skill_id` still refuses any fold that more than one
+#: registered id answers to.
+_VENDOR_TOKENS = {"ovos"}
+
+
 def fold_skill(skill_id: str) -> str:
     """Folded skill id, insensitive to the order of the name's own words.
 
@@ -335,11 +343,19 @@ def fold_skill(skill_id: str) -> str:
     `skill-ovos-wallpapers`, and the entry point follows the repo name, so
     the corpora carry both orders for one skill. Matching on the token
     multiset bridges that without a hand-maintained table.
+
+    The vendor token is dropped as well, because a repository name carries it
+    where the registered id may not. Two registered ids that differ only by
+    that token fold together, and `reduce_skill_id` then resolves neither,
+    which is the safe direction: no row takes a label its skill does not
+    register.
     """
     name, _, author = str(skill_id).lower().rpartition(".")
     if not name:
         name, author = author, ""
-    return "|".join(sorted(re.split(r"[-_.\s]+", name))) + "@" + author
+    tokens = [t for t in re.split(r"[-_.\s]+", name) if t]
+    kept = [t for t in tokens if t not in _VENDOR_TOKENS] or tokens
+    return "|".join(sorted(kept)) + "@" + author
 
 
 def skill_id_from_repo(repo: Path, rev: str) -> str:
