@@ -70,4 +70,7 @@ RENAMED_LABELS = {
     "ovos-skill-alerts.openvoiceos:QueryListNames": "ovos-skill-alerts.openvoiceos:query_list_names",
     "ovos-skill-alerts.openvoiceos:RescheduleAlert": "ovos-skill-alerts.openvoiceos:reschedule_alert",
     "ovos-skill-alerts.openvoiceos:TimerStatus": "ovos-skill-alerts.openvoiceos:timer_status",
+    # ovos-skill-wikipedia: WikiMore.intent renamed to wiki_more.intent
+    # (OVOS-INTENT-2 §2); the duplicate copies of both were removed.
+    "ovos-skill-wikipedia.openvoiceos:WikiMore": "ovos-skill-wikipedia.openvoiceos:wiki_more",
 }
