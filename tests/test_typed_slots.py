@@ -78,7 +78,32 @@ def test_coverage_reports_every_registered_type():
         assert coverage[slot_type] == 0
 
 
-def test_the_four_resolvable_types_all_produce_english_values():
-    """The positive control for the whole module."""
+def test_every_resolvable_type_produces_english_values():
+    """The positive control for the whole module: a type the runtime binds
+    and this module cannot sample is a row the corpus silently lacks. The
+    set is read from the plugin, so a new member fails here the day it
+    lands (`language` did, with ovos-typed-slots-transformer 0.0.1a4)."""
     for slot_type in sorted(ts.resolvable()):
         assert ts.values_for(slot_type, "en-US"), slot_type
+
+
+@pytest.mark.parametrize("lang", ["en-US", "de-DE", "ca-ES", "fr-FR", "kab"])
+def test_language_values_are_that_language_and_not_english(lang):
+    values = ts.values_for("language", lang)
+    assert values, f"no language surfaces for {lang}"
+    if lang != "en-US":
+        assert set(values) != set(ts.values_for("language", "en-US")), (
+            f"{lang} language names are identical to en-US, which is not {lang} data")
+
+
+def test_language_names_are_the_parsers_own():
+    """The value is what `ovos_lang_parser` would recognise back, not a
+    hand-written translation: the sampler and the runtime read one wordlist."""
+    from ovos_lang_parser import pronounce_lang
+    assert ts.values_for("language", "ca-ES") == tuple(
+        pronounce_lang(code, lang="ca-ES") for code in ("en", "fr", "de"))
+
+
+def test_a_language_the_lang_parser_lacks_yields_nothing():
+    """fi-FI has no bundled wordlist; the answer is silence, never English."""
+    assert ts.values_for("language", "fi-FI") == ()
