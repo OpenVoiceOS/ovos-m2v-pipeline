@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.23.5a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.23.5a1) (2026-09-18)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.23.4a1...0.23.5a1)
+
+**Merged pull requests:**
+
+- fix: pin the six gold skills past their gold fixes, floors at the v6.1 values [\#240](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/240) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.23.4a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.23.4a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.23.3a1...0.23.4a1)
@@ -365,10 +373,6 @@
 ## [0.12.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.12.0a1) (2026-09-07)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.11.3a2...0.12.0a1)
-
-**Merged pull requests:**
-
-- feat\(train\): deterministic per-label cap stratified by language [\#127](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/127) ([JarbasAl](https://github.com/JarbasAl))
 
 ## [0.11.3a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.11.3a2) (2026-09-07)
 
