@@ -176,3 +176,39 @@ def test_a_failed_check_uploads_nothing(mock_api_cls, tmp_path, monkeypatch):
         publish_corpus.main(_argv(root))
     mock_api.upload_folder.assert_not_called()
     mock_api.create_tag.assert_not_called()
+
+
+@patch("huggingface_hub.HfApi")
+def test_a_row_on_the_old_schema_is_fatal(mock_api_cls, tmp_path, monkeypatch):
+    """A locale file on the v5 schema (intent_id, template) is refused
+    before any upload, naming the file, the line and the missing keys."""
+    root = _stage(tmp_path)
+    old = root / "arb" / publish_corpus.TEMPLATES_FILE
+    old.parent.mkdir()
+    old.write_text(json.dumps({"lang": "arb", "intent_id": "a:b", "template": "x"}) + "\n",
+                   encoding="utf-8")
+    monkeypatch.setenv("HF_TOKEN", "t")
+    with pytest.raises(SystemExit, match=r"arb/train_templates.jsonl:1 lacks \['label', 'utterance'\]"):
+        publish_corpus.main(_argv(root))
+    mock_api_cls.return_value.upload_folder.assert_not_called()
+
+
+@patch("huggingface_hub.HfApi")
+def test_one_bad_row_among_good_ones_is_fatal(mock_api_cls, tmp_path):
+    """The check reads every row, not the first: a file that starts well and
+    loses a key on line 3 is refused, naming line 3."""
+    root = _stage(tmp_path)
+    path = root / "en-US" / publish_corpus.TEMPLATES_FILE
+    rows = path.read_text(encoding="utf-8").splitlines()
+    rows[2] = json.dumps({"lang": "en-US", "label": "a:b"})
+    path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+    with pytest.raises(SystemExit, match=r"train_templates.jsonl:3 lacks \['utterance'\]"):
+        publish_corpus.main(_argv(root, "--dry-run"))
+
+
+@patch("huggingface_hub.HfApi")
+def test_conforming_rows_pass_the_schema_check(mock_api_cls, tmp_path):
+    """Positive control for the schema check: the staged fixture, whose
+    every row carries label and utterance, publishes in a dry run."""
+    root = _stage(tmp_path)
+    assert publish_corpus.main(_argv(root, "--dry-run")) == 0
