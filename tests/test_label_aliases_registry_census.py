@@ -74,22 +74,22 @@ PINNED_REGISTRATIONS = {
         "ChangeMediaProperties", "ChangePriority", "ChangeRepeat",
         "ChangeUntil", "CreateAlarm", "CreateAlarmAlt", "CreateEvent",
         "CreateList", "CreateReminder", "CreateTimer", "DAVSync",
-        "DeleteList", "DeleteListEntries", "DeleteTodoEntries", "ListAlerts",
-        "QueryListEntries", "QueryListNames", "QueryTodoEntries",
-        "RescheduleAlert", "TimerStatus", "create_reminder_recurring",
-        "missed_alerts",
+        "DeleteList", "DeleteListEntries", "DeleteTodoEntries",
+        "ListAlerts", "QueryListEntries", "QueryListNames",
+        "QueryTodoEntries", "RescheduleAlert", "TimerStatus",
+        "create_reminder_recurring", "missed_alerts",
     },
     "ovos-skill-confucius-quotes.openvoiceos": {
-        "ConfuciusQuote", "confucius_lifespan", "who",
+        "confucius_lifespan", "confucius_quote", "who",
     },
     "ovos-skill-fuster-quotes.openvoiceos": {
         "fuster_lifespan", "fuster_quotes", "who",
     },
     "ovos-skill-mark1-ctrl.openvoiceos": {
-        "blink", "brightness", "crazy_eyes", "custom_eye_color", "eye_color",
-        "listen", "look_down", "look_left", "look_left_right", "look_right",
-        "look_up", "look_up_down", "narrow_eyes", "reset", "smile", "spin",
-        "think",
+        "blink", "brightness", "crazy_eyes", "custom_eye_color",
+        "eye_color", "listen", "look_down", "look_left", "look_left_right",
+        "look_right", "look_up", "look_up_down", "narrow_eyes", "reset",
+        "smile", "spin", "think",
     },
     "ovos-skill-volume.openvoiceos": {
         "change_volume", "current_volume", "increase_volume", "less_volume",
@@ -113,23 +113,23 @@ PINNED_REGISTRATIONS = {
 #: read at. A re-pin in `train/sources.yaml` must update both tables.
 PINNED_REFS = {
     "ovos-skill-alerts.openvoiceos":
-        ("ovos/skills/ovos-skill-alerts", "610c20dfa454d58f2c0f5a146f2608d7381f4d2e"),
+        ("ovos/skills/ovos-skill-alerts", "ab3e82b516aefab3d03be6989548dabebd4594ee"),
     "ovos-skill-confucius-quotes.openvoiceos":
-        ("ovos/skills/ovos-skill-confucius-quotes", "761cc592e98bf6a863ddd60b28fb38b8e4fec1e0"),
+        ("ovos/skills/ovos-skill-confucius-quotes", "eb0dd4cdfffa99b7e369378a4b3150a92f1e73d2"),
     "ovos-skill-fuster-quotes.openvoiceos":
-        ("ovos/skills/ovos-skill-fuster-quotes", "6016ba23add80775cf054c0de50706cd454c5029"),
+        ("ovos/skills/ovos-skill-fuster-quotes", "adcd72cbc2e883f434a81cafe818a76dde829d22"),
     "ovos-skill-mark1-ctrl.openvoiceos":
-        ("ovos/skills/ovos-skill-mark1-ctrl", "da7b84176ed2039f5d8929e9dde6cc73fa82dc7a"),
+        ("ovos/skills/ovos-skill-mark1-ctrl", "3d3e5abe2f9bef4e9a8a9a042abda4827b40fd57"),
     "ovos-skill-volume.openvoiceos":
-        ("ovos/skills/ovos-skill-volume", "0286bd62d6fc652370d81680e87f447afcce7194"),
+        ("ovos/skills/ovos-skill-volume", "94a3c3ac7841edffb15546abe50f16b404561092"),
     "ovos-skill-weather.openvoiceos":
-        ("ovos/skills/ovos-skill-weather", "5e544d9285ddc7ba93809b7312a11d5427be6d54"),
+        ("ovos/skills/ovos-skill-weather", "64900360ba0eb1a59cbdad638ec3780c63e20b41"),
     "ovos-skill-wolfie.openvoiceos":
-        ("ovos/skills/ovos-skill-wolfie", "df96eedd4cdd27c9f231ae55bb83d66feb8db552"),
+        ("ovos/skills/ovos-skill-wolfie", "4db152bf949e9c87bae6cd1b3c0fe233cfc0bb44"),
     "ovos-skill-wordnet.openvoiceos":
-        ("ovos/skills/ovos-skill-wordnet", "c2f0ddf6167e745a9db9e4b6c2f32fdbeb41b630"),
+        ("ovos/skills/ovos-skill-wordnet", "6efb78c2250c3ab0c4b754fa75be99d5ad260c6e"),
     "skill-ovos-wallpapers.openvoiceos":
-        ("ovos/skills/ovos-skill-wallpapers", "6d227920176cbc0849e47deec00a1aabd0436b3d"),
+        ("ovos/skills/ovos-skill-wallpapers", "370344daf3c17c837c3713ddf457d5d677232327"),
 }
 
 SOURCES = Path(__file__).resolve().parents[1] / "train" / "sources.yaml"
