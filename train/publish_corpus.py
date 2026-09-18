@@ -49,6 +49,7 @@ before anything is uploaded, so a failed check cannot leave the repo holding
 one split and not the other.
 """
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -73,9 +74,38 @@ def locale_files(root: Path, filename: str) -> dict:
     return found
 
 
+#: Keys every published row carries. A consumer reads `label` and
+#: `utterance` from every locale with one code path; a row without them
+#: (the v5 schema had `intent_id` and `template` instead) raises KeyError
+#: in the first stage that touches it (arb and es-419 at tag v6, T-2801).
+ROW_SCHEMA = ("label", "utterance")
+
+
 def count_rows(path: Path) -> int:
     with path.open(encoding="utf-8") as handle:
         return sum(1 for _ in handle)
+
+
+def check_row_schema(path: Path) -> None:
+    """Every row of *path* is a JSON object holding every key in ROW_SCHEMA.
+
+    Raises SystemExit on the first row that is not, naming the file, the
+    line and the keys it lacks, so a stray locale on the old schema is
+    caught before anything is uploaded.
+    """
+    with path.open(encoding="utf-8") as handle:
+        for number, line in enumerate(handle, 1):
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise SystemExit(f"[publish] {path}:{number} is not JSON: {exc}")
+            if not isinstance(row, dict):
+                raise SystemExit(f"[publish] {path}:{number} is not a JSON object")
+            missing = [key for key in ROW_SCHEMA if key not in row]
+            if missing:
+                raise SystemExit(
+                    f"[publish] {path}:{number} lacks {missing}; every row "
+                    f"carries {list(ROW_SCHEMA)}, this file is on another schema")
 
 
 def check_root(root: Path) -> None:
@@ -95,6 +125,8 @@ def inspect(root: Path, filename: str) -> dict:
     files = locale_files(root, filename)
     if not files:
         raise SystemExit(f"[publish] {root} holds no {filename} under any locale directory")
+    for path in files.values():
+        check_row_schema(path)
     per_locale = {lang: count_rows(path) for lang, path in sorted(files.items())}
     empty = [lang for lang, rows in per_locale.items() if rows == 0]
     if empty:
