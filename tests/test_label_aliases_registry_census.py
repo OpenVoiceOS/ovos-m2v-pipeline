@@ -112,7 +112,7 @@ PINNED_REGISTRATIONS = {
 #: read at. A re-pin in `train/sources.yaml` must update both tables.
 PINNED_REFS = {
     "ovos-skill-alerts.openvoiceos":
-        ("ovos/skills/ovos-skill-alerts", "e72a6e7f2cb4fef2699d46cc1761f63260fa19af"),
+        ("ovos/skills/ovos-skill-alerts", "9f6f7ec7d8cc6059ec024bdddae8b85968b48342"),
     "ovos-skill-confucius-quotes.openvoiceos":
         ("ovos/skills/ovos-skill-confucius-quotes", "eb0dd4cdfffa99b7e369378a4b3150a92f1e73d2"),
     "ovos-skill-fuster-quotes.openvoiceos":
@@ -128,7 +128,7 @@ PINNED_REFS = {
     "ovos-skill-wordnet.openvoiceos":
         ("ovos/skills/ovos-skill-wordnet", "6efb78c2250c3ab0c4b754fa75be99d5ad260c6e"),
     "skill-ovos-wallpapers.openvoiceos":
-        ("ovos/skills/ovos-skill-wallpapers", "370344daf3c17c837c3713ddf457d5d677232327"),
+        ("ovos/skills/ovos-skill-wallpapers", "209a55c372eeb06b600e18b4076f8579029aea73"),
 }
 
 SOURCES = Path(__file__).resolve().parents[1] / "train" / "sources.yaml"

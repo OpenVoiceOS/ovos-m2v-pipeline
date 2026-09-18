@@ -445,7 +445,9 @@ def main() -> int:
     # siblings, so two labels leave and every other rename is one to one
     # (measured: 235 labels at the old pins, 233 at the new, 29 removed,
     # 27 added).
-    ap.add_argument("--min-labels", type=int, default=233)
+    # 232 after the gold-skill pin move: ovos-skill-moviemaster#79 dropped the
+    # dead movie_information and movie_production intents on purpose.
+    ap.add_argument("--min-labels", type=int, default=232)
     # Measured on the same tree: 53 distinct locale directories folded to 52
     # once fa-ir/fa-IR merged under OVOS-INTENT-2 2's case-insensitive tag
     # comparison. The prior floor of 53 counted that pair twice.
@@ -458,9 +460,11 @@ def main() -> int:
     # and min-languages close it on the training side. Measured against a
     # real build over dev@72d73a5 (`--workspace ~/AgentWorkspaces`, shipped
     # source pins): test_rows=1412.
-    ap.add_argument("--min-test-rows", type=int, default=1412)
+    # Measured after every gold PR of the v6.1 wave merged: test_rows=2380.
+    ap.add_argument("--min-test-rows", type=int, default=2380)
     # Measured on the same build: labels_scored=164.
-    ap.add_argument("--min-labels-scored", type=int, default=164)
+    # Measured on the same build: labels_scored=191.
+    ap.add_argument("--min-labels-scored", type=int, default=191)
     # A base name that breaks OVOS-INTENT-2 2 is read anyway, because the
     # corpus must build against the fleet as it stands. Pinning the count
     # stops the set growing while the rename campaign brings it down; a zero
