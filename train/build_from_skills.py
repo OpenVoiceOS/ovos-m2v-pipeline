@@ -440,7 +440,12 @@ def main() -> int:
     # and the it-IT count file lost its capital. The new pokepedia pin and
     # the skill_refs that were missing add more labels than the folds
     # remove, so the net count goes up and the floor goes up with it.
-    ap.add_argument("--min-labels", type=int, default=235)
+    # 233 after the OVOS-INTENT-2 2 rename wave re-pin: ovos-skill-alerts#216
+    # merged DeleteTodoEntries and QueryTodoEntries into their list-kind
+    # siblings, so two labels leave and every other rename is one to one
+    # (measured: 235 labels at the old pins, 233 at the new, 29 removed,
+    # 27 added).
+    ap.add_argument("--min-labels", type=int, default=233)
     # Measured on the same tree: 53 distinct locale directories folded to 52
     # once fa-ir/fa-IR merged under OVOS-INTENT-2 2's case-insensitive tag
     # comparison. The prior floor of 53 counted that pair twice.
