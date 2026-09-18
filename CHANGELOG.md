@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.23.4a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.23.4a1) (2026-09-18)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.23.3a1...0.23.4a1)
+
+**Merged pull requests:**
+
+- fix\(typed\_slots\): sample the language type from ovos-lang-parser [\#238](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/238) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.23.3a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.23.3a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.23.2a1...0.23.3a1)
@@ -294,10 +302,6 @@
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.0a1...0.13.1a1)
 
-**Merged pull requests:**
-
-- fix: alias the renamed and folded intent labels in the external corpora [\#126](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/126) ([JarbasAl](https://github.com/JarbasAl))
-
 ## [0.13.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.0a1) (2026-09-10)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.12.4a2...0.13.0a1)
@@ -309,10 +313,6 @@
 ## [0.12.4a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.12.4a2) (2026-09-10)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.12.4a1...0.12.4a2)
-
-**Merged pull requests:**
-
-- chore: pin skills at their current dev and lift the training hold [\#125](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/125) ([JarbasAl](https://github.com/JarbasAl))
 
 ## [0.12.4a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.12.4a1) (2026-09-08)
 
