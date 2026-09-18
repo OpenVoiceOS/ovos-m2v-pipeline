@@ -16,14 +16,41 @@ Exit status is 0 when every test label is present in train, 1 otherwise.
 """
 import argparse
 import collections
+import importlib.util
 import json
 import sys
 from pathlib import Path
 
+#: ``ovos_m2v_pipeline/renames.py`` beside ``train/``. Loaded by path, not
+#: as a package import: the package's ``__init__`` pulls the runtime
+#: dependencies and this script must run without them.
+_RENAMES = Path(__file__).resolve().parents[1] / "ovos_m2v_pipeline" / "renames.py"
 
-def read_labels(path: Path, by_lang: bool = False) -> collections.Counter:
-    """Label counts; with ``by_lang`` the key is ``(lang, label)``."""
+
+def renamed_labels(path: Path = _RENAMES) -> dict:
+    """The runtime's old-label -> new-label table, or empty when absent."""
+    if not path.is_file():
+        return {}
+    spec = importlib.util.spec_from_file_location("_renames", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return dict(getattr(module, "RENAMED_LABELS", {}))
+
+
+def read_labels(path: Path, by_lang: bool = False,
+                renames: dict = None) -> collections.Counter:
+    """Label counts; with ``by_lang`` the key is ``(lang, label)``.
+
+    With ``renames`` a label is read under the name the runtime serves it
+    as: ``RENAMED_LABELS`` maps an old label to the one the skill registers
+    now, and the runtime routes the old class to the new intent. A corpus
+    built before a rename and gold written after it is one class at
+    runtime, not a gap, and so is the reverse while a rename PR is still
+    open (train and gold both under the old name, the table already
+    carrying the pair). Both sides are read through the table.
+    """
     counts: collections.Counter = collections.Counter()
+    renames = renames or {}
     with path.open(encoding="utf-8") as handle:
         for number, line in enumerate(handle, 1):
             line = line.strip()
@@ -34,22 +61,27 @@ def read_labels(path: Path, by_lang: bool = False) -> collections.Counter:
             except json.JSONDecodeError as exc:
                 raise SystemExit(f"{path}:{number}: {exc}") from exc
             try:
-                key = (row["lang"], row["label"]) if by_lang else row["label"]
+                label = renames.get(row["label"], row["label"])
+                key = (row["lang"], label) if by_lang else label
             except KeyError as exc:
                 raise SystemExit(f"{path}:{number}: row has no {exc}")
             counts[key] += 1
     return counts
 
 
-def census_paths(train_path: Path, test_path: Path):
-    """The gate on two files: every test label must have a train row."""
-    train = read_labels(train_path)
-    test = read_labels(test_path)
+def census_paths(train_path: Path, test_path: Path, renames: dict = None):
+    """The gate on two files: every test label must have a train row.
+
+    ``renames`` is the runtime rename table (``renamed_labels()``), applied
+    to both sides.
+    """
+    train = read_labels(train_path, renames=renames)
+    test = read_labels(test_path, renames=renames)
     missing = {label: test[label] for label in sorted(test) if label not in train}
     return train, test, missing
 
 
-def census_per_locale(train_path: Path, test_path: Path):
+def census_per_locale(train_path: Path, test_path: Path, renames: dict = None):
     """The second gate: every (lang, label) on the test side must have a
     train row in the SAME locale.
 
@@ -63,14 +95,14 @@ def census_per_locale(train_path: Path, test_path: Path):
     and refuses only with ``--per-locale``, until the fleet is clean and
     the default flips.
     """
-    train = read_labels(train_path, by_lang=True)
-    test = read_labels(test_path, by_lang=True)
+    train = read_labels(train_path, by_lang=True, renames=renames)
+    test = read_labels(test_path, by_lang=True, renames=renames)
     missing = {key: test[key] for key in sorted(test) if key not in train}
     return missing
 
 
-def census(dataset: Path):
-    return census_paths(dataset / "train.jsonl", dataset / "test.jsonl")
+def census(dataset: Path, renames: dict = None):
+    return census_paths(dataset / "train.jsonl", dataset / "test.jsonl", renames=renames)
 
 
 def main(argv=None):
@@ -87,11 +119,13 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     dataset = Path(args.dataset).expanduser()
-    train, test, missing = census(dataset)
-    per_locale = census_per_locale(dataset / "train.jsonl", dataset / "test.jsonl")
+    renames = renamed_labels()
+    train, test, missing = census(dataset, renames=renames)
+    per_locale = census_per_locale(dataset / "train.jsonl", dataset / "test.jsonl", renames=renames)
 
     if not args.quiet:
-        print(f"train: {sum(train.values())} rows, {len(train)} labels")
+        print(f"train: {sum(train.values())} rows, {len(train)} labels"
+              + (f" (read through {len(renames)} runtime renames)" if renames else ""))
         print(f"test:  {sum(test.values())} rows, {len(test)} labels")
 
     status = 0

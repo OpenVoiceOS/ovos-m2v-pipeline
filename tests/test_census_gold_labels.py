@@ -110,3 +110,42 @@ def test_per_locale_reads_the_lang_field_and_refuses_a_row_without_it(tmp_path):
     write(dataset, "test.jsonl", [{"label": "a:one", "utterance": "u"}])
     with pytest.raises(SystemExit, match="row has no 'lang'"):
         census.main(["--dataset", str(dataset)])
+
+
+RENAMES = {"a:OldName": "a:new_name"}
+
+
+def test_train_under_the_old_name_and_gold_under_the_new_is_not_a_gap(tmp_path):
+    """reviewer-b's case on #247: a corpus built before a rename with gold
+    written after it. The runtime serves the old class through
+    RENAMED_LABELS, so neither census may report it."""
+    dataset = build_by_lang(tmp_path, [("en-US", "a:OldName")], [("en-US", "a:new_name")])
+    _, _, missing = census.census(dataset, renames=RENAMES)
+    assert missing == {}
+    assert census.census_per_locale(dataset / "train.jsonl", dataset / "test.jsonl",
+                                    renames=RENAMES) == {}
+
+
+def test_train_and_gold_both_under_the_old_name_is_not_a_gap_either(tmp_path):
+    """The reverse: the bridge landed while the skill's rename PR is still
+    open (laugh#131 on v6.1). Both sides under the old name are one class."""
+    dataset = build_by_lang(tmp_path, [("en-US", "a:OldName")], [("en-US", "a:OldName")])
+    _, _, missing = census.census(dataset, renames=RENAMES)
+    assert missing == {}
+
+
+def test_without_the_table_the_renamed_pair_is_a_gap():
+    """The control: the fold is what closes it, not the data."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        dataset = build_by_lang(Path(tmp), [("en-US", "a:OldName")], [("en-US", "a:new_name")])
+        _, _, missing = census.census(dataset)
+        assert missing == {"a:new_name": 1}
+
+
+def test_the_table_is_read_from_renames_py_by_path(tmp_path):
+    """The real file loads without the package's runtime imports, and an
+    absent file is an empty table, not an error."""
+    real = census.renamed_labels()
+    assert isinstance(real, dict) and all(":" in k and ":" in v for k, v in real.items())
+    assert census.renamed_labels(tmp_path / "missing.py") == {}
