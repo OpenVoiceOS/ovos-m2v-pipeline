@@ -1,12 +1,19 @@
 # Changelog
 
+## [0.26.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.26.0a1) (2026-09-18)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.25.0a1...0.26.0a1)
+
+**Merged pull requests:**
+
+- feat\(census\): report a gold label with no train row in the same locale [\#247](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/247) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.25.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.25.0a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.24.1a1...0.25.0a1)
 
 **Merged pull requests:**
 
-- feat\(census\): report a gold label with no train row in the same locale [\#247](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/247) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
 - feat: pick the typed-slot entry after the template's anchor word [\#246](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/246) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
 
 ## [0.24.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.24.1a1) (2026-09-18)
@@ -358,10 +365,6 @@
 ## [0.12.3a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.12.3a2) (2026-09-08)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.12.3a1...0.12.3a2)
-
-**Merged pull requests:**
-
-- test: require ovoscope in the test extra and stop skipping the e2e files [\#140](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/140) ([JarbasAl](https://github.com/JarbasAl))
 
 ## [0.12.3a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.12.3a1) (2026-09-08)
 
