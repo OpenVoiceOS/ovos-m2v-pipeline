@@ -214,7 +214,7 @@ skill_refs:
     ovos/ovos-skill-youtube-music: 0812227128ee80ebec502acce7b2924f5ec0cf66
     ovos/plugins/agents/ovos-skill-ddg: abb036c7dc77ffb28ecff460a0c3f4ffcaa980af
     ovos/skills/adult/ovos-skill-hello-world: eab011286a29d6dba113a588ee2286bb75936bca
-    ovos/skills/ovos-skill-alerts: e72a6e7f2cb4fef2699d46cc1761f63260fa19af
+    ovos/skills/ovos-skill-alerts: 9f6f7ec7d8cc6059ec024bdddae8b85968b48342
     ovos/skills/ovos-skill-application-launcher: 5c9e16a4d748768078f612191e365e0a452a3b5e
     ovos/skills/ovos-skill-audio-recording: a482bf3c0e97046a4cdeaeaf72345800efd20537
     ovos/skills/ovos-skill-boot-finished: 93613a23375c7f821ad4a625da51c7c995ea9918
@@ -223,7 +223,7 @@ skill_refs:
     ovos/skills/ovos-skill-cmd: db84087a50aaa5f7f7eefa71225f7e7dbd7618b3
     ovos/skills/ovos-skill-color-picker: 769869161099a5c10838707f1790a1bfcd4f735f
     ovos/skills/ovos-skill-confucius-quotes: eb0dd4cdfffa99b7e369378a4b3150a92f1e73d2
-    ovos/skills/ovos-skill-count: 093fa96d608b5fa086d616ef2e1d53aaa216fd00
+    ovos/skills/ovos-skill-count: 03be460ae025cd5f215ed2b2ff9b802e6ce9556f
     # date-time is held at this sha on purpose. It is not stale. dev is three
     # commits ahead, and the gap holds #318, which fills the 18 offset.entity
     # files that held only comment lines. ovos-skill-date-time#320 replaces
@@ -246,21 +246,21 @@ skill_refs:
     ovos/skills/ovos-skill-laugh: ef55a7c527c42bd6dabc1d8c9f3a56e35a1f0a06
     ovos/skills/ovos-skill-mark1-ctrl: 3d3e5abe2f9bef4e9a8a9a042abda4827b40fd57
     ovos/skills/ovos-skill-moon-game: 09f1413981619d286257c4737f9a47e277525185
-    ovos/skills/ovos-skill-moviemaster: c3f44292dad905fcaf080eccdcd465de1152710b
+    ovos/skills/ovos-skill-moviemaster: badfbe02048b44275b100d278871e40c11a022e6
     ovos/skills/ovos-skill-naptime: 0230152aecd5423b9ad9b2e07225ea1ac0a435ba
     ovos/skills/ovos-skill-number-facts: 992968e8678f66493df1f998547347505874e38d
-    ovos/skills/ovos-skill-parrot: 7f86f4d3913be83dc7e7181a4ede82ee3c7f4047
+    ovos/skills/ovos-skill-parrot: d1830acb17ee663cfef44e99829f10ef0dc0e579
     ovos/skills/ovos-skill-personal: 1f7fc7d044d66d75603d7c1a603e81f108c19675
     ovos/skills/ovos-skill-planet-fall-game: 294d2324a0b2cad2743432644bca4827b3dc4f28
     ovos/skills/ovos-skill-pokepedia: 7b2e25148987d947b14c7370d3dac2dde947ca77
     ovos/skills/ovos-skill-randomness: 2351c454f79403718165bfcc972075657eff147f
     ovos/skills/ovos-skill-screenshot: d5abca5349469db9e0fbfa834e7dd6526de182fe
     ovos/skills/ovos-skill-speedtest: db31d0c4f130ae6b9ae0f59c2c9519b86edcedb9
-    ovos/skills/ovos-skill-spelling: c48b786e9b95b5510e6157a07920ef58d403eb23
+    ovos/skills/ovos-skill-spelling: 60c18aec2073246bfc8888ae16447ab9db519ef9
     ovos/skills/ovos-skill-starcross-game: dbdf43f6118e98a411440789f901c704f861a7fa
     ovos/skills/ovos-skill-station-fall-game: 4438ac80985b0bffaad4a7fb55537a29dd3ae141
     ovos/skills/ovos-skill-volume: 94a3c3ac7841edffb15546abe50f16b404561092
-    ovos/skills/ovos-skill-wallpapers: 370344daf3c17c837c3713ddf457d5d677232327
+    ovos/skills/ovos-skill-wallpapers: 209a55c372eeb06b600e18b4076f8579029aea73
     ovos/skills/ovos-skill-weather: 64900360ba0eb1a59cbdad638ec3780c63e20b41
     ovos/skills/ovos-skill-white-house-adventure: f64f4128cabeebeb978ab3954f00f11a9d02ee14
     ovos/skills/ovos-skill-wikihow: d922865789967166c258dd4706af3d3bfdf89406
