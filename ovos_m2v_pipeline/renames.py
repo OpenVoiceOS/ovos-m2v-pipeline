@@ -76,4 +76,7 @@ RENAMED_LABELS = {
     # ovos-skill-spelling: Spell.intent renamed to spell.intent
     # (OVOS-INTENT-2 §2), with its .blacklist twin.
     "skill-ovos-spelling.openvoiceos:Spell": "skill-ovos-spelling.openvoiceos:spell",
+    # ovos-skill-laugh: resource base names made OVOS-INTENT-2 §2 compliant.
+    "ovos-skill-laugh.openvoiceos:Laugh": "ovos-skill-laugh.openvoiceos:laugh",
+    "ovos-skill-laugh.openvoiceos:RandomLaugh": "ovos-skill-laugh.openvoiceos:random_laugh",
 }
