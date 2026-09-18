@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.16.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.16.0a1) (2026-09-18)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.15.1a1...0.16.0a1)
+
+**Merged pull requests:**
+
+- feat: bridge the ovos-skill-ip intent renames [\#212](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/212) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.15.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.15.1a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.15.0a1...0.15.1a1)
@@ -369,10 +377,6 @@
 ## [0.9.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.9.1a1) (2026-09-06)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.9.0a1...0.9.1a1)
-
-**Merged pull requests:**
-
-- fix: model2vec 0.9.0 dropped the inference extra, breaks clean installs [\#98](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/98) ([JarbasAl](https://github.com/JarbasAl))
 
 ## [0.9.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.9.0a1) (2026-09-01)
 
