@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.18.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.18.0a1) (2026-09-18)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.17.0a1...0.18.0a1)
+
+**Merged pull requests:**
+
+- feat: locale parity census, as a publish gate [\#218](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/218) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.17.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.17.0a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.16.0a1...0.17.0a1)
@@ -338,10 +346,6 @@
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.9.7a1...0.10.0a1)
 
-**Merged pull requests:**
-
-- feat: export and load prebuilt prototype centroids [\#105](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/105) ([JarbasAl](https://github.com/JarbasAl))
-
 ## [0.9.7a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.9.7a1) (2026-09-07)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.9.6a1...0.9.7a1)
@@ -365,10 +369,6 @@
 ## [0.9.4a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.9.4a1) (2026-09-07)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.9.3a1...0.9.4a1)
-
-**Merged pull requests:**
-
-- fix: prototype ranking and store are deterministic across boots \(\#102\) [\#104](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/104) ([JarbasAl](https://github.com/JarbasAl))
 
 ## [0.9.3a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.9.3a1) (2026-09-07)
 
