@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.19.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.19.0a1) (2026-09-18)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.18.1a1...0.19.0a1)
+
+**Merged pull requests:**
+
+- feat: bridge the ovos-skill-alerts intent renames [\#210](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/210) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.18.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.18.1a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.18.0a1...0.18.1a1)
@@ -365,10 +373,6 @@
 ## [0.9.6a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.9.6a1) (2026-09-07)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.9.5a1...0.9.6a1)
-
-**Merged pull requests:**
-
-- fix: strip typed-slot prefixes and expand brackets before entity fill on both registration wires [\#108](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/108) ([JarbasAl](https://github.com/JarbasAl))
 
 ## [0.9.5a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.9.5a1) (2026-09-07)
 
