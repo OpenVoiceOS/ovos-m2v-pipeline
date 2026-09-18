@@ -73,4 +73,7 @@ RENAMED_LABELS = {
     # ovos-skill-wikipedia: WikiMore.intent renamed to wiki_more.intent
     # (OVOS-INTENT-2 §2); the duplicate copies of both were removed.
     "ovos-skill-wikipedia.openvoiceos:WikiMore": "ovos-skill-wikipedia.openvoiceos:wiki_more",
+    # ovos-skill-spelling: Spell.intent renamed to spell.intent
+    # (OVOS-INTENT-2 §2), with its .blacklist twin.
+    "skill-ovos-spelling.openvoiceos:Spell": "skill-ovos-spelling.openvoiceos:spell",
 }
