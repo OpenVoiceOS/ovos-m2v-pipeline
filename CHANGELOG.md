@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.15.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.15.0a1) (2026-09-18)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.14.1a1...0.15.0a1)
+
+**Merged pull requests:**
+
+- feat: census that refuses a corpus with an untrainable gold label [\#208](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/208) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
+## [0.14.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.14.1a1) (2026-09-18)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.14.0a3...0.14.1a1)
+
+**Merged pull requests:**
+
+- fix: resolve a corpus skill id to the id the entry point declares [\#207](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/207) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.14.0a3](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.14.0a3) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.14.0a2...0.14.0a3)
