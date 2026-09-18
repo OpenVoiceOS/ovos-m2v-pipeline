@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.22.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.22.0a1) (2026-09-18)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.21.0a1...0.22.0a1)
+
+**Merged pull requests:**
+
+- feat: bridge the ovos-skill-spelling Spell rename [\#214](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/214) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.21.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.21.0a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.20.0a1...0.21.0a1)
@@ -358,17 +366,9 @@
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.10.0a2...0.11.0a1)
 
-**Merged pull requests:**
-
-- feat: publish datasets and models to the Hub from the training tooling [\#114](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/114) ([JarbasAl](https://github.com/JarbasAl))
-
 ## [0.10.0a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.10.0a2) (2026-09-07)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.10.0a1...0.10.0a2)
-
-**Merged pull requests:**
-
-- ci: allow prerelease ovoscope in live\_tests [\#115](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/115) ([JarbasAl](https://github.com/JarbasAl))
 
 ## [0.10.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.10.0a1) (2026-09-07)
 
