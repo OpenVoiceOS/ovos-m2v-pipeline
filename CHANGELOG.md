@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.24.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.24.0a1) (2026-09-18)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.23.5a1...0.24.0a1)
+
+**Merged pull requests:**
+
+- feat: fill a declared typed slot from the typed-slot map [\#237](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/237) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.23.5a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.23.5a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.23.4a1...0.23.5a1)
