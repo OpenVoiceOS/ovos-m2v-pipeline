@@ -318,8 +318,7 @@ def expand_template(line: str, cap: int = 64):
 # The pinned skill and pipeline refs are the ground truth for what labels can
 # exist. A class the runtime cannot produce must never be trained.
 
-_ENTRY_KEY_RE = re.compile(r'^\s*"?([A-Za-z0-9_.\-]+\.[A-Za-z0-9_\-]+)"?\s*=', re.M)
-_URL_RE = re.compile(r'https?://github\.com/([A-Za-z0-9_.\-]+)/([A-Za-z0-9_.\-]+)')
+from skill_labels import skill_id_from_repo, _entry_point_from_setup  # noqa: E402,F401
 _INTENT_BUILDER_RE = re.compile(r"""IntentBuilder\(\s*['"]([^'"]+)['"]""")
 _INTENT_FILE_RE = re.compile(r"""@intent_handler\(\s*['"]([^'"]+\.intent)['"]""")
 
@@ -356,90 +355,6 @@ def fold_skill(skill_id: str) -> str:
     tokens = [t for t in re.split(r"[-_.\s]+", name) if t]
     kept = [t for t in tokens if t not in _VENDOR_TOKENS] or tokens
     return "|".join(sorted(kept)) + "@" + author
-
-
-def skill_id_from_repo(repo: Path, rev: str) -> str:
-    """The skill id the repo's entry point declares at *rev*.
-
-    pyproject declares it literally. setup.py derives it from the GitHub URL
-    as ``<repo-name>.<author>``, both lowercased, so it is read back the same
-    way rather than executed.
-    """
-    try:
-        toml = git_show(repo, rev, "pyproject.toml")
-    except subprocess.CalledProcessError:
-        toml = ""
-    for group in ("ovos.plugin.skill", "opm.skill"):
-        marker = f'entry-points."{group}"'
-        if marker not in toml:
-            continue
-        tail = toml.split(marker, 1)[1]
-        m = _ENTRY_KEY_RE.search(tail.split("[", 1)[0] if "[" in tail else tail)
-        if m:
-            return m.group(1).lower()
-    try:
-        setup = git_show(repo, rev, "setup.py")
-    except subprocess.CalledProcessError:
-        setup = ""
-    skill_id = _entry_point_from_setup(setup)
-    if skill_id:
-        return skill_id
-    m = _URL_RE.search(setup or toml)
-    if m and "{" not in m.group(2):
-        return f"{m.group(2).lower()}.{m.group(1).lower()}"
-    raise SystemExit(f"[registry] cannot determine skill_id for {repo} at {rev}")
-
-
-def _entry_point_from_setup(setup: str):
-    """The left-hand side of ``PLUGIN_ENTRY_POINT``, resolved statically.
-
-    Skills build the entry point from module-level string constants, often
-    derived from the GitHub URL. Those few forms are read back rather than
-    executed - importing a skill's setup.py to learn its id is not something
-    a dataset builder should do.
-    """
-    if "PLUGIN_ENTRY_POINT" not in setup:
-        return None
-    env = dict(re.findall(r"^([A-Z_]+)\s*=\s*f?['\"]([^'\"]+)['\"]", setup, re.M))
-    url = _URL_RE.search(env.get("URL", ""))
-    if url:
-        author, repo = url.group(1), url.group(2)
-        # `AUTHOR, NAME = URL.split(".com/")[-1].split("/")`
-        m = re.search(r"^([A-Z_]+),\s*([A-Z_]+)\s*=\s*URL\.split", setup, re.M)
-        if m:
-            env[m.group(1)], env[m.group(2)] = author, repo
-        # `NAME = URL.split("/")[-1]`
-        for name in re.findall(r'^([A-Z_]+)\s*=\s*URL\.split\(["\']/["\']\)\[-1\]',
-                                setup, re.M):
-            env[name] = repo
-    m = re.search(r"PLUGIN_ENTRY_POINT\s*=\s*\(?\s*f?['\"]([^'\"]*?)=", setup, re.S)
-    if not m:
-        return None
-
-    placeholder = re.compile(r"\{([A-Z_]+)(?:\.lower\(\))?\}")
-
-    def sub(match, strict=True):
-        value = env.get(match.group(1))
-        if value is None:
-            if not strict:
-                return match.group(0)
-            raise SystemExit(
-                f"[registry] unresolved {match.group(1)!r} in PLUGIN_ENTRY_POINT")
-        return value.lower() if ".lower()" in match.group(0) else value
-
-    # constants may be defined in terms of each other; settle them first.
-    # A constant that stays unresolved here only matters if the entry point's
-    # left-hand side actually references it.
-    for _ in range(4):
-        if not any(placeholder.search(v) for v in env.values()):
-            break
-        env = {k: placeholder.sub(lambda mm: sub(mm, False), v)
-               for k, v in env.items()}
-    skill_id = placeholder.sub(sub, m.group(1)).lower()
-    if "{" in skill_id:
-        raise SystemExit(f"[registry] could not resolve PLUGIN_ENTRY_POINT "
-                         f"to a literal skill id, got {skill_id!r}")
-    return skill_id
 
 
 def registered_intents(repo: Path, rev: str) -> set:
@@ -741,9 +656,6 @@ def read_hf(src, rows, stats):
 
 def read_golden(cfg, ws, rows, stats):
     g = cfg["golden"]
-    shared = ws / g["shared"]["path"]
-    if not shared.is_file():
-        raise SystemExit(f"[golden] missing shared corpus: {shared}")
     seen = set()
 
     def consume(text, source, default_lang, name=""):
@@ -771,9 +683,13 @@ def read_golden(cfg, ws, rows, stats):
             n += 1
         return n
 
-    stats["golden_shared"] = consume(shared.read_text(encoding="utf-8"),
-                                     "golden:ovoscope-shared",
-                                     g["shared"]["default_lang"])
+    # The hand-kept shared fleet file is retired: the skills' own golden
+    # files at the pins are the only gold source (train/build_eval.py).
+    if "shared" in g:
+        # retired: the skills' own golden files at the pins are the only gold
+        # source (train/build_eval.py); a config that still names the fleet
+        # file is counted and the file is not read.
+        stats["golden_shared_ignored"] = 1
     pat = g["per_skill"]["files"]
     for repo_name, rev in sorted(cfg["skill_refs"]["refs"].items()):
         repo = ws / repo_name

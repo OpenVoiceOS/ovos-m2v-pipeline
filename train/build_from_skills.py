@@ -61,6 +61,10 @@ import yaml
 
 from ovos_spec_tools.expansion import expand
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import skill_labels  # noqa: E402
+from build_eval import read_gold  # noqa: E402  (the one gold reader)
+
 #: A locale directory: an ISO subtag, optionally with a script and a region.
 LOCALE_DIR = re.compile(r"^[a-z]{2,3}(?:-[A-Za-z]{4})?(?:-(?:[A-Za-z]{2}|\d{3}))?$")
 
@@ -200,11 +204,6 @@ def normalize_lang(tag: str) -> str:
     return "-".join(out)
 
 
-def skill_id_of(repo_name: str) -> str:
-    """The label prefix a skill registers under, from its package name."""
-    return f"{repo_name}.openvoiceos"
-
-
 def read_skill(repo: Path, rev: str, repo_name: str, stats: collections.Counter,
                violations: set, dropped_templates: list = None):
     """Templates, hints and keywords a skill ships, per language."""
@@ -213,6 +212,10 @@ def read_skill(repo: Path, rev: str, repo_name: str, stats: collections.Counter,
     templates = []                                   # (lang, label, template)
     hints = collections.defaultdict(dict)            # lang -> name -> values
     keywords = collections.defaultdict(dict)         # lang -> name -> words
+    # the one label function (skill_labels): the id the entry point declares
+    skill_id = skill_labels.skill_id_from_repo(repo, rev, repo_name)
+    if not skill_labels.declares_skill_id(repo, rev):
+        stats["skill_id_assumed_from_repo_name"] += 1
     for path in tree(repo, rev):
         if not path or path.split("/")[0] in {"test", "tests"}:
             continue
@@ -234,7 +237,7 @@ def read_skill(repo: Path, rev: str, repo_name: str, stats: collections.Counter,
         values = [l.strip() for l in body.splitlines()
                   if l.strip() and not l.strip().startswith("#")]
         if kind == "intent":
-            label = f"{skill_id_of(repo_name)}:{name}"
+            label = skill_labels.label(skill_id, name)
             for line in values:
                 # A `|` the grammar's groups do not cover binds nothing the
                 # grammar defines. Where the same mistake in a resource value
@@ -378,78 +381,6 @@ def count_ambiguous_rows(rows) -> int:
                if (row["lang"], row["utterance"]) in conflicted)
 
 
-def resolve_gold_label(label: str, shipped: set) -> str:
-    """The shipped intent a gold label names, under either convention.
-
-    A gold file may write an intent the way the corpus writes it rather than
-    the way the file is named: `movie.description.intent` for a file called
-    `movie_description`. The skills' own suites bridge that with a
-    normalisation, so this does too -- but only as a FALLBACK. Some skills
-    genuinely name a file `volume.mute.intent`, and mapping its dots to
-    underscores would invent an intent that skill does not ship.
-    """
-    if label in shipped:
-        return label
-    underscored = label.replace(".", "_")
-    # Only an unambiguous match may resolve. If two shipped intents fold onto
-    # the same underscored form, picking either scores the row against a
-    # label nobody asserted, and a mis-scored row is worse than an unscored
-    # one: the unscored label is visible in the manifest and the mis-scored
-    # one makes every count look healthy.
-    candidates = {name for name in shipped
-                  if name.replace(".", "_") == underscored}
-    if len(candidates) == 1:
-        return candidates.pop()
-    return label
-
-
-def read_gold(repo: Path, rev: str, repo_name: str, stats: collections.Counter):
-    """Gold rows a skill ships, and what is wrong with the ones it does not."""
-    rows = []
-    for path in tree(repo, rev):
-        m = GOLD.match(path or "")
-        if not m:
-            continue
-        from_name = m.group(1)
-        for line in show(repo, rev, path).splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                d = json.loads(line)
-            except json.JSONDecodeError:
-                stats["gold_unparsable"] += 1
-                continue
-            if d.get("needs_manual"):
-                stats["gold_needs_manual"] += 1
-                continue
-            utterance = (d.get("utterance") or "").strip()
-            label = d.get("intent_label")
-            if not utterance:
-                stats["gold_without_utterance"] += 1
-                continue
-            if not label:
-                # A fallback skill asserts the dialog it speaks, because no
-                # intent claimed the utterance. That is a real assertion and
-                # this corpus cannot score it: there is no label to predict.
-                stats["gold_asserts_a_dialog_not_an_intent"] += 1
-                continue
-            label = str(label)
-            if label.endswith(".intent"):
-                label = label[: -len(".intent")]
-            skill = d.get("skill_id") or skill_id_of(repo_name)
-            # `machine_generated` is not read. Every gold sentence in this
-            # fleet was written by a model, so a row claiming otherwise is
-            # wrong and a count derived from the field would be fiction.
-            rows.append({
-                "lang": normalize_lang(d.get("lang") or from_name or "en-US"),
-                "label": f"{skill}:{label}" if ":" not in label else label,
-                "utterance": utterance,
-                "source": f"gold:{repo_name}",
-            })
-    return rows
-
-
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--sources", default="train/sources.yaml")
@@ -498,7 +429,7 @@ def main() -> int:
     train, test = [], []
     labels_trained, labels_scored = set(), set()
     labels_with_templates = set()
-    no_gold, no_resources, resolutions = [], [], []
+    no_gold, no_resources = [], []
     violations = set()
     dropped_templates = []
 
@@ -520,17 +451,11 @@ def main() -> int:
                               "utterance": sentence, "source": f"skill:{repo_name}",
                               "template": template})
                 labels_trained.add(label)
-        shipped = {lbl.split(":", 1)[1] for lbl in labels_with_templates
-                   if lbl.startswith(skill_id_of(repo_name) + ":")}
+        # The gold side is read by build_eval.read_gold, the same reader the
+        # eval builder uses, and labelled by the same function as the train
+        # rows above. No spelling fallback: a gold label the train side does
+        # not carry is reported by the manifest and refused by the census.
         gold = read_gold(repo, rev, repo_name, stats)
-        for row in gold:
-            prefix, _, intent = row["label"].partition(":")
-            resolved = resolve_gold_label(intent, shipped)
-            if resolved != intent:
-                stats["gold_label_resolved_by_underscoring"] += 1
-                resolutions.append({"skill": repo_name, "gold": intent,
-                                    "shipped": resolved})
-                row["label"] = f"{prefix}:{resolved}"
         if not gold:
             no_gold.append(repo_name)
         for row in gold:
@@ -639,8 +564,7 @@ def main() -> int:
         "skills_without_locale_resources": sorted(no_resources),
         "noncompliant_base_names": len(violations),
         "noncompliant_base_names_detail": sorted(violations),
-        "gold_labels_resolved_by_underscoring": sorted(
-            {f"{r['skill']}: {r['gold']} -> {r['shipped']}" for r in resolutions}),
+        "label_function": "train/skill_labels.py (no spelling fallback)",
         "gold_labels_starved_of_slot_examples": starved,
         "gold_labels_no_skill_supports": unsupported,
         "stats": dict(stats),

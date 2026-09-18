@@ -189,9 +189,6 @@ hf_sources:
 golden:
   policy: stratified
   provenance_column: source
-  shared:
-    path: knowledge/datasets/ovoscope/test_dataset.jsonl
-    default_lang: en-US
   per_skill:
     files: "test/end2end/golden_utterances*.jsonl"
     lang_from_filename: true

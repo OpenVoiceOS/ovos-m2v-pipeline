@@ -60,37 +60,6 @@ def test_the_expansion_is_bounded():
     assert len(sentences("count to {n}", hints=hints)) <= bfs.EXPANSION_CAP
 
 
-def test_a_dotted_gold_label_resolves_to_the_underscored_file():
-    # moviemaster's gold writes `movie.description`; the file is
-    # `movie_description`, and the skill's own suite bridges the two.
-    assert bfs.resolve_gold_label(
-        "movie.description", {"movie_description"}) == "movie_description"
-
-
-def test_a_genuinely_dotted_filename_is_left_alone():
-    # volume really does ship `volume.mute.intent`. Mapping its dots would
-    # invent an intent the skill does not have, so the shipped name wins.
-    shipped = {"volume.mute", "volume_mute"}
-    assert bfs.resolve_gold_label("volume.mute", shipped) == "volume.mute"
-
-
-def test_an_unknown_label_is_returned_unchanged_to_be_reported():
-    assert bfs.resolve_gold_label("count_to_N", {"count_to_n"}) == "count_to_N"
-
-
-def test_an_ambiguous_underscoring_refuses_to_resolve():
-    # Two shipped intents that differ only in a dot fold onto one
-    # underscored form. The gold label matches neither as written, and
-    # picking the one that happens to equal the folded form scores the row
-    # against a label nobody asserted. It resolves to neither.
-    shipped = {"a_b_c", "a.b_c"}
-    assert bfs.resolve_gold_label("a.b.c", shipped) == "a.b.c"
-
-
-def test_an_unambiguous_underscoring_still_resolves():
-    assert bfs.resolve_gold_label("a.b.c", {"a_b_c", "unrelated"}) == "a_b_c"
-
-
 def _write_skill_repo(root, files):
     """A throwaway git repo with the given path -> content files, committed."""
     for rel, content in files.items():

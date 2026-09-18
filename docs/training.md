@@ -88,6 +88,39 @@ not attest. `unresolved_labels` in the manifest is where an unpinned or
 archived skill shows up. Adding a skill to `skill_refs` is how you add its
 intents to the vocabulary.
 
+## The evaluation set
+
+The eval side of the corpus has one source: the golden files the skills
+themselves ship, `test/end2end/golden_utterances*.jsonl`, read at the same
+`skill_refs` pin the train side reads the skill's resources at.
+`train/build_eval.py` builds it:
+
+    python train/build_eval.py --workspace ~/AgentWorkspaces --out staging/eval \
+        --train staging/m2v-v6-dataset/train.jsonl
+
+It writes `eval/{lang}/test.jsonl` (the layout `OpenVoiceOS/ovos-intents-v5-eval`
+publishes), a flat `test.jsonl`, `census.json` (rows in, rows out and the reason
+for every dropped row, per skill per locale) and `manifest.json`. With
+`--train` it runs `train/census_gold_labels.py` as the gate: a gold label with
+no train row fails the build with the labels listed. That is a naming defect in
+the skill or its gold file, and it is fixed there, never in the reader.
+
+Every label, on both sides, comes from `train/skill_labels.py`: the skill id
+the repository's entry point declares (`pyproject.toml`, else `setup.py`, else
+the GitHub URL), and the intent name without its `.intent` suffix.
+`build_from_skills.py` reads its gold rows through the same
+`build_eval.read_gold`, so the train build's `test.jsonl` and the eval build's
+files are one reader's output. A gold row's own `skill_id` field is not read
+for the label. No rename map and no dotted-to-underscore fallback exists on the
+eval side: `count_to_N` in a gold file stays `count_to_N` until the file is
+fixed. A repository that declares no entry point at all is labelled
+`<repo-name>.openvoiceos` and counted under `skill_id_assumed_from_repo_name`
+in the manifest.
+
+Retired: `train/published-v5/` (the hand-kept v5 scripts) and the
+`golden.shared` fleet file in `sources.yaml`. `build_dataset.py` no longer reads
+it; a config that still names it is counted under `golden_shared_ignored`.
+
 ## Sources
 
 `sources.yaml` is the authority; each entry carries its revision, its license
