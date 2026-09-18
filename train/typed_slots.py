@@ -12,6 +12,7 @@ runtime transformer uses:
 * number, `ovos_number_parser.pronounce_number`
 * date and duration, `ovos_date_parser`
 * color, `ovos_color_parser`
+* language, `ovos_lang_parser.pronounce_lang`
 
 Which types exist at all is read, never re-declared: `REGISTERED_TYPES` in
 `ovos_spec_tools` is the registry, and `TypedSlotsTransformer.supported_types`
@@ -135,11 +136,41 @@ def _colors(lang: str) -> List[str]:
     return out
 
 
+#: Three languages a user names often, as codes. `pronounce_lang` names the
+#: LANGUAGE in the language asked for, so the sample is the locale's own
+#: word: `Francès` for ca, `Tafransist` for kab.
+_LANGUAGE_CODES = ["en", "fr", "de"]
+
+
+def _languages(lang: str) -> List[str]:
+    """Language names for a language, or nothing when the parser has none.
+
+    `ovos_lang_parser` raises ValueError for a language with no bundled
+    wordlist (the same behaviour the runtime transformer handles), and that
+    is the empty answer here: an English "French" in a Finnish row is not
+    Finnish data.
+    """
+    try:
+        from ovos_lang_parser import pronounce_lang
+    except ImportError:
+        return []
+    out = []
+    for code in _LANGUAGE_CODES:
+        try:
+            spoken = pronounce_lang(code, lang=lang)
+        except Exception:
+            continue
+        if spoken and isinstance(spoken, str):
+            out.append(spoken)
+    return out
+
+
 _GENERATORS = {
     "number": _numbers,
     "date": _dates,
     "duration": _durations,
     "color": _colors,
+    "language": _languages,
 }
 
 
