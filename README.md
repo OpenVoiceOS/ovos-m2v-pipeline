@@ -331,6 +331,8 @@ under grant agreement No [101135429](https://cordis.europa.eu/project/id/1011354
 ## Training your own model
 
 `train/` builds the intent corpus from pinned sources and fits a classifier on
-it. See [docs/training.md](docs/training.md) for the end-to-end recipe and the
+it. `train/build_eval.py` builds the evaluation set from the skills' own golden
+files at the same pins, the only eval source; both sides label through
+`train/skill_labels.py`. See [docs/training.md](docs/training.md) for the end-to-end recipe and the
 current hold on training runs, and [docs/labels.md](docs/labels.md) for the
 label scheme every model must follow.

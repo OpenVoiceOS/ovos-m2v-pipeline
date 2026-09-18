@@ -39,11 +39,16 @@ def read_labels(path: Path) -> collections.Counter:
     return counts
 
 
-def census(dataset: Path):
-    train = read_labels(dataset / "train.jsonl")
-    test = read_labels(dataset / "test.jsonl")
+def census_paths(train_path: Path, test_path: Path):
+    """The gate on two files: every test label must have a train row."""
+    train = read_labels(train_path)
+    test = read_labels(test_path)
     missing = {label: test[label] for label in sorted(test) if label not in train}
     return train, test, missing
+
+
+def census(dataset: Path):
+    return census_paths(dataset / "train.jsonl", dataset / "test.jsonl")
 
 
 def main(argv=None):
