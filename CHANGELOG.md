@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.18.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.18.1a1) (2026-09-18)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.18.0a1...0.18.1a1)
+
+**Merged pull requests:**
+
+- fix: prototype mode defaults its confidence tiers on the cosine scale [\#222](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/222) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.18.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.18.0a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.17.0a1...0.18.0a1)
