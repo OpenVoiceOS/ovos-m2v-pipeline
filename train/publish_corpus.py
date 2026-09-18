@@ -20,10 +20,21 @@ up: an empty `test.jsonl` reads as "measured, found nothing" when the truth
 is "never measured". So the locale set of each split comes from what the
 staged directory holds and is never a list written down in this file.
 
-The upload is additive. `upload_folder` creates or updates the files it is
-given in one commit and deletes nothing else in the repo. The token comes
-from the `HF_TOKEN` environment variable, never from an argument, so it stays
-out of shell history and out of any log this prints.
+`upload_folder` creates or updates the files it is given and deletes nothing
+else, so a locale directory from an earlier publish outlives every build that
+does not write it. That is how `arb` and `es-419` reached the `v6` tag on the
+v5 row schema: they were pushed on 2026-09-06 and no later publish removed
+them, while the `v6` manifest recorded 52 training languages against 54
+directories in the repository.
+
+The upload therefore prunes. `delete_patterns` names the locale payloads, so
+a `.jsonl` under a locale directory that this build did not stage is deleted
+in the same commit. The pattern never matches the repository root, so the
+dataset card, the manifest and `.gitattributes` are kept whatever the staged
+tree holds.
+
+The token comes from the `HF_TOKEN` environment variable, never from an
+argument, so it stays out of shell history and out of any log this prints.
 
 Usage:
 
@@ -105,6 +116,12 @@ def report(name: str, found: dict, expect_rows: int | None) -> None:
             "the staged directory and the build do not agree")
 
 
+#: Remote paths the upload may delete: a locale payload the staged tree no
+#: longer holds. One directory level only, so nothing at the repository root
+#: is ever matched.
+LOCALE_PAYLOADS = ["*/*.jsonl"]
+
+
 def upload(root: Path, repo_id: str, message: str, tag: str | None) -> None:
     from huggingface_hub import HfApi
 
@@ -116,7 +133,8 @@ def upload(root: Path, repo_id: str, message: str, tag: str | None) -> None:
     api = HfApi(token=token)
     api.create_repo(repo_id, repo_type="dataset", exist_ok=True)
     api.upload_folder(folder_path=str(root), repo_id=repo_id,
-                      repo_type="dataset", commit_message=message)
+                      repo_type="dataset", commit_message=message,
+                      delete_patterns=LOCALE_PAYLOADS)
     print(f"[publish] uploaded {root} -> {repo_id}")
     if tag:
         api.create_tag(repo_id, tag=tag, repo_type="dataset",
