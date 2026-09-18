@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.21.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.21.0a1) (2026-09-18)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.20.0a1...0.21.0a1)
+
+**Merged pull requests:**
+
+- feat: bridge the ovos-skill-wikipedia WikiMore rename [\#213](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/213) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.20.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.20.0a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.19.0a1...0.20.0a1)
@@ -337,10 +345,6 @@
 ## [0.11.2a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.11.2a1) (2026-09-07)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.11.1a1...0.11.2a1)
-
-**Merged pull requests:**
-
-- fix: dataset builder locale merge, slot filling, registry gaps [\#112](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/112) ([JarbasAl](https://github.com/JarbasAl))
 
 ## [0.11.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.11.1a1) (2026-09-07)
 
