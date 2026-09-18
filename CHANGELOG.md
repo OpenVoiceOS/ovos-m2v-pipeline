@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.15.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.15.1a1) (2026-09-18)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.15.0a1...0.15.1a1)
+
+**Merged pull requests:**
+
+- fix: the corpus publish prunes a locale the build did not stage [\#209](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/209) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.15.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.15.0a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.14.1a1...0.15.0a1)
@@ -27,10 +35,6 @@
 ## [0.14.0a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.14.0a2) (2026-09-17)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.14.0a1...0.14.0a2)
-
-**Merged pull requests:**
-
-- chore: add Apache-2.0 license [\#96](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/96) ([JarbasAl](https://github.com/JarbasAl))
 
 ## [0.14.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.14.0a1) (2026-09-14)
 
@@ -342,10 +346,6 @@
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.9.4a1...0.9.5a1)
 
-**Merged pull requests:**
-
-- fix: expand entity placeholders on legacy-wire registrations in prototype mode [\#92](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/92) ([JarbasAl](https://github.com/JarbasAl))
-
 ## [0.9.4a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.9.4a1) (2026-09-07)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.9.3a1...0.9.4a1)
@@ -357,10 +357,6 @@
 ## [0.9.3a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.9.3a1) (2026-09-07)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.9.2a1...0.9.3a1)
-
-**Merged pull requests:**
-
-- fix: partition prototype store by language [\#93](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/93) ([JarbasAl](https://github.com/JarbasAl))
 
 ## [0.9.2a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.9.2a1) (2026-09-07)
 
