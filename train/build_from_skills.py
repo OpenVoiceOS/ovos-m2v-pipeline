@@ -60,6 +60,9 @@ from pathlib import Path
 import yaml
 
 from ovos_spec_tools.expansion import expand
+from ovos_spec_tools.lint import declared_slot_types
+
+import typed_slots
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import skill_labels  # noqa: E402
@@ -272,7 +275,8 @@ def read_skill(repo: Path, rev: str, repo_name: str, stats: collections.Counter,
     return templates, hints, keywords
 
 
-def fill(template: str, hints: dict, keywords: dict, stats: collections.Counter):
+def fill(template: str, hints: dict, keywords: dict, stats: collections.Counter,
+         lang: str = "en-US"):
     """Sentences a template produces, with its own language's resources.
 
     `<name>` references a keyword file, which is how a template says "any of
@@ -280,6 +284,13 @@ def fill(template: str, hints: dict, keywords: dict, stats: collections.Counter)
     when it has them, and left unfilled otherwise -- an unfilled slot is a
     phrasing this corpus cannot use, not a phrasing the skill cannot match.
     """
+    # `expand` strips a type prefix, so `{number:offset}` reaches the loop
+    # below as `{offset}` and the type is only knowable from the template
+    # itself (OVOS-INTENT-4 6.1).
+    try:
+        slot_types = declared_slot_types([template]) or {}
+    except Exception:
+        slot_types = {}
     try:
         sentences = expand(template, keywords)
     except Exception:
@@ -299,6 +310,37 @@ def fill(template: str, hints: dict, keywords: dict, stats: collections.Counter)
         # fills, and the runtime agrees: `expand_entities` passes a sample
         # through with the placeholder left literal and embeds it that way.
         # The corpus mirrors the runtime rather than discarding the phrasing.
+        # A typed slot is filled from the parser for its type in THIS
+        # language, never from an .entity and never left as a brace: the
+        # runtime binds it by asking that same parser, so a row carrying the
+        # placeholder teaches a surface the runtime never produces. A type
+        # with no generator for this language drops the sentence rather than
+        # filling it with another language's words.
+        typed_here = {n: slot_types[n] for n in slots if n in slot_types}
+        if typed_here:
+            values = {n: typed_slots.values_for(t, lang)
+                      for n, t in typed_here.items()}
+            if not all(values.values()):
+                stats["sentence_dropped_no_typed_values_for_this_language"] += 1
+                continue
+            partials = [s]
+            for name, produced in values.items():
+                grown = []
+                for partial in partials:
+                    for value in produced:
+                        grown.append(re.sub(r"\{" + re.escape(name) + r"\}", value,
+                                            partial, flags=re.IGNORECASE))
+                partials = grown[:EXPANSION_CAP]
+            stats["sentences_from_a_typed_slot"] += len(partials)
+            slots = slots - set(typed_here)
+            if not slots:
+                out.extend(partials)
+                continue
+            # an untyped slot is left to the hint pass below, per sentence
+            for partial in partials:
+                out.extend(fill(partial, hints, keywords, stats, lang))
+            continue
+
         if any(n not in hints for n in slots):
             stats["sentences_kept_with_an_unfilled_slot_before_filling"] += 1
         filled = [s]
@@ -446,7 +488,7 @@ def main() -> int:
             labels_with_templates.add(label)
         for lang, label, template in templates:
             for sentence in fill(template, hints.get(lang, {}),
-                                 keywords.get(lang, {}), stats):
+                                 keywords.get(lang, {}), stats, lang):
                 train.append({"lang": lang, "label": label,
                               "utterance": sentence, "source": f"skill:{repo_name}",
                               "template": template})
