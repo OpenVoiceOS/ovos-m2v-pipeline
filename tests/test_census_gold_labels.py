@@ -68,3 +68,45 @@ def test_a_blank_line_is_not_a_row(tmp_path):
     with (dataset / "test.jsonl").open("a", encoding="utf-8") as handle:
         handle.write("\n")
     assert census.main(["--dataset", str(dataset)]) == 0
+
+
+def build_by_lang(tmp_path: Path, train, test) -> Path:
+    """``train`` and ``test`` are (lang, label) pairs."""
+    dataset = tmp_path / "dataset"
+    dataset.mkdir()
+    write(dataset, "train.jsonl",
+          [{"label": label, "utterance": "u", "lang": lang} for lang, label in train])
+    write(dataset, "test.jsonl",
+          [{"label": label, "utterance": "u", "lang": lang} for lang, label in test])
+    return dataset
+
+
+def test_a_label_trained_only_in_another_locale_is_reported_and_not_refused(tmp_path, capsys):
+    """The flat census passes (the label has train rows) while the locale
+    has none: v6.1's shape. Without --per-locale the exit stays 0 and the
+    pair is printed; with it the exit is 1."""
+    dataset = build_by_lang(tmp_path, [("en-US", "a:one"), ("fr-FR", "a:two")],
+                            [("fr-FR", "a:one")])
+    assert census.main(["--dataset", str(dataset)]) == 0
+    out = capsys.readouterr().out
+    assert "every test label has train rows" in out
+    assert "1 test (lang, label) pairs have no train row in the same locale" in out
+    assert "fr-FR    a:one" in out
+    assert census.main(["--dataset", str(dataset), "--per-locale"]) == 1
+
+
+def test_per_locale_passes_when_every_locale_trains_its_own_labels(tmp_path, capsys):
+    """The positive control for the second gate."""
+    dataset = build_by_lang(tmp_path, [("en-US", "a:one"), ("fr-FR", "a:one")],
+                            [("fr-FR", "a:one"), ("en-US", "a:one")])
+    assert census.main(["--dataset", str(dataset), "--per-locale"]) == 0
+    assert "every test (lang, label) has a train row in the same locale" in capsys.readouterr().out
+
+
+def test_per_locale_reads_the_lang_field_and_refuses_a_row_without_it(tmp_path):
+    dataset = tmp_path / "dataset"
+    dataset.mkdir()
+    write(dataset, "train.jsonl", [{"label": "a:one", "utterance": "u", "lang": "en-US"}])
+    write(dataset, "test.jsonl", [{"label": "a:one", "utterance": "u"}])
+    with pytest.raises(SystemExit, match="row has no 'lang'"):
+        census.main(["--dataset", str(dataset)])
