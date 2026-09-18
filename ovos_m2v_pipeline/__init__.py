@@ -56,6 +56,23 @@ _HUB_REVISION_PROBE_TIMEOUT_S = 5.0
 # Labels that bypass the registered-intent check and are always matched
 _SPECIAL_LABELS = {"ocp:play", "common_query:common_query", "stop:stop"}
 
+#: Default ``conf_high`` / ``conf_medium`` / ``conf_low`` per mode. The two
+#: modes score on different scales: classifier mode returns a softmax
+#: probability, prototype mode a raw cosine similarity between L2-normalised
+#: sentence embeddings. On the cosine scale almost every utterance sits
+#: above 0.15 against *some* stored prototype, and a third sit above 0.5, so
+#: the classifier's thresholds make the prototype stage claim utterances it
+#: holds no prototype for. Measured on the v6 model with a store built from a
+#: skill's own ``.intent`` files (T-1621): of 216 utterances whose label the
+#: store did NOT hold, the nearest foreign prototype scored >= 0.15 for 215,
+#: >= 0.5 for 67, >= 0.65 for 17, >= 0.7 for 11 and >= 0.85 for 2; of 155
+#: correctly ranked in-skill gold rows, 149 scored >= 0.65, 143 >= 0.7 and
+#: 79 >= 0.85. An explicit ``conf_*`` key overrides these in either mode.
+DEFAULT_CONF: Dict[str, Dict[str, float]] = {
+    "classifier": {"conf_high": 0.7, "conf_medium": 0.5, "conf_low": 0.15},
+    "prototype": {"conf_high": 0.85, "conf_medium": 0.7, "conf_low": 0.65},
+}
+
 # Map each special label to a substring that must appear in `session.pipeline`
 # entries for the label to be considered. Without the matching downstream
 # pipeline in the session there is no service to route the intent to.
@@ -951,6 +968,11 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         ``padatious:register_intent`` fires; the file path is taken from
         ``message.data["file_name"]``.  Adapt intents are tracked by label
         name only and are not matched in prototype mode.
+
+    The two score scales are not comparable, so the confidence tiers default
+    differently per mode (``DEFAULT_CONF``): 0.7 / 0.5 / 0.15 for a softmax
+    probability, 0.85 / 0.7 / 0.65 for a cosine. A configured ``conf_high``,
+    ``conf_medium`` or ``conf_low`` overrides the default in either mode.
 
     ``revision`` : str, optional (default: ``None``)
         Git revision (commit SHA, branch, or tag) to pin the Hugging Face
@@ -2464,6 +2486,14 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
     # Confidence-tier API
     # ------------------------------------------------------------------
 
+    def _min_conf(self, key: str) -> float:
+        """The threshold for *key* (``conf_high`` / ``conf_medium`` /
+        ``conf_low``): the configured value, else the default for this
+        mode's score scale (see ``DEFAULT_CONF``)."""
+        defaults = DEFAULT_CONF.get(self._mode, DEFAULT_CONF["classifier"])
+        value = self.config.get(key)
+        return float(value) if value is not None else defaults[key]
+
     def match_high(self, utterances: List[str], lang: str, message: Message) -> Optional[IntentHandlerMatch]:
         """
         Matches the most likely intent for a given list of utterances using Model2Vec.
@@ -2478,7 +2508,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         """
         if not utterances:
             return None
-        min_conf = self.config.get("conf_high", 0.7)
+        min_conf = self._min_conf("conf_high")
         LOG.debug(f"Matching intents via Model2Vec (min_conf: {min_conf}) - {utterances[0]}")
         for skill_id, label, prob, slots in self._match(utterances[0], message, lang):
             if prob < min_conf:
@@ -2508,7 +2538,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         """
         if not utterances:
             return None
-        min_conf = self.config.get("conf_medium", 0.5)
+        min_conf = self._min_conf("conf_medium")
         LOG.debug(f"Matching intents via Model2Vec (min_conf: {min_conf}) - {utterances[0]}")
         for skill_id, label, prob, slots in self._match(utterances[0], message, lang):
             if prob < min_conf:
@@ -2538,7 +2568,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         """
         if not utterances:
             return None
-        min_conf = self.config.get("conf_low", 0.15)
+        min_conf = self._min_conf("conf_low")
         LOG.debug(f"Matching intents via Model2Vec (min_conf: {min_conf}) - {utterances[0]}")
         for skill_id, label, prob, slots in self._match(utterances[0], message, lang):
             if prob < min_conf:
@@ -2574,6 +2604,18 @@ class Model2VecPrototypePipeline(Model2VecIntentPipeline):
                 "prototype_k": 5
             }
         }
+
+    When both plugins run, put each classifier tier BEFORE the prototype
+    tier of the same name in the pipeline (``ovos-m2v-pipeline-high``,
+    ``ovos-m2v-prototype-pipeline-high``, ``ovos-m2v-pipeline-medium``,
+    ``ovos-m2v-prototype-pipeline-medium``, ...). The prototype store holds
+    only the labels registered at runtime; for an utterance whose label the
+    classifier was trained on, the nearest prototype is always some other
+    label, and a prototype stage placed first claims it before the
+    classifier can answer (T-1621: 7 of 117 alerts handler tests and 6 of
+    53 volume golden rows lost with the prototype tiers first). Deny-list
+    the classifier's trained labels in this plugin's ``ignore_intents`` so
+    each label is served by one engine.
     """
 
     def __init__(

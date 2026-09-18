@@ -51,7 +51,7 @@ In your `mycroft.conf`:
 ```
 
 * `model`: Path to your pretrained Model2Vec model or huggingface repo.
-* `conf_xxx`: Minimum confidence threshold for intent matching.
+* `conf_xxx`: Minimum confidence threshold for intent matching. The default depends on the mode, because the two modes score on different scales. Classifier mode returns a softmax probability and defaults to `0.7` / `0.5` / `0.15`. Prototype mode returns a cosine similarity and defaults to `0.85` / `0.7` / `0.65`. On the cosine scale nearly every utterance scores above 0.15 against some stored prototype, and a third score above 0.5 against a prototype of the wrong label. With the classifier's defaults the prototype stage claims utterances it holds no prototype for. A `conf_xxx` key you set applies in either mode.
 * `ignore_intents`: List of canonical labels to exclude from matching (deny-list, applied after `label_map`).
 * `valid_labels`: Classifier-mode only. List of raw model labels eligible to match (allow-list, checked before `label_map` is applied). When unset, every label is eligible. Not consulted in prototype mode: the prototype store already only holds runtime-registered labels, so it is its own allow-list.
 * `label_map`: Maps a raw model label to its canonical `skill_id:intent` label. Merges over (and can override) the built-in OCP/common-query/stop remaps and any labels the model itself declares in `labels.json`; see [Trained models document their labels](#trained-models-document-their-labels).
@@ -211,6 +211,20 @@ its own `intents.<entrypoint-name>` key (see the `Model2VecPrototypePipeline`
 docstring for an example), so a deployment can keep the fast frozen
 classifier for its core trained intents while the prototype matcher picks up
 everything else.
+
+When both run, order each classifier tier before the prototype tier of the
+same name (`ovos-m2v-pipeline-high`, `ovos-m2v-prototype-pipeline-high`,
+`ovos-m2v-pipeline-medium`, `ovos-m2v-prototype-pipeline-medium`, ...), and
+deny-list the classifier's trained labels in the prototype plugin's
+`ignore_intents`, so each label is served by one engine. The prototype store
+holds only the labels registered at runtime. For an utterance whose label the
+classifier was trained on, the nearest prototype is always some other label,
+so a prototype tier placed first claims the utterance before the classifier
+can answer.
+
+Measured with the v6 model on the alerts and volume suites, the prototype-first
+order lost 7 of 117 handler tests and 6 of 53 golden rows that the
+classifier-first order passed.
 
 ---
 
