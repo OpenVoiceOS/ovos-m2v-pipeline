@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.23.3a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.23.3a1) (2026-09-18)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.23.2a1...0.23.3a1)
+
+**Merged pull requests:**
+
+- fix: re-pin the six renamed skills so the corpus trains the new labels [\#234](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/234) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.23.2a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.23.2a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.23.1a1...0.23.2a1)
@@ -369,10 +377,6 @@
 ## [0.11.3a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.11.3a1) (2026-09-07)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.11.2a1...0.11.3a1)
-
-**Merged pull requests:**
-
-- fix: registration handlers take skill\_id from the message context [\#122](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/122) ([JarbasAl](https://github.com/JarbasAl))
 
 ## [0.11.2a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.11.2a1) (2026-09-07)
 
