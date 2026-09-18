@@ -137,9 +137,9 @@ LABEL_ALIASES = {
     # ovos-skill-alerts#197 and #204: the alias intents fold into their base
     # intent. CreateOcpAlarmAlt carried the wake-with-media phrasings, which
     # #199 split out again as CreateAlarmAlt.
-    "ovos-skill-alerts.openvoiceos:CreateReminderAlt": "ovos-skill-alerts.openvoiceos:CreateReminder",
-    "ovos-skill-alerts.openvoiceos:RescheduleAlertAlt": "ovos-skill-alerts.openvoiceos:RescheduleAlert",
-    "ovos-skill-alerts.openvoiceos:CreateOcpAlarmAlt": "ovos-skill-alerts.openvoiceos:CreateAlarmAlt",
+    "ovos-skill-alerts.openvoiceos:CreateReminderAlt": "ovos-skill-alerts.openvoiceos:create_reminder",
+    "ovos-skill-alerts.openvoiceos:RescheduleAlertAlt": "ovos-skill-alerts.openvoiceos:reschedule_alert",
+    "ovos-skill-alerts.openvoiceos:CreateOcpAlarmAlt": "ovos-skill-alerts.openvoiceos:create_alarm_alt",
     # CreateOcpAlarm is deliberately absent: of its 48 template lines, 37
     # are now CreateAlarm and the 11 "wake me up with ..." lines are now
     # CreateAlarmAlt, so one label cannot carry it.

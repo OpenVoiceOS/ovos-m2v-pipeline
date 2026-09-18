@@ -70,14 +70,13 @@ SKILL_ALIASES = {k: v for k, v in _ALIASES.items()
 #: names the alias table happens to claim.
 PINNED_REGISTRATIONS = {
     "ovos-skill-alerts.openvoiceos": {
-        "AddListSubitems", "CalendarList", "CancelAlert",
-        "ChangeMediaProperties", "ChangePriority", "ChangeRepeat",
-        "ChangeUntil", "CreateAlarm", "CreateAlarmAlt", "CreateEvent",
-        "CreateList", "CreateReminder", "CreateTimer", "DAVSync",
-        "DeleteList", "DeleteListEntries", "DeleteTodoEntries",
-        "ListAlerts", "QueryListEntries", "QueryListNames",
-        "QueryTodoEntries", "RescheduleAlert", "TimerStatus",
-        "create_reminder_recurring", "missed_alerts",
+        "add_list_subitems", "calendar_list", "cancel_alert",
+        "change_media_properties", "change_priority", "change_repeat",
+        "change_until", "create_alarm", "create_alarm_alt", "create_event",
+        "create_list", "create_reminder", "create_reminder_recurring",
+        "create_timer", "dav_sync", "delete_list", "delete_list_entries",
+        "list_alerts", "missed_alerts", "query_list_entries",
+        "query_list_names", "reschedule_alert", "timer_status",
     },
     "ovos-skill-confucius-quotes.openvoiceos": {
         "confucius_lifespan", "confucius_quote", "who",
@@ -113,7 +112,7 @@ PINNED_REGISTRATIONS = {
 #: read at. A re-pin in `train/sources.yaml` must update both tables.
 PINNED_REFS = {
     "ovos-skill-alerts.openvoiceos":
-        ("ovos/skills/ovos-skill-alerts", "ab3e82b516aefab3d03be6989548dabebd4594ee"),
+        ("ovos/skills/ovos-skill-alerts", "e72a6e7f2cb4fef2699d46cc1761f63260fa19af"),
     "ovos-skill-confucius-quotes.openvoiceos":
         ("ovos/skills/ovos-skill-confucius-quotes", "eb0dd4cdfffa99b7e369378a4b3150a92f1e73d2"),
     "ovos-skill-fuster-quotes.openvoiceos":
@@ -125,7 +124,7 @@ PINNED_REFS = {
     "ovos-skill-weather.openvoiceos":
         ("ovos/skills/ovos-skill-weather", "64900360ba0eb1a59cbdad638ec3780c63e20b41"),
     "ovos-skill-wolfie.openvoiceos":
-        ("ovos/skills/ovos-skill-wolfie", "4db152bf949e9c87bae6cd1b3c0fe233cfc0bb44"),
+        ("ovos/skills/ovos-skill-wolfie", "bca7e6e6754626823990cc13093f9de8ba1b8e47"),
     "ovos-skill-wordnet.openvoiceos":
         ("ovos/skills/ovos-skill-wordnet", "6efb78c2250c3ab0c4b754fa75be99d5ad260c6e"),
     "skill-ovos-wallpapers.openvoiceos":
