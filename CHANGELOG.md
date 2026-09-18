@@ -370,10 +370,6 @@
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.8.2a2...0.8.3a1)
 
-**Merged pull requests:**
-
-- fix: dataset-manifest test dependencies and collection-safe skips [\#88](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/88) ([JarbasAl](https://github.com/JarbasAl))
-
 ## [0.8.2a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.8.2a2) (2026-09-01)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.8.2a1...0.8.2a2)
