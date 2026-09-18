@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.17.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.17.0a1) (2026-09-18)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.16.0a1...0.17.0a1)
+
+**Merged pull requests:**
+
+- feat: one label function for train and eval, and the eval built from the skills' golden files [\#219](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/219) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.16.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.16.0a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.15.1a1...0.16.0a1)
@@ -369,10 +377,6 @@
 ## [0.9.2a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.9.2a1) (2026-09-07)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.9.1a1...0.9.2a1)
-
-**Merged pull requests:**
-
-- fix: model revision resolution runs inside the load retry path [\#101](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/101) ([JarbasAl](https://github.com/JarbasAl))
 
 ## [0.9.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.9.1a1) (2026-09-06)
 
