@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.23.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.23.1a1) (2026-09-18)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.23.0a1...0.23.1a1)
+
+**Merged pull requests:**
+
+- fix: the corpus publish refuses a row without label and utterance [\#230](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/230) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.23.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.23.0a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.22.0a1...0.23.0a1)
