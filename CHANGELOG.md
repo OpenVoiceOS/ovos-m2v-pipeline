@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.0a3](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.14.0a3) (2026-09-18)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.14.0a2...0.14.0a3)
+
+**Merged pull requests:**
+
+- chore\(train\): move skill\_refs pins to the dev heads of 2026-09-13 [\#194](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/194) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.14.0a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.14.0a2) (2026-09-17)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.14.0a1...0.14.0a2)
@@ -357,10 +365,6 @@
 ## [0.9.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.9.0a1) (2026-09-01)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.8.3a1...0.9.0a1)
-
-**Merged pull requests:**
-
-- feat: default to the OpenVoiceOS intent models per language [\#86](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/86) ([JarbasAl](https://github.com/JarbasAl))
 
 ## [0.8.3a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.8.3a1) (2026-09-01)
 
