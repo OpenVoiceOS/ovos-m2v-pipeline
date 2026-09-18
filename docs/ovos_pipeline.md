@@ -100,6 +100,17 @@ Padatious `.intent` files support bracket template syntax. The prototype plugin 
 
 Inline `samples` in `padatious:register_intent` messages are expanded the same way.
 
+## Typed Slots
+
+The prototype plugin never reads a slot value from the utterance. A template that declares a typed slot (`set the brightness to {number:b}`, OVOS-INTENT-1 section 5.6) gets its value from the `typed_slots` map on the utterance message, when the core computed one:
+
+- one entry of the declared type whose span holds on the utterance fills the slot with its surface;
+- of several, the entry that follows the template's literal word before the slot fills it (`to` in the template above, so `set the brightness to twenty five please not fifty` gives `twenty five`); when that word occurs more than once with an entry after it, the occurrence nearest the slot's position in its templates wins; an entry fills at most one slot, so two slots of one type never collapse onto one reading;
+- when no template puts a literal word before the slot, or no entry follows one in this utterance, the entry whose relative position in the utterance is nearest the slot's position in its templates fills it;
+- no entry, no map, or a slot already filled from session context: the slot stays as it was.
+
+`Match.slots[name]` is the surface string. The normalized value stays in the map, keyed by that surface.
+
 ## Confidence Tiers and the Pipeline List
 
 OVOS does **not** call all three tiers of a plugin automatically. Instead, each tier is a separate named entry in the `pipeline` list, identified by a `-high`, `-medium`, or `-low` suffix:

@@ -1064,6 +1064,8 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         #: averaged over the samples that name it; picks the nearest map
         #: entry when several entries share the slot's type.
         self._intent_slot_positions: Dict[str, Dict[str, float]] = {}
+        # slot -> the literal words a template puts right before it
+        self._intent_slot_anchors: Dict[str, Dict[str, set]] = {}
         #: skill_ids that already triggered the frozen-classifier INTENT-4
         #: warning (see ``_handle_intent4_register_template``), so the
         #: warning logs once per skill rather than once per template.
@@ -2114,18 +2116,26 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             self._forget_slot_types(label)
             return
         positions: Dict[str, List[float]] = {}
+        anchors: Dict[str, set] = {}
         for sample in samples:
             bare = strip_type_prefixes(sample)
             for m in _SLOT_RE.finditer(bare):
                 if m.group(1) in declared and len(bare) > 0:
                     positions.setdefault(m.group(1), []).append(m.start() / len(bare))
+                    # the literal word right before the slot, the anchor
+                    # `_fill_typed_slots` looks for in the utterance
+                    words = bare[:m.start()].split()
+                    if words and "{" not in words[-1] and "}" not in words[-1]:
+                        anchors.setdefault(m.group(1), set()).add(words[-1].lower())
         self._intent_slot_types[label] = declared
         self._intent_slot_positions[label] = {
             slot: sum(v) / len(v) for slot, v in positions.items()}
+        self._intent_slot_anchors[label] = anchors
 
     def _forget_slot_types(self, label: str) -> None:
         self._intent_slot_types.pop(label, None)
         self._intent_slot_positions.pop(label, None)
+        self._intent_slot_anchors.pop(label, None)
 
     def _forget_slot_types_skill(self, skill_id: str) -> None:
         for label in [l for l in self._intent_slot_types if l.startswith(skill_id + ":")]:
@@ -2142,10 +2152,14 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         alongside the match." This engine never extracts a value from the
         utterance, so the map is its only utterance-supplied source. One
         entry of the slot's type fills the slot with its surface. Of
-        several, the entry whose relative position in the utterance is
-        nearest the slot's position in its templates fills it. No entry
-        of that type, or no entry whose span holds on this utterance
-        (``utterance[start:end] == surface``): the slot stays unfilled.
+        several, the entry that follows the template's literal word before
+        the slot ("to" in ``set the brightness to {number:b}``) fills it;
+        when no literal precedes the slot in any template, or none of the
+        entries follow one in this utterance, the entry whose relative
+        position in the utterance is nearest the slot's position in its
+        templates fills it. No entry of that type, or no entry whose span
+        holds on this utterance (``utterance[start:end] == surface``): the
+        slot stays unfilled.
         A slot already filled (OVOS-CONTEXT-1 §7 context) is kept.
         ``Match.slots[name]`` is the surface string (PIPELINE-1 §4.3).
         """
@@ -2162,24 +2176,73 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             LOG.warning(f"ignoring a malformed typed_slots map (INTENT-1 5.6): {exc}")
             return slots
         positions = self._intent_slot_positions.get(label, {})
+        anchors = self._intent_slot_anchors.get(label, {})
         length = max(1, len(utterance))
         filled = dict(slots)
+        # an entry fills at most one slot: two slots of one type that
+        # share an anchor word must not collapse onto the same reading
+        consumed: set = set()
         for slot, slot_type in declared.items():
             if filled.get(slot) is not None:
                 continue
             entries = [e for e in typed.get(slot_type, [])
-                       if utterance[e["span"][0]:e["span"][1]] == e["surface"]]
+                       if id(e) not in consumed
+                       and utterance[e["span"][0]:e["span"][1]] == e["surface"]]
             if not entries:
                 continue
-            if len(entries) == 1:
-                filled[slot] = entries[0]["surface"]
-                continue
             want = positions.get(slot)
-            if want is None:
+            chosen = None
+            if len(entries) == 1:
+                chosen = entries[0]
+            else:
+                chosen = self._entry_after_anchor(
+                    entries, utterance, anchors.get(slot, set()), want)
+                if chosen is None and want is not None:
+                    chosen = min(entries,
+                                 key=lambda e: abs(e["span"][0] / length - want))
+            if chosen is None:
                 continue
-            best = min(entries, key=lambda e: abs(e["span"][0] / length - want))
-            filled[slot] = best["surface"]
+            consumed.add(id(chosen))
+            filled[slot] = chosen["surface"]
         return filled
+
+    @staticmethod
+    def _entry_after_anchor(entries: List[dict], utterance: str,
+                            anchors: set, want: Optional[float] = None
+                            ) -> Optional[dict]:
+        """The entry that starts right after an anchor word.
+
+        An anchor is a literal word a template puts before the slot. The
+        utterance is scanned word by word on the original text; an entry
+        whose span starts at the first non-space after an anchor is one
+        the template would have bound there. When the anchor word occurs
+        more than once with an entry after it, the occurrence whose entry
+        sits nearest ``want`` (the slot's relative position in its
+        templates) wins, so "go to five before you set the brightness to
+        twenty five" reads the second "to" for a late slot. With no
+        ``want`` the earliest occurrence wins. The longest entry at one
+        start is taken. ``None`` when no entry follows an anchor.
+        """
+        if not anchors or not entries:
+            return None
+        length = max(1, len(utterance))
+        by_start: Dict[int, List[dict]] = {}
+        for e in entries:
+            by_start.setdefault(e["span"][0], []).append(e)
+        candidates: List[dict] = []
+        for m in re.finditer(r"\S+", utterance):
+            if m.group(0).lower() not in anchors:
+                continue
+            after = m.end()
+            while after < len(utterance) and utterance[after].isspace():
+                after += 1
+            if after in by_start:
+                candidates.append(max(by_start[after], key=lambda e: e["span"][1]))
+        if not candidates:
+            return None
+        if want is None:
+            return candidates[0]
+        return min(candidates, key=lambda e: abs(e["span"][0] / length - want))
 
     def _handle_intent4_register_entity(self, message: Message) -> None:
         """Register an entity value-set hint (§7). No-op in classifier mode."""

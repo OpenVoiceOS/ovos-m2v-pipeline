@@ -126,3 +126,89 @@ class TestTypedSlotMapFill(unittest.TestCase):
             data={"skill_id": SKILL, "intent_name": "brightness", "lang": "en-US"},
             context={"skill_id": SKILL}))
         self.assertNotIn(LABEL, p._intent_slot_types)
+
+
+class TestTypedSlotAnchor(unittest.TestCase):
+    """Of several holding entries, the one that follows the template's
+    literal word before the slot fills it. The nearest-position rule stays
+    as the fallback."""
+
+    SAMPLES = ["set the brightness to {number:b}"]
+
+    def _register(self, p, samples):
+        TestTypedSlotMapFill._register(self, p, samples)
+
+    def _match(self, p, utterance, typed):
+        return TestTypedSlotMapFill._match(self, p, utterance=utterance,
+                                           typed_slots=typed)
+
+    @staticmethod
+    def _map(utt, *surfaces):
+        return {"number": [{"span": [utt.index(s), utt.index(s) + len(s)],
+                            "surface": s, "value": 0} for s in surfaces]}
+
+    def test_the_entry_after_the_anchor_wins_over_a_later_one(self):
+        p = _make_prototype_pipeline()
+        self._register(p, self.SAMPLES)
+        utt = "set the brightness to twenty five please not fifty"
+        match = self._match(p, utt, self._map(utt, "twenty five", "fifty"))
+        self.assertEqual(match.match_data.get("b"), "twenty five")
+
+    def test_the_mirror_sentence_binds_the_same_entry(self):
+        p = _make_prototype_pipeline()
+        self._register(p, self.SAMPLES)
+        utt = "not fifty, set the brightness to twenty five"
+        match = self._match(p, utt, self._map(utt, "fifty", "twenty five"))
+        self.assertEqual(match.match_data.get("b"), "twenty five")
+
+    def test_the_anchor_is_case_insensitive(self):
+        p = _make_prototype_pipeline()
+        self._register(p, self.SAMPLES)
+        utt = "Set the brightness TO twenty five not fifty"
+        match = self._match(p, utt, self._map(utt, "twenty five", "fifty"))
+        self.assertEqual(match.match_data.get("b"), "twenty five")
+
+    def test_no_entry_after_the_anchor_falls_back_to_the_position_rule(self):
+        p = _make_prototype_pipeline()
+        self._register(p, self.SAMPLES)
+        # "to" precedes no number here: the position rule picks the entry
+        # nearest the template's late slot, which is the later one
+        utt = "brightness twenty five to the max not fifty"
+        match = self._match(p, utt, self._map(utt, "twenty five", "fifty"))
+        self.assertEqual(match.match_data.get("b"), "fifty")
+
+    def test_a_slot_with_no_literal_before_it_uses_the_position_rule(self):
+        p = _make_prototype_pipeline()
+        self._register(p, ["{number:b} percent brightness"])
+        self.assertEqual(p._intent_slot_anchors[LABEL], {})
+        utt = "fifty percent brightness not twenty five"
+        match = self._match(p, utt, self._map(utt, "fifty", "twenty five"))
+        self.assertEqual(match.match_data.get("b"), "fifty")
+
+    def test_anchors_are_dropped_on_deregister(self):
+        p = _make_prototype_pipeline()
+        self._register(p, self.SAMPLES)
+        self.assertEqual(p._intent_slot_anchors[LABEL], {"b": {"to"}})
+        p._handle_intent4_deregister_intent(Message(
+            SpecMessage.INTENT_DEREGISTER.value,
+            data={"skill_id": SKILL, "intent_name": "brightness"},
+            context={"skill_id": SKILL}))
+        self.assertNotIn(LABEL, p._intent_slot_anchors)
+
+    def test_two_slots_sharing_an_anchor_take_different_entries(self):
+        """Review of #246, finding 1: an entry fills at most one slot."""
+        p = _make_prototype_pipeline()
+        self._register(p, ["set to {number:a} then to {number:b}"])
+        utt = "set to twenty then to thirty"
+        match = self._match(p, utt, self._map(utt, "twenty", "thirty"))
+        self.assertEqual(match.match_data.get("a"), "twenty")
+        self.assertEqual(match.match_data.get("b"), "thirty")
+
+    def test_the_anchor_occurrence_nearest_the_template_position_wins(self):
+        """Review of #246, finding 2: an earlier unrelated "to" must not
+        capture a late slot."""
+        p = _make_prototype_pipeline()
+        self._register(p, self.SAMPLES)
+        utt = "go to five before you set the brightness to twenty five"
+        match = self._match(p, utt, self._map(utt, "five", "twenty five"))
+        self.assertEqual(match.match_data.get("b"), "twenty five")
