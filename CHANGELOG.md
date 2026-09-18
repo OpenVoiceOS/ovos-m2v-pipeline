@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.24.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.24.1a1) (2026-09-18)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.24.0a1...0.24.1a1)
+
+**Merged pull requests:**
+
+- fix: keep self.intents a set after the startup manifest pull [\#241](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/241) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.24.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.24.0a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.23.5a1...0.24.0a1)
