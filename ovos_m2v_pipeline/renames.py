@@ -79,4 +79,10 @@ RENAMED_LABELS = {
     # ovos-skill-laugh: resource base names made OVOS-INTENT-2 §2 compliant.
     "ovos-skill-laugh.openvoiceos:Laugh": "ovos-skill-laugh.openvoiceos:laugh",
     "ovos-skill-laugh.openvoiceos:RandomLaugh": "ovos-skill-laugh.openvoiceos:random_laugh",
+    # ovos-skill-hello-world#140: resource base names made OVOS-INTENT-2 §2
+    # compliant. The two .voc and two .dialog files it renamed get no pair.
+    "ovos-skill-hello-world.openvoiceos:Greetings": "ovos-skill-hello-world.openvoiceos:greetings",
+    "ovos-skill-hello-world.openvoiceos:HelloWorldIntent": "ovos-skill-hello-world.openvoiceos:hello_world_intent",
+    "ovos-skill-hello-world.openvoiceos:HowAreYou": "ovos-skill-hello-world.openvoiceos:how_are_you",
+    "ovos-skill-hello-world.openvoiceos:ThankYouIntent": "ovos-skill-hello-world.openvoiceos:thank_you_intent",
 }
