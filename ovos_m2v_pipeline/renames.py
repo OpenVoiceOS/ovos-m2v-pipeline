@@ -43,4 +43,10 @@ RENAMED_LABELS = {
     # ovos-skill-confucius-quotes: resource base names made OVOS-INTENT-2 §2
     # compliant (lowercase letters, digits and underscores).
     "ovos-skill-confucius-quotes.openvoiceos:ConfuciusQuote": "ovos-skill-confucius-quotes.openvoiceos:confucius_quote",
+    # ovos-skill-ip: resource base names made OVOS-INTENT-2 §2 compliant
+    # (lowercase letters, digits and underscores).
+    "ovos-skill-ip.openvoiceos:IPIntent": "ovos-skill-ip.openvoiceos:ip",
+    "ovos-skill-ip.openvoiceos:LastIPDigitsIntent": "ovos-skill-ip.openvoiceos:last_ip_digits",
+    "ovos-skill-ip.openvoiceos:PublicIPIntent": "ovos-skill-ip.openvoiceos:public_ip",
+    "ovos-skill-ip.openvoiceos:what.ssid": "ovos-skill-ip.openvoiceos:what_ssid",
 }
