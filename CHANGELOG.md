@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.27.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.27.0a1) (2026-09-19)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.26.0a2...0.27.0a1)
+
+**Merged pull requests:**
+
+- feat: one embedding model per process, and the -low tier runs prototype mode [\#251](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/251) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.26.0a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.26.0a2) (2026-09-19)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.26.0a1...0.26.0a2)
