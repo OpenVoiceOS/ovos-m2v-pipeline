@@ -11,6 +11,7 @@ application-launcher `launch`). The audit is
 """
 import time
 import unittest
+from unittest import mock
 
 import numpy as np
 
@@ -172,3 +173,33 @@ class TestParrotSpeakFailsBefore(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheKeyAndThePrototypeCache(unittest.TestCase):
+    """The key decides what is embedded, so it belongs in the cache key.
+    It belongs there only when it is on: adding a field unconditionally
+    changes every key written before this release, and every prebuilt
+    artifact and cache entry then misses for nothing."""
+
+    def test_the_key_off_hashes_what_it_always_hashed(self):
+        off = _pipeline()
+        params = []
+        with mock.patch("ovos_m2v_pipeline.compute_cache_key",
+                        side_effect=lambda *a, **k: params.append(a[2]) or "x"):
+            off._prototype_cache_key(["speak {sentence}"])
+        self.assertNotIn("mask_free_text_slots", params[0])
+
+    def test_the_key_on_hashes_itself_in(self):
+        on = _pipeline(mask_free_text_slots=True)
+        params = []
+        with mock.patch("ovos_m2v_pipeline.compute_cache_key",
+                        side_effect=lambda *a, **k: params.append(a[2]) or "x"):
+            on._prototype_cache_key(["speak {sentence}"])
+        self.assertTrue(params[0]["mask_free_text_slots"])
+
+    def test_the_two_settings_never_share_a_cache_entry(self):
+        off = _pipeline()
+        on = _pipeline(mask_free_text_slots=True)
+        samples = ["speak {sentence}"]
+        self.assertNotEqual(off._prototype_cache_key(samples),
+                            on._prototype_cache_key(samples))

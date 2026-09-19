@@ -1764,16 +1764,20 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         """
         if not raw_samples:
             return None
+        # The masking decides WHAT is embedded, so an entry written under it
+        # must never be served to a pipeline without it. The field is only
+        # added when the key is on: adding it unconditionally would change
+        # every existing key and miss every prebuilt artifact and cache
+        # entry written before this release, for no gain.
+        params = {"k": self._prototype_k,
+                  "strategy": self._prototype_strategy.value,
+                  "max_expansions": MAX_ENTITY_EXPANSIONS}
+        if getattr(self, "_mask_free_text_slots", False):
+            params["mask_free_text_slots"] = True
         try:
             return compute_cache_key(
                 self._model_id, self._model2vec_version,
-                {"k": self._prototype_k,
-                 "strategy": self._prototype_strategy.value,
-                 "max_expansions": MAX_ENTITY_EXPANSIONS,
-                 # the key decides WHAT is embedded, so an entry written
-                 # under one setting must never be served under the other
-                 "mask_free_text_slots": getattr(
-                     self, "_mask_free_text_slots", False)},
+                params,
                 raw_samples, entity_values, lang=lang,
             )
         except Exception as exc:
