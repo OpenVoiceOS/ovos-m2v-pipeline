@@ -1255,6 +1255,14 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                     LOG.warning(f"prebuilt prototypes at '{prebuilt_path}' "
                                 f"not used: {reason}")
 
+            #: mask a template's free-text slot before it is embedded
+            #: (see `_mask_free_text`)
+            self._mask_free_text_slots: bool = bool(
+                self.config.get("mask_free_text_slots", False))
+            #: normalised slot-free template line -> the label that declares
+            #: it. A masked template must never read like one of these.
+            self._plain_lines: Dict[str, str] = {}
+
             self.bus.on("mycroft.ready", self._handle_ready_prototype)
             # Legacy registration topics (kept alongside OVOS-INTENT-4).
             self.bus.on("padatious:register_intent", self._handle_register_padatious)
@@ -1634,12 +1642,64 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             except Exception as exc:
                 LOG.error(f"deferred prototype add failed for '{label}': {exc}")
 
+    @staticmethod
+    def _plain_key(text: str) -> str:
+        """The key a template line is remembered and compared under."""
+        return " ".join(str(text).lower().split())
+
+    def _mask_free_text(self, label: str, sentences: List[str]) -> List[str]:
+        """Drop a free-text slot out of each template, when the key says so.
+
+        A template whose slot carries no registered entity keeps the
+        placeholder literal after ``_expand_entities`` (OVOS-INTENT-4 §7
+        makes the entity optional). The placeholder is then embedded as
+        words, and for a template where the slot IS most of the utterance
+        (``speak {sentence}``, ``open {application}``) the prototype sits
+        far from anything a user says. Measured on ten skills, 140 en-US
+        gold rows: 48 of 71 such rows matched, and the misses were every
+        row of the labels whose slot dominates.
+
+        With ``mask_free_text_slots`` on, ``speak {sentence}`` is stored as
+        ``speak``: the words the skill author wrote, without the words they
+        did not. Same store, same scoring, same thresholds.
+
+        The exception is the whole safety of it. A masked line that reads
+        exactly like a slot-free line of ANOTHER label would take that
+        label's utterances (``tell me a joke about {query}`` masks to
+        ``tell me a joke about``, which is the plain ``joke`` label's own
+        line). Such a template keeps its placeholder. `_match_prototype`
+        holds the other half of the guard, for the registration that
+        arrives after the masked one.
+        """
+        if not getattr(self, "_mask_free_text_slots", False):
+            return sentences
+        plain = getattr(self, "_plain_lines", None)
+        if plain is None:  # a white-box instance built without __init__
+            return sentences
+        out: List[str] = []
+        for sentence in sentences:
+            match = _SLOT_RE.search(sentence)
+            if not match:
+                plain.setdefault(self._plain_key(sentence), label)
+                out.append(sentence)
+                continue
+            masked = " ".join(_SLOT_RE.sub(" ", sentence).split())
+            owner = plain.get(self._plain_key(masked))
+            if not masked or (owner is not None and owner != label):
+                LOG.debug(f"not masking {sentence!r} of '{label}': the masked "
+                          f"line is {owner!r}'s own template")
+                out.append(sentence)
+                continue
+            out.append(masked)
+        return out
+
     def _add_prototypes(self, label: str, sentences: List[str],
                         k: Optional[int], cache_key: Optional[str],
                         lang: Optional[str] = None) -> int:
         """Encode *sentences* now if the model is loaded, otherwise buffer
         the raw registration for ``_flush_pending_additions`` to encode once
         the deferred load completes."""
+        sentences = self._mask_free_text(label, sentences)
         # `_model_lock` is only absent for objects built via `__new__` that
         # skip `__init__` entirely (a handful of white-box tests) -- those
         # already hand-set `self.model`, so fall back to the pre-deferred
@@ -1809,12 +1869,20 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         """
         if not raw_samples:
             return None
+        # The masking decides WHAT is embedded, so an entry written under it
+        # must never be served to a pipeline without it. The field is only
+        # added when the key is on: adding it unconditionally would change
+        # every existing key and miss every prebuilt artifact and cache
+        # entry written before this release, for no gain.
+        params = {"k": self._prototype_k,
+                  "strategy": self._prototype_strategy.value,
+                  "max_expansions": MAX_ENTITY_EXPANSIONS}
+        if getattr(self, "_mask_free_text_slots", False):
+            params["mask_free_text_slots"] = True
         try:
             return compute_cache_key(
                 self._model_id, self._model2vec_version,
-                {"k": self._prototype_k,
-                 "strategy": self._prototype_strategy.value,
-                 "max_expansions": MAX_ENTITY_EXPANSIONS},
+                params,
                 raw_samples, entity_values, lang=lang,
             )
         except Exception as exc:
@@ -2735,6 +2803,18 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         emb = self.model.encode([utterance], use_multiprocessing=False)[0]
         label_scores = self.prototype_store.scores(emb, lang=lang)
         special = self._allowed_special_labels(message)
+        # The other half of the masking guard. A masked prototype and the
+        # slot-free line it reads like score the same 1.0, and the store
+        # does not say which entry won. When the utterance IS a slot-free
+        # line some label declares, that label wrote it, so it goes first.
+        # Registration order then decides nothing (see `_mask_free_text`).
+        if getattr(self, "_mask_free_text_slots", False):
+            owner = getattr(self, "_plain_lines", {}).get(
+                self._plain_key(utterance))
+            if owner is not None and owner not in self.ignore_labels:
+                if not (owner in _SPECIAL_LABELS and owner not in special):
+                    yield (*self._apply_special_label_map(owner), 1.0)
+                    label_scores.pop(owner, None)
         # secondary key on the label breaks ties deterministically: label
         # registration order (a concurrent bus-executor race across boots,
         # see PrototypeIntentStore._lock) must never decide the winner.

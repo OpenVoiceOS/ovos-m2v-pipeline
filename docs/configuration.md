@@ -58,6 +58,7 @@ Any bare `StaticModel` on Hugging Face (or a local path) can be used as the embe
 | `models` | `dict[str, str]` | `{}` | Per-language default override, `{locale_or_lang: repo_id}` (e.g. `{"pt": "my-org/pt-model"}`). Matched against the full `lang` locale first, then its primary subtag. Only consulted when `model` is unset. |
 | `mode` | `str` | `"classifier"` | Operating mode: `"classifier"` or `"prototype"`. |
 | `prototype_k` | `int` | unset (keep all) | Maximum number of prototype embeddings stored per intent label (prototype mode only). Unset keeps every registered sample so exact training samples always match. Set an integer to cap memory. |
+| `mask_free_text_slots` | `bool` | `false` | Prototype mode: embed a template with its free-text slot removed (`speak {sentence}` becomes `speak`). See [Free-text slots](#free-text-slots-prototype-mode-only) below. |
 | `prototype_strategy` | `str` | `"max_over_all"` | Scoring strategy for prototype mode. See [Prototype Strategies](#prototype-strategies-prototype-mode-only) below. |
 | `prototype_top_k` | `int` | `3` | Number of top cosine similarities averaged by the `top_k_mean` strategy. Also the default `k` for `softmax_weighted` when used in scoring. |
 | `prototype_tau` | `float` | `0.1` | Temperature for the `softmax_weighted` strategy. Lower values sharpen the distribution toward the maximum. Higher values flatten it toward the mean. |
@@ -87,6 +88,38 @@ as anyone's default, purely to keep the built-in per-language table small;
 its held-out accuracy is comparable to the multilingual model. Pick it
 where the smaller footprint is worth trading off broader language
 coverage.
+
+## Free-text slots (prototype mode only)
+
+A template may declare a slot with no entity behind it: `speak {sentence}`,
+`open {application}`, `tell me a joke about {query}`. OVOS-INTENT-4 §7
+makes the entity optional, so the placeholder survives registration and is
+embedded as a word. Where the slot IS most of the utterance, the prototype
+then sits far from anything a user says.
+
+Measured on ten skills and 140 en-US gold rows: 48 of 71 rows on such a
+label matched, and the misses were every row of the labels whose slot
+dominates the line (`speak`, `search_joke`, `launch`). Labels where the
+carrier phrase dominates (`what happened on {date}`) match at 100%.
+
+`mask_free_text_slots: true` stores such a template without the
+placeholder: the words the skill author wrote, without the words they did
+not. Same store, same scoring, same thresholds. On the same rows: 115 to
+131 right, and the rows on these labels 48 to 64 of 71, with the slot-free
+rows unchanged.
+
+Two rules keep it safe:
+
+- a masked line that reads exactly like another label's own slot-free line
+  keeps its placeholder, so `tell me a joke about {query}` does not take
+  the rows of a `joke` label that declares `tell me a joke about`;
+- at match time an utterance that IS a slot-free line of some label goes to
+  that label, so the registration order of the two decides nothing.
+
+What it does not fix: an utterance whose slot content dominates it. `repeat
+hello world` scores 0.42 to 0.50 against `repeat [after me] {sentence}`
+either way, because the utterance still carries the words the template
+never had. The key is off by default.
 
 ## Prototype Strategies (prototype mode only)
 
