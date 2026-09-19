@@ -119,9 +119,13 @@ OVOS does **not** call all three tiers of a plugin automatically. Instead, each 
 |----------------|---------------|---------------|---------|
 | `ovos-m2v-pipeline-high` | `match_high()` | `conf_high` | `0.70` |
 | `ovos-m2v-pipeline-medium` | `match_medium()` | `conf_medium` | `0.50` |
-| `ovos-m2v-pipeline-low` | `match_low()` | `conf_low` | `0.15` |
+| `ovos-m2v-pipeline-low` | `match_low()` | prototype stage, `low_prototype.conf_low` | `0.65` cosine |
 
-The same applies to `ovos-m2v-prototype-pipeline-high/medium/low`.
+`ovos-m2v-pipeline-low` runs prototype mode by default (`low_tier: "prototype"`): the `-high` and `-medium` tiers answer from the trained head for the labels the model knows, and the `-low` tier answers from the loaded skills' own templates for every other label, on the same embedding model. Set `low_tier: "classifier"` to run the head at `conf_low` (`0.15`) instead.
+
+The same tier suffixes apply to `ovos-m2v-prototype-pipeline-high/medium/low`, the standalone prototype plugin.
+
+Every plugin instance that names the same model shares one embedding object: the classifier, its `-low` stage and the standalone prototype plugin load the model once per process (`load_shared_model`).
 
 You control which tiers are active and where they sit relative to other matchers by placing (or omitting) these entries in the `pipeline` list. OVOS evaluates the list top-to-bottom and stops at the first match.
 

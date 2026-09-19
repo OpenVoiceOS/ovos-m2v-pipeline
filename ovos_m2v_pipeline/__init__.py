@@ -112,6 +112,71 @@ DEFAULT_MODELS: Dict[str, str] = {}
 #: (and without a `config["models"]` override) -- i.e. every language.
 DEFAULT_MULTILINGUAL = "OpenVoiceOS/ovos-m2v-intents-multilingual"
 
+#: One embedding model per resolved model path for the whole process. Every
+#: plugin instance that names the same model (the classifier plugin, its
+#: `-low` prototype stage, the standalone prototype plugin, an ovoscope
+#: dual boot) shares the one `StaticModel` object; the classifier head is
+#: the only thing a classifier holds beside it. The key is the path
+#: `_resolve_model_revision` returns, so a repo id pinned to another
+#: revision, or a different local directory, is a different entry.
+#: Each entry is ``{"pipeline": StaticModelPipeline | None,
+#: "embedding": StaticModel}``.
+_SHARED_MODELS: Dict[str, Dict[str, Any]] = {}
+_SHARED_MODELS_LOCK = threading.Lock()
+#: how many embedding matrices were loaded from disk and kept; a second
+#: consumer of a cached path adds nothing to this
+_SHARED_MODEL_LOADS: int = 0
+
+
+def load_shared_model(model_path: str, mode: str) -> Any:
+    """Return the process-wide model object for ``model_path`` in ``mode``.
+
+    ``"classifier"`` returns the ``StaticModelPipeline`` (embedding plus
+    head); ``"prototype"`` returns the bare ``StaticModel``. Both answers
+    for one path hold the same embedding object: when the prototype path
+    loaded first, the classifier's pipeline is re-pointed at that
+    embedding and the copy it loaded is dropped; when the classifier
+    loaded first, the prototype answer is its ``.model``. A load that
+    fails caches nothing, so the caller's retry accounting stays as it is.
+    """
+    global _SHARED_MODEL_LOADS
+    with _SHARED_MODELS_LOCK:
+        entry = _SHARED_MODELS.get(model_path)
+        if mode == "prototype":
+            if entry is not None:
+                return entry["embedding"]
+            from model2vec import StaticModel
+            embedding = StaticModel.from_pretrained(model_path)
+            _SHARED_MODELS[model_path] = {"pipeline": None, "embedding": embedding}
+            _SHARED_MODEL_LOADS += 1
+            return embedding
+        if entry is not None and entry["pipeline"] is not None:
+            return entry["pipeline"]
+        pipeline = StaticModelPipeline.from_pretrained(model_path)
+        if entry is not None:
+            # the embedding is already in memory: share it, drop the copy
+            pipeline.model = entry["embedding"]
+            entry["pipeline"] = pipeline
+        else:
+            _SHARED_MODELS[model_path] = {"pipeline": pipeline,
+                                          "embedding": pipeline.model}
+            _SHARED_MODEL_LOADS += 1
+        return pipeline
+
+
+def shared_model_stats() -> Dict[str, int]:
+    """``{"models": cached paths, "loads": embeddings loaded and kept}``."""
+    with _SHARED_MODELS_LOCK:
+        return {"models": len(_SHARED_MODELS), "loads": _SHARED_MODEL_LOADS}
+
+
+def clear_shared_models() -> None:
+    """Forget every cached model. For tests; a running service never needs it."""
+    global _SHARED_MODEL_LOADS
+    with _SHARED_MODELS_LOCK:
+        _SHARED_MODELS.clear()
+        _SHARED_MODEL_LOADS = 0
+
 
 def _resolve_model_id(config: Dict, lang: str) -> str:
     """Resolve the Model2Vec repo id to load for *lang*.
@@ -981,6 +1046,22 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         Hub model to, passed through to ``from_pretrained``. Unset loads
         whatever revision the Hub currently resolves as latest.
 
+    ``low_tier`` : str, default ``"prototype"`` (classifier mode only)
+        Which engine answers ``ovos-m2v-pipeline-low``. ``"prototype"``:
+        the ``-high`` and ``-medium`` tiers run the trained classifier and
+        the ``-low`` tier runs prototype mode, built at boot from the
+        loaded skills' own templates, on the same embedding model. This
+        is the default-pipeline layout: a skill the model was trained on
+        is answered by the head, any other skill by its templates, one
+        model in memory. ``"classifier"``: the ``-low`` tier runs the head
+        at ``conf_low``, as before. The prototype stage reads
+        ``low_prototype`` (a dict of prototype-mode keys, ``ignore_intents``
+        included; the classifier's ``ignore_intents`` are always denied).
+
+    The embedding model is loaded once per process and per resolved model
+    path (``load_shared_model``): every instance that names the same model,
+    in either mode, holds the one ``StaticModel`` object.
+
     Configuration keys (prototype mode)
     ------------------------------------
     ``prototype_k`` : int, optional (default: unlimited)
@@ -1192,6 +1273,20 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             )
         else:
             self.prototype_store = None
+            #: the prototype stage behind `match_low` (see `low_tier`)
+            self._low_prototype: Optional["Model2VecPrototypePipeline"] = None
+            low_tier = self.config.get("low_tier", "prototype")
+            if low_tier not in ("prototype", "classifier"):
+                raise ValueError(f"low_tier must be 'prototype' or "
+                                 f"'classifier', not {low_tier!r}")
+            if low_tier == "prototype":
+                proto_cfg: Dict[str, Any] = dict(self.config.get("low_prototype") or {})
+                proto_cfg["model"] = self._model_path_config()
+                if "revision" in self.config and "revision" not in proto_cfg:
+                    proto_cfg["revision"] = self.config["revision"]
+                proto_cfg["ignore_intents"] = sorted(
+                    set(proto_cfg.get("ignore_intents") or []) | set(self.ignore_labels))
+                self._low_prototype = Model2VecPrototypePipeline(self.bus, proto_cfg)
 
             # Register event handlers for intent synchronization
             self.bus.on("mycroft.ready", self.handle_sync_intents)
@@ -1280,6 +1375,10 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             return []
         return [n for n in names if not (Path(snapshot) / n).exists()]
 
+    def _model_path_config(self) -> str:
+        """The model as the constructor resolved it: a repo id or a path."""
+        return self._model_path
+
     def _resolve_model_revision(self, model_path: str) -> str:
         """Resolve ``config["revision"]`` to a path ``from_pretrained`` accepts.
 
@@ -1364,11 +1463,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             # revision or a transient hub failure must hit the same
             # failure-accounting path as a `from_pretrained` failure below.
             model_path = self._resolve_model_revision(self._model_path)
-            if self._mode == "prototype":
-                from model2vec import StaticModel
-                model = StaticModel.from_pretrained(model_path)
-            else:
-                model = StaticModelPipeline.from_pretrained(model_path)
+            model = load_shared_model(model_path, self._mode)
             # `_ensure_model` checks `self.model is not None` before it
             # ever looks at `_model_load_thread`, so the thread handle
             # must not be cleared until `self.model` is visible under the
@@ -2737,6 +2832,9 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         """
         if not utterances:
             return None
+        low_prototype = getattr(self, "_low_prototype", None)
+        if low_prototype is not None:
+            return low_prototype.match_low(utterances, lang, message)
         min_conf = self._min_conf("conf_low")
         LOG.debug(f"Matching intents via Model2Vec (min_conf: {min_conf}) - {utterances[0]}")
         for skill_id, label, prob, slots in self._match(utterances[0], message, lang):

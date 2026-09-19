@@ -16,6 +16,9 @@ def _make_pipeline(config=None, intents=None, renormalize=True):
     """Helper: create a classifier-mode pipeline with a mocked model and FakeBus."""
     config = config or {}
     config.setdefault("model", "fake-model")
+    # the classifier's own tiers are under test here; the default
+    # ``low_tier: prototype`` stage has its own tests
+    config.setdefault("low_tier", "classifier")
     config["renormalize"] = renormalize
 
     mock_model = MagicMock()
