@@ -18,6 +18,12 @@ Loads a `StaticModelPipeline` (embedding backbone + trained linear classifier he
 
 The active intent set (`self.intents`) is synchronised from the bus on every registration or detach event. Only labels present in this set (plus the special-case remaps below) are returned.
 
+In classifier mode the `-low` tier is a prototype stage on the same model by default (`low_tier`), so one plugin id covers both: the head for trained labels at `-high` and `-medium`, templates for the rest at `-low`.
+
+### One model per process
+
+`load_shared_model` keeps one embedding model per resolved model path for the whole process. The classifier holds the `StaticModelPipeline` (that embedding plus the head), a prototype instance holds the bare `StaticModel`, and both point at the same object however many plugin instances load it. A different revision or a different local directory is a different entry.
+
 ### Prototype mode
 
 Loads a bare `StaticModel` (embeddings only, no classifier head). An empty `PrototypeIntentStore` is created at startup and populated incrementally as skills register their Padatious intents at boot. Inference uses cosine nearest-neighbour against all stored prototypes.

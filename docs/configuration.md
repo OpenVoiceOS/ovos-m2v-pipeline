@@ -110,7 +110,12 @@ Each `conf_*` key sets the minimum score required for the corresponding tier met
 
 - **`conf_high`**: threshold for `match_high()`, called when `ovos-m2v-pipeline-high` appears in the pipeline list.
 - **`conf_medium`**: threshold for `match_medium()`, called when `ovos-m2v-pipeline-medium` appears.
-- **`conf_low`**: threshold for `match_low()`, called when `ovos-m2v-pipeline-low` appears.
+- **`conf_low`**: threshold for `match_low()`, called when `ovos-m2v-pipeline-low` appears. In classifier mode the `-low` tier is a prototype stage by default (`low_tier`, below), and that stage reads its own `conf_low` from `low_prototype`.
+
+Classifier mode also takes:
+
+- **`low_tier`**: `"prototype"` (default) or `"classifier"`. Which engine answers `ovos-m2v-pipeline-low`: prototype mode built from the loaded skills' templates on the same embedding model, or the trained head at `conf_low`.
+- **`low_prototype`**: a dict of prototype-mode keys for that stage (`conf_high`, `conf_medium`, `conf_low`, `ignore_intents`, `prototype_k`, ...). The classifier's `ignore_intents` are always denied to it as well. A `model` key here is discarded with a WARNING: the stage always runs on this plugin's own model, which is what makes the two share one embedding in memory. To run a second model, give the standalone `ovos-m2v-prototype-pipeline` its own. The stage accepts every registered label, trained labels included; see "What the `-low` stage accepts" in `ovos_pipeline.md`.
 
 OVOS evaluates the pipeline list top-to-bottom and stops at the first match. Only the tiers you add to the pipeline list are ever invoked. Unused tiers consume no resources.
 

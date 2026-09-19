@@ -18,3 +18,16 @@ import os
 collect_ignore = []
 if os.environ.get("OVOSCOPE_LIVE") != "1":
     collect_ignore.append("test_live_fixture.py")
+
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _fresh_shared_models():
+    """The embedding cache is process-wide; a mocked model from one test
+    must not answer the next test's load."""
+    from ovos_m2v_pipeline import clear_shared_models
+    clear_shared_models()
+    yield
+    clear_shared_models()

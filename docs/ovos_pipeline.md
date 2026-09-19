@@ -119,9 +119,21 @@ OVOS does **not** call all three tiers of a plugin automatically. Instead, each 
 |----------------|---------------|---------------|---------|
 | `ovos-m2v-pipeline-high` | `match_high()` | `conf_high` | `0.70` |
 | `ovos-m2v-pipeline-medium` | `match_medium()` | `conf_medium` | `0.50` |
-| `ovos-m2v-pipeline-low` | `match_low()` | `conf_low` | `0.15` |
+| `ovos-m2v-pipeline-low` | `match_low()` | prototype stage, `low_prototype.conf_low` | `0.65` cosine |
 
-The same applies to `ovos-m2v-prototype-pipeline-high/medium/low`.
+`ovos-m2v-pipeline-low` runs prototype mode by default (`low_tier: "prototype"`): the `-high` and `-medium` tiers answer from the trained head, and the `-low` tier answers from the loaded skills' own templates, on the same embedding model. Set `low_tier: "classifier"` to run the head at `conf_low` (`0.15`) instead.
+
+**What the `-low` stage accepts.** Every label a skill registers, trained labels included. The stage denies only `ignore_intents` (the classifier's own list, plus any list under `low_prototype`); nothing compares a registration against the model's classes. So a label the model was trained on, `ovos-skill-alerts.openvoiceos:AddListSubitems` for example, is in the `-low` prototype store as well as in the head.
+
+That is the intent. The `-low` stage is the fallback the head did not answer: it runs only after `match_high` declined at `conf_high` and `match_medium` declined at `conf_medium`. For a trained label the head answers first, above those thresholds, and the stage never sees the utterance. Below them the head has said it does not know, and the skill's own templates are the better source of an answer than a class the head scored under 0.50.
+
+This is why the warning in the standalone plugin's docstring (T-1621: a prototype stage that runs *before* the classifier takes the utterance away from a head that would have matched it, measured as 7 of 117 alerts handler tests and 6 of 53 volume golden rows) does not apply here. That warning is about stage ORDER. At the `-low` position the classifier has already had both of its tiers. A deny list of the trained classes would be the opposite trade: it would leave a declined utterance unanswered.
+
+Known cost: one global lock covers the first `from_pretrained` of a model (`load_shared_model`), so two plugins that name two DIFFERENT models and boot at the same time wait for each other. The first load measured 13.33s. No deadlock is possible (no path holds an instance lock inside the global one) and OVOS boots pipeline plugins in sequence, so this is latency under a concurrent boot, not a failure.
+
+The same tier suffixes apply to `ovos-m2v-prototype-pipeline-high/medium/low`, the standalone prototype plugin.
+
+Every plugin instance that names the same model shares one embedding object: the classifier, its `-low` stage and the standalone prototype plugin load the model once per process (`load_shared_model`).
 
 You control which tiers are active and where they sit relative to other matchers by placing (or omitting) these entries in the `pipeline` list. OVOS evaluates the list top-to-bottom and stops at the first match.
 
