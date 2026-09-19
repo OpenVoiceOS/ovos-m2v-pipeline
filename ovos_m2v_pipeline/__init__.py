@@ -1314,6 +1314,12 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             #: Classifier mode only: it is how `match_high`/`match_medium`
             #: recognise a line whose owner this frozen head cannot emit.
             self._exact_lines: Dict[str, set] = {}
+            #: guards `_exact_lines`. Registration and detach handlers run
+            #: on the bus executor's threads while `match_high` reads the
+            #: map on the dispatch thread: without this, a detach during a
+            #: registration wave (an ordinary skill reload) raises
+            #: "dictionary changed size during iteration".
+            self._exact_lines_lock = threading.Lock()
             #: yield an exact template line of a label this head cannot emit
             #: to the prototype stage (see `_exact_prototype_owner`)
             self._exact_first: bool = bool(
@@ -1985,16 +1991,17 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         lines = getattr(self, "_exact_lines", None)
         if lines is None:
             return 0
-        kept = 0
+        keys = []
         for sample in samples:
             if _SLOT_RE.search(sample):
                 continue
             key = _normalise_line(sample)
-            if not key:
-                continue
-            lines.setdefault(key, set()).add(label)
-            kept += 1
-        return kept
+            if key:
+                keys.append(key)
+        with self._exact_lines_lock:
+            for key in keys:
+                lines.setdefault(key, set()).add(label)
+        return len(keys)
 
     def _handle_exact_lines(self, message: Message) -> None:
         """Read the template lines of a Padatious registration.
@@ -2030,12 +2037,16 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
 
     def _forget_exact_lines(self, label: str) -> None:
         lines = getattr(self, "_exact_lines", None)
-        if not lines:
+        if lines is None:
             return
-        for key in [k for k, labels in lines.items() if label in labels]:
-            lines[key].discard(label)
-            if not lines[key]:
-                lines.pop(key, None)
+        with self._exact_lines_lock:
+            for key in list(lines):
+                labels = lines.get(key)
+                if labels is None or label not in labels:
+                    continue
+                labels.discard(label)
+                if not labels:
+                    lines.pop(key, None)
 
     def _handle_exact_detach(self, message: Message) -> None:
         name: str = message.data.get("intent_name", "")
@@ -2050,28 +2061,44 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         if not skill_id or not lines:
             return
         prefix = skill_id + ":"
-        for key in list(lines):
-            lines[key] = {l for l in lines[key] if not l.startswith(prefix)}
-            if not lines[key]:
-                lines.pop(key, None)
+        with self._exact_lines_lock:
+            for key in list(lines):
+                labels = lines.get(key)
+                if labels is None:
+                    continue
+                kept = {l for l in labels if not l.startswith(prefix)}
+                if kept:
+                    lines[key] = kept
+                else:
+                    lines.pop(key, None)
 
     def _prototype_stage_present(self, message: Optional[Message]) -> bool:
-        """Is there a prototype stage behind this one for this utterance?
+        """Is there a prototype stage behind this one for THIS utterance?
 
-        Either the ``low_tier`` prototype stage of this instance, or a
-        standalone ``ovos-m2v-prototype-pipeline`` stage in the caller's
-        session pipeline (the dual layout). With no prototype stage there
-        is nothing to yield to, so the classifier keeps its answer.
+        Two layouts can hold one. This instance's own ``low_tier``
+        prototype stage answers ``ovos-m2v-pipeline-low``, and a standalone
+        ``ovos-m2v-prototype-pipeline`` entry answers its own. Either way
+        the stage only runs if the CALLER'S session pipeline names it:
+        owning a ``_low_prototype`` object proves nothing about the list
+        the session carries.
+
+        That distinction is the whole guard. A session that lists ``-high``
+        and ``-medium`` and no ``-low`` has no stage behind this one, so a
+        yield would leave the utterance unanswered by this plugin instead
+        of handing it on.
         """
-        if getattr(self, "_low_prototype", None) is not None:
-            return True
         if message is None:
             return False
         try:
-            stages = SessionManager.get(message).pipeline or []
+            stages = [str(stage) for stage in
+                      (SessionManager.get(message).pipeline or [])]
         except Exception:
             return False
-        return any("m2v-prototype" in str(stage) for stage in stages)
+        if any("m2v-prototype" in stage for stage in stages):
+            return True
+        return (getattr(self, "_low_prototype", None) is not None
+                and any(stage.endswith("-low") and "m2v" in stage
+                        for stage in stages))
 
     def _emittable_labels(self) -> Optional[set]:
         """The labels this frozen head can answer with, or ``None`` when
@@ -2098,7 +2125,9 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         if not getattr(self, "_exact_first", False) or \
                 getattr(self, "_exact_lines", None) is None:
             return None
-        owners = self._exact_lines.get(_normalise_line(utterance))
+        with self._exact_lines_lock:
+            owners = self._exact_lines.get(_normalise_line(utterance))
+            owners = set(owners) if owners else None
         if not owners:
             return None
         emittable = self._emittable_labels()
