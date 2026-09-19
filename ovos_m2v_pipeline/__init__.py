@@ -1281,7 +1281,17 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                                  f"'classifier', not {low_tier!r}")
             if low_tier == "prototype":
                 proto_cfg: Dict[str, Any] = dict(self.config.get("low_prototype") or {})
+                discarded = proto_cfg.get("model")
                 proto_cfg["model"] = self._model_path_config()
+                if discarded and discarded != proto_cfg["model"]:
+                    # the point of this stage is the model the head already
+                    # holds; a second model here would load a second time
+                    LOG.warning(
+                        f"low_prototype.model {discarded!r} is discarded: the "
+                        f"-low prototype stage always runs on this plugin's "
+                        f"own model, {proto_cfg['model']!r}. Give the "
+                        f"standalone ovos-m2v-prototype-pipeline its own "
+                        f"model to run a different one.")
                 if "revision" in self.config and "revision" not in proto_cfg:
                     proto_cfg["revision"] = self.config["revision"]
                 proto_cfg["ignore_intents"] = sorted(
