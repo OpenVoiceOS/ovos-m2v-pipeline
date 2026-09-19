@@ -9,6 +9,7 @@ the nearest label it can emit. An exact line is the skill author's declared
 truth, so the head yields it.
 """
 
+import time
 import unittest
 
 import numpy as np
@@ -168,3 +169,252 @@ class TestExactPrototypeFirst(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+#: the default ovos-config list carries all three m2v tiers
+THREE_TIERS = ["ovos-stop-pipeline-plugin-high", "ovos-m2v-pipeline-high",
+               "ovos-adapt-pipeline-plugin-high", "ovos-m2v-pipeline-medium",
+               "ovos-adapt-pipeline-plugin-medium", "ovos-m2v-pipeline-low"]
+#: the same list with the -low entry left out
+NO_LOW = [s for s in THREE_TIERS if not s.endswith("m2v-pipeline-low")]
+#: the dual layout: this head plus the standalone prototype plugin
+STANDALONE = ["ovos-m2v-pipeline-high", "ovos-m2v-prototype-pipeline-high",
+              "ovos-m2v-pipeline-medium", "ovos-m2v-prototype-pipeline-medium"]
+
+
+def _unpinned_head(config=None, trained=(INCREASE,)):
+    """A head whose `low_tier` is whatever the plugin defaults to.
+
+    `tests.test_pipeline._make_pipeline` pins `low_tier: classifier`, which
+    is what hid this defect: with the default (`prototype`) the instance
+    owns a `_low_prototype` object whether or not the caller's session ever
+    calls `-low`.
+    """
+    import sys
+    from unittest.mock import MagicMock, patch
+
+    from ovos_utils.fakebus import FakeBus
+
+    config = dict(config or {})
+    config.setdefault("model", "fake-model")
+    head = MagicMock()
+    head.classes_ = np.array(list(trained))
+    head.predict_proba.return_value = np.array([[1.0] * len(trained)])
+    fake_m2v = MagicMock()
+    with patch("ovos_m2v_pipeline.StaticModelPipeline") as smp, \
+         patch("ovos_m2v_pipeline.Configuration", return_value={}), \
+         patch.dict(sys.modules, {"model2vec": fake_m2v}):
+        smp.from_pretrained.return_value = head
+        from ovos_m2v_pipeline import Model2VecIntentPipeline
+        pipeline = Model2VecIntentPipeline(bus=FakeBus(), config=config)
+    pipeline.model = head
+    pipeline.intents = set(trained) | {BOOST, UNMUTE}
+    return pipeline
+
+
+class TestTheYieldNeedsTheStageInTheSession(unittest.TestCase):
+    """The stage must be in the CALLER'S session pipeline.
+
+    Owning a `_low_prototype` object proves nothing: with `low_tier`
+    prototype (the default) every classifier instance owns one, and a
+    session that lists `-high` and `-medium` alone never calls it. Yielding
+    there leaves the utterance unanswered by this plugin.
+    """
+
+    def setUp(self):
+        self.pipeline = _unpinned_head()
+        self.assertIsNotNone(self.pipeline._low_prototype,
+                             "the default low_tier owns a prototype stage")
+        _register(self.pipeline, BOOST, ["crank [the] volume [up]"])
+
+    def _match(self, session_pipeline):
+        utterance = "crank the volume up"
+        return self.pipeline.match_high([utterance], "en-US",
+                                        _message(utterance, session_pipeline))
+
+    def test_all_three_tiers_yield(self):
+        self.assertIsNone(self._match(THREE_TIERS))
+
+    def test_high_and_medium_only_keep_the_head_s_answer(self):
+        """No -low entry, so nothing runs behind this one."""
+        match = self._match(NO_LOW)
+        self.assertIsNotNone(match, "yielding here answers nobody")
+        self.assertEqual(match.match_type, INCREASE)
+
+    def test_the_standalone_prototype_layout_yields(self):
+        self.assertIsNone(self._match(STANDALONE))
+
+    def test_medium_follows_the_same_rule(self):
+        utterance = "crank the volume up"
+        self.assertIsNone(self.pipeline.match_medium(
+            [utterance], "en-US", _message(utterance, THREE_TIERS)))
+        match = self.pipeline.match_medium(
+            [utterance], "en-US", _message(utterance, NO_LOW))
+        self.assertIsNotNone(match)
+        self.assertEqual(match.match_type, INCREASE)
+
+
+class TestExactLinesUnderThreads(unittest.TestCase):
+    """Six threads: two remembering, two forgetting, two reading.
+
+    A detach during a registration wave is ordinary skill-reload traffic,
+    and an unguarded dict raises "dictionary changed size during iteration"
+    within 0.1 s of it.
+    """
+
+    def _drive(self, pipeline, seconds=1.0):
+        """Run the six threads for *seconds* and return what they raised."""
+        import threading
+
+        labels = [f"{SKILL}:label{i}" for i in range(40)]
+        for label in labels:
+            _register(pipeline, label, [f"line {label} one", f"line {label} two"])
+        errors = []
+        stop = threading.Event()
+
+        def remember(offset):
+            i = offset
+            while not stop.is_set():
+                label = labels[i % len(labels)]
+                pipeline._remember_exact_lines(
+                    label, [f"line {label} one", f"line {label} three"])
+                i += 1
+
+        def forget(offset):
+            i = offset
+            while not stop.is_set():
+                pipeline._forget_exact_lines(labels[i % len(labels)])
+                i += 1
+
+        def read(offset):
+            i = offset
+            while not stop.is_set():
+                label = labels[i % len(labels)]
+                pipeline._exact_prototype_owner(f"line {label} one",
+                                                _message("x"))
+                i += 1
+
+        def guarded(fn, offset):
+            try:
+                fn(offset)
+            except Exception as exc:  # the race this test exists for
+                errors.append(f"{type(exc).__name__}: {exc}")
+                stop.set()
+
+        threads = [threading.Thread(target=guarded, args=(fn, n))
+                   for n, fn in enumerate([remember, remember, forget,
+                                           forget, read, read])]
+        for thread in threads:
+            thread.start()
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline and not errors:
+            time.sleep(0.01)
+        stop.set()
+        for thread in threads:
+            thread.join(timeout=5)
+        return errors
+
+    def test_the_map_this_replaces_raises_when_a_write_lands_mid_loop(self):
+        """Fail-before, and it does not depend on winning a race.
+
+        The defect was two things at once: a forget that iterated the live
+        map (``for k, labels in lines.items()``), and no lock, so another
+        thread could write while that loop ran. The thread test below
+        exercises the real traffic, but whether six threads collide inside
+        one 5-second window is a property of the interpreter and the
+        machine: on 3.12, 3.13 and 3.14 it did not collide, and a control
+        that goes green on the broken code proves nothing.
+
+        So the write is placed where the race would put it, inside the
+        loop body, with no threads at all. `labels` is a set that inserts
+        one new key the first time the loop asks whether it holds the
+        label. Against the old code the next `items()` step raises. Against
+        this commit's code the loop reads a snapshot taken under the lock,
+        so the same write is harmless.
+        """
+        def live_map_and_old_forget():
+            """A map whose first membership test writes a new key."""
+            written = []
+
+            class WritesOnFirstRead(set):
+                def __contains__(self, item):
+                    if not written:
+                        written.append(True)
+                        lines["a line nobody asked for"] = set()
+                    return set.__contains__(self, item)
+
+            lines = {f"line {i}": WritesOnFirstRead({LABEL}) for i in range(8)}
+            return lines, written
+
+        LABEL = f"{SKILL}:label0"
+
+        # The code as it was: iterate the live map, hold no lock.
+        lines, written = live_map_and_old_forget()
+        with self.assertRaises(RuntimeError) as raised:
+            for key, labels in lines.items():
+                if LABEL not in labels:
+                    continue
+                labels.discard(LABEL)
+                if not labels:
+                    lines.pop(key, None)
+        self.assertIn("changed size during iteration", str(raised.exception))
+        self.assertTrue(written, "the control never wrote, so it proved nothing")
+
+        # The code this commit ships, driven over the same map.
+        pipeline = _head()
+        lines, written = live_map_and_old_forget()
+        pipeline._exact_lines = lines
+        pipeline._forget_exact_lines(LABEL)
+        self.assertTrue(written, "the control never wrote, so it proved nothing")
+        self.assertNotIn(LABEL, set().union(*[
+            set(v) for v in lines.values()]) if lines else set())
+
+    def test_no_thread_raises(self):
+        import threading
+
+        pipeline = _head()
+        labels = [f"{SKILL}:label{i}" for i in range(40)]
+        for label in labels:
+            _register(pipeline, label, [f"line {label} one", f"line {label} two"])
+        errors = []
+        stop = threading.Event()
+
+        def remember(offset):
+            i = offset
+            while not stop.is_set():
+                label = labels[i % len(labels)]
+                pipeline._remember_exact_lines(
+                    label, [f"line {label} one", f"line {label} three"])
+                i += 1
+
+        def forget(offset):
+            i = offset
+            while not stop.is_set():
+                pipeline._forget_exact_lines(labels[i % len(labels)])
+                i += 1
+
+        def read(offset):
+            i = offset
+            while not stop.is_set():
+                label = labels[i % len(labels)]
+                pipeline._exact_prototype_owner(f"line {label} one",
+                                                _message("x"))
+                i += 1
+
+        def guarded(fn, offset):
+            try:
+                fn(offset)
+            except Exception as exc:  # the race this test exists for
+                errors.append(f"{type(exc).__name__}: {exc}")
+                stop.set()
+
+        threads = [threading.Thread(target=guarded, args=(fn, n))
+                   for n, fn in enumerate([remember, remember, forget,
+                                           forget, read, read])]
+        for thread in threads:
+            thread.start()
+        time.sleep(1.0)
+        stop.set()
+        for thread in threads:
+            thread.join(timeout=5)
+        self.assertEqual(errors, [])
