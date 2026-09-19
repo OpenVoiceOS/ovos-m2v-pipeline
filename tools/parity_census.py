@@ -44,8 +44,24 @@ fleet as it stands, and each skill's sha is printed. With `--at-pins` the
 revisions in `train/sources.yaml` are read instead, which measures the tree
 the published corpus was built from.
 
+The count is taken against the clones on disk, and the report says so: the
+first line names the listing (`<workspace>/<glob>`). A skill the workspace
+does not hold produces no row, so a workspace census is a complete census of
+the workspace and a partial one of the fleet. To tell the two apart, give the
+census the fleet listing and it names what it did not see:
+
+    python tools/parity_census.py --workspace ~/AgentWorkspaces --org OpenVoiceOS
+    python tools/parity_census.py --workspace ~/AgentWorkspaces --fleet names.txt
+
+`--org` reads the organisation's repositories through `gh`; `--fleet` reads a
+file with one repository name per line. Either way every `ovos-skill-*` name
+in the listing with no clone is printed as `NOT CLONED`, and every clone that
+the listing does not carry as `NOT IN FLEET`.
+
 Exit status is 0 when the census is produced. It is 1 when a Layer A finding
-of severity `error` exists, so a build job can refuse to publish on one.
+of severity `error` exists, so a build job can refuse to publish on one. A
+fleet name that is not cloned does not change the exit status: the census
+did not measure it, and the report says so.
 """
 from __future__ import annotations
 
@@ -222,6 +238,35 @@ def pinned_revisions(sources: Path) -> dict[str, str]:
     return out
 
 
+def fleet_from_org(org: str) -> list[str]:
+    """Every ``ovos-skill-*`` repository the organisation holds, via ``gh``."""
+    out = subprocess.run(["gh", "api", f"/orgs/{org}/repos", "--paginate",
+                          "--jq", ".[].name"], capture_output=True, text=True)
+    if out.returncode:
+        raise SystemExit(f"[census] gh api /orgs/{org}/repos: {out.stderr.strip()}")
+    return sorted(n for n in out.stdout.split() if n.startswith("ovos-skill-"))
+
+
+def fleet_from_file(path: Path) -> list[str]:
+    """One repository name per line; blank lines and ``#`` comments skipped."""
+    names = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            names.append(line.rsplit("/", 1)[-1])
+    return sorted(names)
+
+
+def fleet_diff(fleet: list[str], cloned: list[str]) -> dict:
+    """What the listing has and the workspace lacks, and the reverse."""
+    fleet_set, cloned_set = set(fleet), set(cloned)
+    return {
+        "named": len(fleet),
+        "not_cloned": sorted(fleet_set - cloned_set),
+        "not_in_fleet": sorted(cloned_set - fleet_set),
+    }
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -234,6 +279,12 @@ def main(argv=None):
                              "instead of origin/dev")
     parser.add_argument("--sources", default=None,
                         help="path to train/sources.yaml, for --at-pins")
+    parser.add_argument("--org", default=None,
+                        help="GitHub organisation whose ovos-skill-* listing "
+                             "the clones are checked against (needs gh)")
+    parser.add_argument("--fleet", default=None,
+                        help="file with one repository name per line, the "
+                             "listing the clones are checked against")
     parser.add_argument("--json", dest="as_json", action="store_true",
                         help="write the census as JSON instead of a table")
     args = parser.parse_args(argv)
@@ -242,6 +293,14 @@ def main(argv=None):
     repos = sorted(p for p in workspace.glob(args.glob) if (p / ".git").exists())
     if not repos:
         raise SystemExit(f"[census] no clones under {workspace / args.glob}")
+
+    fleet = None
+    if args.org and args.fleet:
+        raise SystemExit("[census] give --org or --fleet, not both")
+    if args.org:
+        fleet = fleet_from_org(args.org)
+    elif args.fleet:
+        fleet = fleet_from_file(Path(args.fleet).expanduser())
 
     pins = {}
     if args.at_pins:
@@ -271,21 +330,40 @@ def main(argv=None):
         except RuntimeError as exc:
             skipped.append({"skill": repo.name, "reason": str(exc)[:160]})
 
+    listing = str(workspace / args.glob)
     report = {
+        "listing": listing,
         "skills_in": len(repos),
         "rows_out": len(results),
         "skipped": skipped,
         "read_at": "train/sources.yaml pins" if args.at_pins else "origin/dev",
+        "fleet": None,
         "skills": results,
     }
+    if fleet is not None:
+        report["fleet"] = fleet_diff(fleet, [r.name for r in repos])
+        report["fleet"]["source"] = f"org {args.org}" if args.org else args.fleet
     if args.as_json:
         json.dump(report, sys.stdout, indent=2, sort_keys=True)
         print()
     else:
+        print(f"listing: {listing} ({len(repos)} clones)")
         print(f"{len(repos)} skills in, {len(results)} rows out, "
               f"read at {report['read_at']}")
         for skipped_one in skipped:
             print(f"  SKIPPED {skipped_one['skill']}: {skipped_one['reason']}")
+        if fleet is not None:
+            diff = report["fleet"]
+            print(f"fleet: {diff['source']} names {diff['named']}, "
+                  f"{len(diff['not_cloned'])} not cloned, "
+                  f"{len(diff['not_in_fleet'])} clones not in the listing")
+            for name in diff["not_cloned"]:
+                print(f"  NOT CLONED {name}")
+            for name in diff["not_in_fleet"]:
+                print(f"  NOT IN FLEET {name}")
+        else:
+            print("fleet: not checked; the count is the clones on disk only "
+                  "(give --org or --fleet)")
         for entry in results:
             errors = [f for f in entry["layer_a"] if f["severity"] == "error"]
             gaps = sum(len(row[role]["missing"]) for row in entry["layer_b"]

@@ -172,3 +172,71 @@ def test_a_repository_without_dev_is_read_at_master(tmp_path, capsys):
                    capture_output=True)
     census.main(["--workspace", str(tmp_path / "ws")])
     assert "1 skills in, 1 rows out" in capsys.readouterr().out
+
+
+def test_the_report_names_the_listing_it_counted(tmp_path, capsys):
+    """51 in, 51 out is a census of the workspace; the report must say which."""
+    root = tmp_path / "ws" / "ovos" / "skills"
+    root.mkdir(parents=True)
+    _skill(root, {"locale/en-US/one.dialog": "hello\n"})
+    census.main(["--workspace", str(tmp_path / "ws")])
+    out = capsys.readouterr().out
+    assert f"listing: {tmp_path / 'ws' / 'ovos/skills/ovos-skill-*'} (1 clones)" in out
+    assert "fleet: not checked" in out
+
+
+def test_a_fleet_name_with_no_clone_is_named_not_cloned(tmp_path, capsys):
+    """A skill the workspace does not hold produces no row; the report says so."""
+    root = tmp_path / "ws" / "ovos" / "skills"
+    root.mkdir(parents=True)
+    _skill(root, {"locale/en-US/one.dialog": "hello\n"})
+    listing = tmp_path / "fleet.txt"
+    listing.write_text("# the org\novos-skill-fake\novos-skill-news\n"
+                       "OpenVoiceOS/ovos-skill-spotify\n", encoding="utf-8")
+    code = census.main(["--workspace", str(tmp_path / "ws"),
+                        "--fleet", str(listing)])
+    out = capsys.readouterr().out
+    assert "1 skills in, 1 rows out" in out
+    assert "names 3, 2 not cloned, 0 clones not in the listing" in out
+    assert "  NOT CLONED ovos-skill-news\n" in out
+    assert "  NOT CLONED ovos-skill-spotify\n" in out
+    assert "NOT IN FLEET" not in out
+    assert code == 0, "a name the census did not measure is not a Layer A error"
+
+
+def test_a_clone_the_listing_lacks_is_named_not_in_fleet(tmp_path, capsys):
+    root = tmp_path / "ws" / "ovos" / "skills"
+    root.mkdir(parents=True)
+    _skill(root, {"locale/en-US/one.dialog": "hello\n"})
+    listing = tmp_path / "fleet.txt"
+    listing.write_text("ovos-skill-news\n", encoding="utf-8")
+    census.main(["--workspace", str(tmp_path / "ws"), "--fleet", str(listing)])
+    out = capsys.readouterr().out
+    assert "names 1, 1 not cloned, 1 clones not in the listing" in out
+    assert "  NOT IN FLEET ovos-skill-fake\n" in out
+
+
+def test_the_json_report_carries_the_listing_and_the_fleet_diff(tmp_path, capsys):
+    import json
+    root = tmp_path / "ws" / "ovos" / "skills"
+    root.mkdir(parents=True)
+    _skill(root, {"locale/en-US/one.dialog": "hello\n"})
+    listing = tmp_path / "fleet.txt"
+    listing.write_text("ovos-skill-news\novos-skill-fake\n", encoding="utf-8")
+    census.main(["--workspace", str(tmp_path / "ws"), "--fleet", str(listing),
+                 "--json"])
+    report = json.loads(capsys.readouterr().out)
+    assert report["listing"].endswith("ovos/skills/ovos-skill-*")
+    assert report["fleet"]["not_cloned"] == ["ovos-skill-news"]
+    assert report["fleet"]["not_in_fleet"] == []
+    assert report["fleet"]["named"] == 2
+
+
+def test_org_and_fleet_together_are_refused(tmp_path):
+    root = tmp_path / "ws" / "ovos" / "skills"
+    root.mkdir(parents=True)
+    _skill(root, {"locale/en-US/one.dialog": "hello\n"})
+    with pytest.raises(SystemExit) as raised:
+        census.main(["--workspace", str(tmp_path / "ws"), "--org", "x",
+                     "--fleet", str(tmp_path / "none.txt")])
+    assert "not both" in str(raised.value)
