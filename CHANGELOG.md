@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.26.0a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.26.0a2) (2026-09-19)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.26.0a1...0.26.0a2)
+
+**Merged pull requests:**
+
+- test: the entry-point id test builds its repository in tmp\_path [\#243](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/243) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.26.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.26.0a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.25.0a1...0.26.0a1)
@@ -357,10 +365,6 @@
 ## [0.12.4a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.12.4a1) (2026-09-08)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.12.3a2...0.12.4a1)
-
-**Merged pull requests:**
-
-- fix: registrations act on the payload skill\_id [\#141](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/141) ([JarbasAl](https://github.com/JarbasAl))
 
 ## [0.12.3a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.12.3a2) (2026-09-08)
 
