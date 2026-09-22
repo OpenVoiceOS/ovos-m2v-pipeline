@@ -542,6 +542,19 @@ class PrototypeIntentStore:
             return label, lang
         return internal_label, None
 
+    @classmethod
+    def _readable(cls, internal_label: str) -> str:
+        """*internal_label* as something a person can read in a log line.
+
+        The separator is a NUL, chosen because it cannot occur in a label or
+        a BCP-47 tag. That makes decomposition unambiguous and the raw key
+        unreadable: logged as-is it renders as
+        ``'skill:intent\\x00en-US'``, and every such line asks whoever is
+        reading it to decode an implementation detail.
+        """
+        label, lang = cls._decompose(internal_label)
+        return f"{label!r} [{lang}]" if lang else repr(label)
+
     def _add_anchors(self, label: str, anchors: np.ndarray) -> int:
         """Insert already-computed, already-normalised anchor embeddings for
         *label*, replacing any existing prototypes for that label.
@@ -579,7 +592,7 @@ class PrototypeIntentStore:
             self._label_set.add(label)
             self._rebuild_langs_by_label()
             LOG.info(f"prototype store: +{n_added} prototypes for "
-                     f"{label!r} ({len(self)} total, "
+                     f"{self._readable(label)} ({len(self)} total, "
                      f"{len(self._label_set)} labels)")
         return n_added
 
