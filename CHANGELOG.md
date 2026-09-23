@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.27.2a3](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.27.2a3) (2026-09-23)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.27.2a2...0.27.2a3)
+
+**Merged pull requests:**
+
+- docs: one coherent set, every key from the code [\#263](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/263) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.27.2a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.27.2a2) (2026-09-23)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.27.2a1...0.27.2a2)
