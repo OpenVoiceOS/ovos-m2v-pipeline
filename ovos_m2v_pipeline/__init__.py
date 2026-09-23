@@ -152,7 +152,14 @@ def load_shared_model(model_path: str, mode: str) -> Any:
             return embedding
         if entry is not None and entry["pipeline"] is not None:
             return entry["pipeline"]
-        pipeline = StaticModelPipeline.from_pretrained(model_path)
+        try:
+            pipeline = StaticModelPipeline.from_pretrained(model_path)
+        except ImportError as exc:
+            raise ImportError(
+                f"{model_path} is a legacy pipeline.skops checkpoint; loading "
+                "it needs scikit-learn, skops, scipy and joblib. Install "
+                "them with: uv pip install 'ovos-m2v-pipeline[legacy]'"
+            ) from exc
         if entry is not None:
             # the embedding is already in memory: share it, drop the copy
             pipeline.model = entry["embedding"]

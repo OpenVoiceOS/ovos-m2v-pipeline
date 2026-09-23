@@ -26,9 +26,6 @@ dependencies = [
     "ovos-config",
     "ovos-utils>=0.3.4,<1.0.0",
     "ovos-spec-tools>=1.11.2a1",
-    # model2vec 0.9.0 removed the `inference` extra; the classifier
-    # (StaticModelPipeline) load path now needs scikit-learn + skops
-    # directly to deserialize the legacy sklearn head.
     "model2vec>=0.9.0",
     # model2vec asks for `tokenizers>=0.20` with no ceiling, so under
     # `--prerelease=allow` the resolver takes 1.0.0rc2. That release ships
@@ -38,11 +35,19 @@ dependencies = [
     # one of them, so the plugin cannot load any model at all. The ceiling
     # belongs upstream in model2vec; it is held here until that lands.
     "tokenizers<1.0.0",
-    "scikit-learn",
-    "skops",
 ]
 
 [project.optional-dependencies]
+# Only the sklearn/skops legacy head loader needs this. A published model
+# that ships `head.safetensors` (every current one except
+# ovos-m2v-intents-multi-128M-v5) never touches it. Install this extra to
+# load a `pipeline.skops` checkpoint; see docs/configuration.md.
+legacy = [
+    "scikit-learn",
+    "skops",
+    "scipy",
+    "joblib",
+]
 test = [
     "pytest",
     "pytest-cov",

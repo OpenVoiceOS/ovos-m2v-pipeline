@@ -1,5 +1,27 @@
 # Configuration
 
+## Runtime footprint
+
+Installing `ovos-m2v-pipeline` alone (no extras) skips `scikit-learn`,
+`skops`, `scipy` and `joblib`: they sit behind a `legacy` extra used only by
+the sklearn/skops head loader. A published model shipping
+`head.safetensors` (every current model except an older
+`pipeline.skops`-only checkpoint) never touches that loader. Measured on a
+fresh Python 3.11 `uv` install of the runtime dependencies only:
+
+| | With `scikit-learn`/`skops`/`scipy`/`joblib` | Without |
+| --- | --- | --- |
+| site-packages on disk | 272 MB | 121 MB |
+| `import sklearn` (cold) | 2.99 s | not installed |
+
+Loading a legacy `pipeline.skops` checkpoint without the extra raises:
+
+```
+ImportError: <path> is a legacy pipeline.skops checkpoint; loading it needs
+scikit-learn, skops, scipy and joblib. Install them with:
+uv pip install 'ovos-m2v-pipeline[legacy]'
+```
+
 Every key lives under `mycroft.conf["intents"]["ovos-m2v-pipeline"]` (classifier
 plugin) or `mycroft.conf["intents"]["ovos-m2v-prototype-pipeline"]` (standalone
 prototype plugin). The table lists every key the code reads.
