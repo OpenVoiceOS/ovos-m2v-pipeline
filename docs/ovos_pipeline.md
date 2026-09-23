@@ -1,205 +1,96 @@
 # OVOS Pipeline Plugin
 
-This package registers two pipeline plugins, each suited for a different deployment scenario. Both are discovered automatically by OVOS via `opm.pipeline` entry points.
-
-## Entry Points
+This package ships two `opm.pipeline` entry points, both classes of
+`Model2VecIntentPipeline`:
 
 ```
 ovos-m2v-pipeline           = ovos_m2v_pipeline:Model2VecIntentPipeline
 ovos-m2v-prototype-pipeline = ovos_m2v_pipeline:Model2VecPrototypePipeline
 ```
 
-| Plugin | Class | Mode | Requires training? |
-|--------|-------|------|--------------------|
-| `ovos-m2v-pipeline` | `Model2VecIntentPipeline` | Classifier | Yes, a pre-trained `StaticModelPipeline` |
-| `ovos-m2v-prototype-pipeline` | `Model2VecPrototypePipeline` | Prototype | No, it embeds examples at boot |
+| Plugin | Mode | Needs training? |
+|---|---|---|
+| `ovos-m2v-pipeline` | classifier (default) | Yes, a pre-trained `StaticModelPipeline` |
+| `ovos-m2v-prototype-pipeline` | prototype (forced) | No, it embeds skill examples at boot |
 
-## Configuration
+Each reads its own key under `mycroft.conf["intents"]`, so both can run at
+once. Every config key is in [Configuration](configuration.md).
 
-Each plugin reads from its own key under `"intents"` in `mycroft.conf`, so both can coexist in the same OVOS instance.
+## Classifier mode
 
-### Classifier plugin: `ovos-m2v-pipeline`
+`ovos-m2v-pipeline` loads a `StaticModelPipeline`: an embedding model plus a
+linear classifier head, trained ahead of time. Inference returns a softmax
+probability over the labels baked into the head. Registering a new intent at
+runtime gates or allow-lists a trained label. It never teaches the head a
+label it was not trained on.
 
-```json
-{
-  "intents": {
-    "ovos-m2v-pipeline": {
-      "model": "Jarbas/ovos-model2vec-intents-LaBSE",
-      "conf_high": 0.7,
-      "conf_medium": 0.5,
-      "conf_low": 0.15,
-      "ignore_intents": [],
-      "timeout": 1
-    }
-  }
-}
-```
+## Prototype mode
 
-### Prototype plugin: `ovos-m2v-prototype-pipeline`
+`ovos-m2v-prototype-pipeline` loads a bare `StaticModel`, embeddings only,
+no head. At boot it builds an empty `PrototypeIntentStore` and fills it as
+skills register Padatious and OVOS-INTENT-4 template intents: each example
+utterance is template-expanded, embedded, and reduced to anchors by
+`prototype_strategy`. Inference scores the query against the stored anchors
+with cosine similarity. Adapt intents carry no example utterances, so they
+are tracked but never matched here.
 
-```json
-{
-  "intents": {
-    "ovos-m2v-prototype-pipeline": {
-      "model": "minishlab/M2V_multilingual_output",
-      "prototype_strategy": "max_over_all",
-      "conf_high": 0.7,
-      "conf_medium": 0.5,
-      "conf_low": 0.15,
-      "ignore_intents": []
-    }
-  }
-}
-```
+One embedding model loads per process per resolved model path
+(`load_shared_model`): the classifier's head, its `-low` prototype stage,
+and a standalone prototype plugin that names the same model all share one
+`StaticModel` object.
 
-### Configuration Keys
+## Confidence scale
 
-| Key | Type | Default | Applies to | Description |
-|-----|------|---------|------------|-------------|
-| `model` | `str` | unset (defaults to `OpenVoiceOS/ovos-m2v-intents-multilingual`) | both | Hugging Face repo ID or local path. Classifier mode requires a `StaticModelPipeline`. Prototype mode accepts any bare `StaticModel`. Set explicitly to override the default (e.g. the smaller, English-only `OpenVoiceOS/ovos-m2v-intents-en`, which trades language coverage for size at comparable held-out accuracy). |
-| `models` | `dict[str, str]` | `{}` | both | Per-language default override, `{locale_or_lang: repo_id}`. Matched against the full `lang` locale, then its primary subtag. Only consulted when `model` is unset. |
-| `prototype_k` | `int` | unset (keep all) | prototype | Maximum prototype embeddings stored per intent label. Unset keeps every registered sample so exact training samples always match. Set an integer to cap memory. |
-| `conf_high` | `float` | `0.7` | both | Minimum score for `match_high`. |
-| `conf_medium` | `float` | `0.5` | both | Minimum score for `match_medium`. |
-| `conf_low` | `float` | `0.15` | both | Minimum score for `match_low`. |
-| `ignore_intents` | `list[str]` | `[]` | both | Labels to always discard. |
-| `timeout` | `int` | `1` | classifier | Seconds to wait for Adapt / Padatious manifest responses. |
+Classifier scores are softmax probabilities that sum to 1 across all labels.
+Prototype scores are cosine similarities between L2-normalised embeddings.
+The two scales are not comparable, so each mode has its own `conf_high` /
+`conf_medium` / `conf_low` default (0.7 / 0.5 / 0.15 for classifier, 0.85 /
+0.7 / 0.65 for prototype). A configured `conf_*` key overrides the default in
+either mode.
 
-## Messagebus Events
+## A label the model lacks
 
-### Classifier plugin
+Classifier mode filters trained labels down to the ones registered
+plus three special labels (`ocp:play`, `common_query:common_query`,
+`stop:stop`), gated on the matching pipeline being present in the caller's
+session. A trained label with no active registration never matches, and a
+registered label the head was never trained on never appears in its output:
+the head is frozen, and it can only ever emit a label from its training
+set.
 
-| Event | Handler | Description |
-|-------|---------|-------------|
-| `mycroft.ready` | `handle_sync_intents` | Initial intent sync after all skills load. |
-| `padatious:register_intent` | `handle_sync_intents` | Re-sync when a new Padatious intent registers. |
-| `register_intent` | `handle_sync_intents` | Re-sync when a new Adapt intent registers. |
-| `detach_intent` | `handle_sync_intents` | Re-sync after an intent is removed. |
-| `detach_skill` | `handle_sync_intents` | Re-sync after a skill unloads. |
+Prototype mode has no such gap. Its store holds only labels a skill
+registered, so every label it can return is one it was actually given
+examples for.
 
-Sync is debounced with a 3-second sleep and the `_syncing` flag to coalesce bursts of registrations during bulk skill loading.
+## Confidence tiers and the pipeline list
 
-### Prototype plugin
+Each tier is a separate entry in `mycroft.conf["intents"]["pipeline"]`,
+identified by a `-high`, `-medium` or `-low` suffix on the entry-point name.
+OVOS reads the list top to bottom and stops at the first match. A tier not
+in the list is never called and costs nothing.
 
-| Event | Handler | Description |
-|-------|---------|-------------|
-| `mycroft.ready` | `_handle_ready_prototype` | Logs store statistics when system is ready. |
-| `padatious:register_intent` | `_handle_register_padatious` | Reads `file_name` or inline `samples`, expands templates, embeds the expanded examples per label (capped by `prototype_k` when set). |
-| `register_intent` | `_handle_register_adapt` | Tracks Adapt label in `self.intents`. No prototypes are created, since Adapt uses keywords, not examples. |
-| `detach_intent` | `_handle_detach_intent` | Removes prototypes and label for the detached intent. |
-| `detach_skill` | `_handle_detach_skill` | Removes all prototypes and labels for the skill. `skill_id` is taken from `message.data` with `message.context` as fallback. |
+| Pipeline entry | Method | Threshold |
+|---|---|---|
+| `ovos-m2v-pipeline-high` | `match_high()` | `conf_high` |
+| `ovos-m2v-pipeline-medium` | `match_medium()` | `conf_medium` |
+| `ovos-m2v-pipeline-low` | `match_low()` | `conf_low`, or the `-low` prototype stage's own `conf_low` when `low_tier` is `"prototype"` |
+| `ovos-m2v-prototype-pipeline-high` / `-medium` / `-low` | same methods, on the standalone prototype plugin | its own `conf_*` |
 
-## Template Expansion
+By default `ovos-m2v-pipeline-low` runs a prototype stage built from the same
+model and the loaded skills' own templates: the head answers `-high` and
+`-medium`, and any label the head declined or was never trained on falls to
+the skill's own examples at `-low`. Set `low_tier: "classifier"` to run the
+head itself at `conf_low` instead.
 
-Padatious `.intent` files support bracket template syntax. The prototype plugin expands templates before embedding so every concrete variant is represented:
+Nothing in the plugin tracks whether `-high` or `-medium` ran first. The
+`-low` entry checks only its own threshold. It behaves as a fallback purely
+because the session's `pipeline` list stops at the first match: with
+`-high` and `-medium` above it, `-low` is reached only after both declined.
+Placed alone, with no `-high` or `-medium` entry in the list, `-low`
+answers every utterance that clears its own confidence, whether or not a
+higher tier would have matched it too.
 
-| Template line | Expanded variants |
-|---------------|-------------------|
-| `(turn on\|switch on) the lights` | `turn on the lights`, `switch on the lights` |
-| `[please] play music` | `please play music`, `play music` |
-
-Inline `samples` in `padatious:register_intent` messages are expanded the same way.
-
-## Typed Slots
-
-The prototype plugin never reads a slot value from the utterance. A template that declares a typed slot (`set the brightness to {number:b}`, OVOS-INTENT-1 section 5.6) gets its value from the `typed_slots` map on the utterance message, when the core computed one:
-
-- one entry of the declared type whose span holds on the utterance fills the slot with its surface;
-- of several, the entry that follows the template's literal word before the slot fills it (`to` in the template above, so `set the brightness to twenty five please not fifty` gives `twenty five`); when that word occurs more than once with an entry after it, the occurrence nearest the slot's position in its templates wins; an entry fills at most one slot, so two slots of one type never collapse onto one reading;
-- when no template puts a literal word before the slot, or no entry follows one in this utterance, the entry whose relative position in the utterance is nearest the slot's position in its templates fills it;
-- no entry, no map, or a slot already filled from session context: the slot stays as it was.
-
-`Match.slots[name]` is the surface string. The normalized value stays in the map, keyed by that surface.
-
-## Confidence Tiers and the Pipeline List
-
-OVOS does **not** call all three tiers of a plugin automatically. Instead, each tier is a separate named entry in the `pipeline` list, identified by a `-high`, `-medium`, or `-low` suffix:
-
-| Pipeline entry | Method called | Threshold key | Default |
-|----------------|---------------|---------------|---------|
-| `ovos-m2v-pipeline-high` | `match_high()` | `conf_high` | `0.70` |
-| `ovos-m2v-pipeline-medium` | `match_medium()` | `conf_medium` | `0.50` |
-| `ovos-m2v-pipeline-low` | `match_low()` | prototype stage, `low_prototype.conf_low` | `0.65` cosine |
-
-`ovos-m2v-pipeline-low` runs prototype mode by default (`low_tier: "prototype"`): the `-high` and `-medium` tiers answer from the trained head, and the `-low` tier answers from the loaded skills' own templates, on the same embedding model. Set `low_tier: "classifier"` to run the head at `conf_low` (`0.15`) instead.
-
-**What the `-low` stage accepts.** Every label a skill registers, trained labels included. The stage denies only `ignore_intents` (the classifier's own list, plus any list under `low_prototype`); nothing compares a registration against the model's classes. So a label the model was trained on, `ovos-skill-alerts.openvoiceos:AddListSubitems` for example, is in the `-low` prototype store as well as in the head.
-
-That is the intent. The `-low` stage is the fallback the head did not answer: it runs only after `match_high` declined at `conf_high` and `match_medium` declined at `conf_medium`. For a trained label the head answers first, above those thresholds, and the stage never sees the utterance. Below them the head has said it does not know, and the skill's own templates are the better source of an answer than a class the head scored under 0.50.
-
-This is why the warning in the standalone plugin's docstring (T-1621: a prototype stage that runs *before* the classifier takes the utterance away from a head that would have matched it, measured as 7 of 117 alerts handler tests and 6 of 53 volume golden rows) does not apply here. That warning is about stage ORDER. At the `-low` position the classifier has already had both of its tiers. A deny list of the trained classes would be the opposite trade: it would leave a declined utterance unanswered.
-
-Known cost: one global lock covers the first `from_pretrained` of a model (`load_shared_model`), so two plugins that name two DIFFERENT models and boot at the same time wait for each other. The first load measured 13.33s. No deadlock is possible (no path holds an instance lock inside the global one) and OVOS boots pipeline plugins in sequence, so this is latency under a concurrent boot, not a failure.
-
-The same tier suffixes apply to `ovos-m2v-prototype-pipeline-high/medium/low`, the standalone prototype plugin.
-
-Every plugin instance that names the same model shares one embedding object: the classifier, its `-low` stage and the standalone prototype plugin load the model once per process (`load_shared_model`).
-
-You control which tiers are active and where they sit relative to other matchers by placing (or omitting) these entries in the `pipeline` list. OVOS evaluates the list top-to-bottom and stops at the first match.
-
-In classifier mode the scores are softmax probabilities (0-1). In prototype mode the scores are cosine similarities (0-1 in practice). You may need to tune `conf_*` downward.
-
-An empty utterance list always returns `None` without attempting inference.
-
-### Example: classifier at high, prototype as medium fallback
-
-```json
-{
-  "intents": {
-    "ovos-m2v-pipeline": {
-      "model": "Jarbas/ovos-model2vec-intents-LaBSE",
-      "conf_high": 0.7
-    },
-    "ovos-m2v-prototype-pipeline": {
-      "model": "minishlab/M2V_multilingual_output",
-      "conf_medium": 0.5
-    },
-    "pipeline": [
-      "ovos-stop-pipeline-plugin-high",
-      "ovos-converse-pipeline-plugin",
-      "ovos-ocp-pipeline-plugin-high",
-      "ovos-adapt-pipeline-plugin-high",
-      "ovos-m2v-pipeline-high",
-      "ovos-ocp-pipeline-plugin-medium",
-      "ovos-fallback-pipeline-plugin-high",
-      "ovos-m2v-prototype-pipeline-medium",
-      "ovos-fallback-pipeline-plugin-medium",
-      "ovos-fallback-pipeline-plugin-low"
-    ]
-  }
-}
-```
-
-Here the classifier runs at high confidence after Adapt. The prototype plugin runs at medium confidence only if all high-tier matchers have already failed.
-
-## Mixing Both Plugins
-
-The classifier plugin is faster at inference (single matrix multiply + softmax) but is limited to skills present in its training data. The prototype plugin handles any skill that registers Padatious intents with example utterances, at the cost of slightly more memory (one embedding per prototype).
-
-A typical setup runs the classifier first and falls back to the prototype plugin for unrecognised intents:
-
-```json
-{
-  "intents": {
-    "ovos-m2v-pipeline": {
-      "model": "Jarbas/ovos-model2vec-intents-LaBSE"
-    },
-    "ovos-m2v-prototype-pipeline": {
-      "model": "minishlab/M2V_multilingual_output"
-    },
-    "pipeline": [
-      "ovos-adapt-pipeline-plugin-high",
-      "ovos-m2v-pipeline-high",
-      "ovos-m2v-prototype-pipeline-high",
-      "ovos-fallback-pipeline-plugin-high",
-      "ovos-fallback-pipeline-plugin-medium",
-      "ovos-fallback-pipeline-plugin-low"
-    ]
-  }
-}
-```
-
-## Place Padacioso Before the Classifier
+## Place padacioso before the classifier
 
 The classifier stage is frozen. It answers only with labels present in its
 training set. A skill can register an exact Padatious template line for a
@@ -211,18 +102,137 @@ templates and needs no training.
 ```json
 {
   "intents": {
+    "ovos-m2v-pipeline": {
+      "model": "OpenVoiceOS/ovos-m2v-intents-multilingual"
+    },
     "pipeline": [
       "ovos-padacioso-pipeline-plugin-high",
       "ovos-m2v-pipeline-high",
-      "ovos-m2v-pipeline-medium",
-      "ovos-m2v-prototype-pipeline-medium",
-      "ovos-fallback-pipeline-plugin-high",
-      "ovos-fallback-pipeline-plugin-medium",
-      "ovos-fallback-pipeline-plugin-low"
+      "ovos-m2v-prototype-pipeline-medium"
     ]
   }
 }
 ```
 
+These three entries are the m2v part of the list, not the whole list.
+ovos-config's shipped default runs `ovos-stop-pipeline-plugin-high`,
+`ovos-converse-pipeline-plugin`, `ovos-ocp-pipeline-plugin-high`,
+`ovos-padatious-pipeline-plugin-high` and `ovos-adapt-pipeline-plugin-high`
+before `ovos-m2v-pipeline-high`; stop, converse and the exact matchers keep
+their place ahead of m2v. Fallback and common-query plugins go after it.
+
+Placing a prototype tier ahead of the classifier's own tiers of the same
+name costs accuracy instead: the prototype store holds only
+runtime-registered labels, so for an utterance whose label the classifier
+WAS trained on, the nearest prototype is always some other, wrong label. A
+prototype tier run first claims that utterance before the classifier gets
+to see it. Give the classifier's own tiers first refusal, and let a
+prototype tier answer only what the classifier already declined. The
+`Model2VecPrototypePipeline` docstring in `ovos_m2v_pipeline/__init__.py`
+carries the measured test-suite cost of the reverse order, with its own
+provenance tag.
+
+## Prototype strategies
+
+`prototype_strategy` picks how a label's registered examples become stored
+anchors and how those anchors turn into a match score, via `PrototypeStrategy`
+in `ovos_m2v_pipeline/strategies.py`.
+
+| Value | Anchors stored | Score |
+|---|---|---|
+| `max_over_all` | every sample (default) | max cosine over anchors |
+| `mean_centroid` | one, the mean of all samples | cosine to centroid |
+| `medoid` | one, the sample closest to the centroid | cosine to medoid |
+| `top_k_mean` | every sample | mean of the top `prototype_top_k` cosines |
+| `farthest_point` | up to `prototype_k`, maximin sampling | max cosine |
+| `kmeans_centers` | up to `prototype_k` spherical k-means centroids | max cosine |
+| `softmax_weighted` | every sample | softmax-weighted average, temperature `prototype_tau` |
+
+`max_over_all` is the default, so an existing `.npz` cache and tuned
+thresholds stay valid under it.
+
+## Prototype cache
+
+Prototype mode re-encodes a skill's templates on every boot unless a cache
+holds them. Each label's encoded prototypes are cached to disk, keyed on the
+model id, the installed `model2vec` version, the anchor-selection
+parameters, the raw template lines, and any entity values the templates
+reference. An unchanged registration loads from the cache. Any other change
+is a plain miss. `detach_intent` / `detach_skill` delete the corresponding
+entry so a removed skill's intents are never resurrected from a stale
+cache. Cache files live under `prototype_cache_dir`, one small `.npz` file
+per label. Set `prototype_cache: false` to disable it.
+
+## Prebuilt prototypes
+
+`prebuilt_prototypes` points at a directory or Hugging Face repo built ahead
+of time with the `ovos-m2v-prototypes` command, so a resource-constrained
+device never has to encode a skill's templates itself:
+
+```bash
+ovos-m2v-prototypes export \
+  --out ./my-skill-prototypes \
+  --model OpenVoiceOS/ovos-m2v-intents-multilingual \
+  --skill-dir /path/to/my-skill \
+  --skill-id my-skill.openvoiceos
+```
+
+The command discovers every `.intent` file under the skill's
+`locale/<lang>/` directories the same way a live registration does. The
+output holds `prototypes.npz` and a `manifest.json` naming the model id and
+revision, the `model2vec` version, the embedding dimension, the strategy and
+its parameters, and a per-label cache key. At boot the manifest is checked
+against the running model's id and version. A mismatch is logged and the
+artifact is ignored, falling back to encoding from scratch. A label the
+skill does not register never becomes matchable, even if the artifact
+carries it. The artifact only removes the one-time registration encode: a
+live query still needs the embedding model to embed the incoming utterance.
+
+## Trained models document their labels
+
+A classifier's label head is frozen at training time, so which bus intent
+each label denotes is a property of that model, not of the plugin. A model
+repo or directory can ship a `labels.json` alongside its weights:
+
+```json
+{
+  "valid_labels": ["my_domain:book_flight", "my_domain:cancel_flight"],
+  "families": {
+    "my_domain:book_flight": "skill",
+    "my_domain:cancel_flight": "skill"
+  }
+}
+```
+
+`labels.json` has the same shape as `label_map`, plus an optional
+`valid_labels` list and an optional `families` map (`skill`, `ocp`,
+`common_query`, `stop`, or `persona`, see [Label scheme](labels.md)). Three
+layers combine, later overriding earlier: the built-in OCP/common-query/stop
+remaps, the loaded model's own `labels.json`, then the deployment's
+`label_map` / `valid_labels` config. For a Hugging Face repo id,
+`labels.json` is read only from the local cache already populated by the
+model download. A missing or corrupt manifest is logged and ignored. A
+`label_map` target with no colon is used as-is and logged once as a
+warning.
+
+## Typed slots
+
+The prototype plugin never reads a slot value from the utterance text
+itself. A template that declares a typed slot (`set the brightness to
+{number:b}`, OVOS-INTENT-1 §5.6) fills it from the `typed_slots` map the
+core computed for the utterance:
+
+- one entry of the declared type whose span holds on the utterance fills
+  the slot with its surface;
+- of several, the entry that follows the template's literal word before the
+  slot fills it. When that word occurs more than once, the occurrence
+  nearest the slot's position in its templates wins;
+- with no such literal-word anchor, the entry whose position in the
+  utterance is nearest the slot's position in its templates fills it;
+- no entry, no map, or a slot already filled from session context: the slot
+  stays as it was.
+
+`Match.slots[name]` carries the surface string.
+
 ---
-[← Installation](installation.md) · [Home](README.md) · [Configuration →](configuration.md)
+[Home](../README.md) · [Configuration →](configuration.md)

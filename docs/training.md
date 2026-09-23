@@ -232,3 +232,6 @@ prints how many such locales there are and how many rows they hold.
 
 The whole tree is read and checked before anything is uploaded, so a failed
 check cannot leave the repository holding one split and not the other.
+
+---
+[← Models](models.md) · [Home](../README.md) · [Label scheme →](labels.md)

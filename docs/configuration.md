@@ -1,153 +1,46 @@
 # Configuration
 
-The pipeline is configured inside `mycroft.conf` under the `intents` section.
+Every key lives under `mycroft.conf["intents"]["ovos-m2v-pipeline"]` (classifier
+plugin) or `mycroft.conf["intents"]["ovos-m2v-prototype-pipeline"]` (standalone
+prototype plugin). The table lists every key the code reads.
 
-## Minimal Configuration: Classifier Mode
+## Both modes
 
-```json
-{
-  "intents": {
-    "ovos-m2v-pipeline": {
-      "model": "Jarbas/ovos-model2vec-intents-LaBSE"
-    }
-  }
-}
-```
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `model` | `str` | unset, resolves per language (see [models.md](models.md)) | Hugging Face repo ID or local path to load. |
+| `models` | `dict[str, str]` | `{}` | Per-language override, `{locale_or_lang: repo_id}`. Skipped when `model` is set. |
+| `revision` | `str` | unset | Git revision of the `model` repo to pin. Ignored for a local path. |
+| `mode` | `str` | `"classifier"` | `"classifier"` or `"prototype"`. Forced to `"prototype"` when the plugin loads as `ovos-m2v-prototype-pipeline`. |
+| `conf_high` | `float` | `0.7` classifier, `0.85` prototype | Minimum score for `match_high`. |
+| `conf_medium` | `float` | `0.5` classifier, `0.7` prototype | Minimum score for `match_medium`. |
+| `conf_low` | `float` | `0.15` classifier, `0.65` prototype | Minimum score for `match_low`. |
+| `ignore_intents` | `list[str]` | `[]` | Canonical labels to always discard, after `label_map`. |
+| `label_map` | `dict[str, str or [str, str]]` | `{}` | Maps a raw model label to a canonical `skill_id:intent` label. Merges over the built-in OCP/common-query/stop remaps and any `labels.json` the model ships. |
+| `valid_labels` | `list[str]` | unset | Allow-list of raw model labels, checked before `label_map`. Classifier mode only; a prototype store is its own allow-list. |
+| `timeout` | `int` | `1` | Seconds to wait for an Adapt or Padatious manifest response. |
+| `preload_model` | `bool` | `false` | Load the model at construction instead of on first use. |
+| `model_load_budget` | `float` | `0.5` | Seconds a match call waits for a cold-start model load before returning no match for that utterance. |
 
-## Minimal Configuration: Prototype Mode
+## Classifier mode only
 
-```json
-{
-  "intents": {
-    "ovos-m2v-pipeline": {
-      "mode": "prototype",
-      "model": "minishlab/M2V_multilingual_output"
-    }
-  }
-}
-```
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `low_tier` | `str` | `"prototype"` | Engine behind `ovos-m2v-pipeline-low`: `"prototype"` (skill templates) or `"classifier"` (the trained head at `conf_low`). |
+| `low_prototype` | `dict` | `{}` | Prototype-mode keys for the `-low` stage (`conf_high`, `conf_medium`, `conf_low`, `ignore_intents`, `prototype_k`, ...). The stage always loads this plugin's own model. A `model` key here is overwritten, and logged as discarded, only when it names a different model than the classifier's; naming the same model is a no-op with no warning. |
+| `renormalize` | `bool` | `false` | Renormalize softmax probabilities over the surviving label subset after filtering to registered intents. |
 
-Any bare `StaticModel` on Hugging Face (or a local path) can be used as the embedding backbone for prototype mode. No classifier head is needed.
+## Prototype mode only
 
-## Full Configuration Reference
-
-```json
-{
-  "intents": {
-    "ovos-m2v-pipeline": {
-      "model": "Jarbas/ovos-model2vec-intents-LaBSE",
-      "mode": "classifier",
-      "prototype_strategy": "max_over_all",
-      "prototype_top_k": 3,
-      "prototype_tau": 0.1,
-      "conf_high": 0.7,
-      "conf_medium": 0.5,
-      "conf_low": 0.15,
-      "ignore_intents": [],
-      "timeout": 1
-    }
-  }
-}
-```
-
-## Options
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `model` | `str` | unset (defaults to `OpenVoiceOS/ovos-m2v-intents-multilingual`, see below) | Hugging Face repo ID or local path. In classifier mode this must be a `StaticModelPipeline`. In prototype mode any bare `StaticModel` works. Set explicitly to override the default. |
-| `models` | `dict[str, str]` | `{}` | Per-language default override, `{locale_or_lang: repo_id}` (e.g. `{"pt": "my-org/pt-model"}`). Matched against the full `lang` locale first, then its primary subtag. Only consulted when `model` is unset. |
-| `mode` | `str` | `"classifier"` | Operating mode: `"classifier"` or `"prototype"`. |
-| `prototype_k` | `int` | unset (keep all) | Maximum number of prototype embeddings stored per intent label (prototype mode only). Unset keeps every registered sample so exact training samples always match. Set an integer to cap memory. |
-| `prototype_strategy` | `str` | `"max_over_all"` | Scoring strategy for prototype mode. See [Prototype Strategies](#prototype-strategies-prototype-mode-only) below. |
-| `prototype_top_k` | `int` | `3` | Number of top cosine similarities averaged by the `top_k_mean` strategy. Also the default `k` for `softmax_weighted` when used in scoring. |
-| `prototype_tau` | `float` | `0.1` | Temperature for the `softmax_weighted` strategy. Lower values sharpen the distribution toward the maximum. Higher values flatten it toward the mean. |
-| `conf_high` | `float` | `0.7` | Minimum score for a `match_high` result. |
-| `conf_medium` | `float` | `0.5` | Minimum score for a `match_medium` result. |
-| `conf_low` | `float` | `0.15` | Minimum score for a `match_low` result. |
-| `ignore_intents` | `list[str]` | `[]` | Intent labels to always discard, regardless of confidence. |
-| `timeout` | `int` | `1` | Seconds to wait for Adapt / Padatious manifest responses (classifier mode only). |
-| `revision` | `str` | unset | Git revision (commit SHA, branch, or tag) of the Hugging Face Hub `model` repo to load. Unset loads the latest snapshot the Hub serves: when a snapshot is already cached, this is checked with one short, bounded Hub call rather than a full re-download, so a relabelled or updated model is picked up automatically without adding meaningful startup delay. A pinned commit SHA is content-addressed and never contacts the Hub once cached. Ignored for a local path. When the Hub cannot be reached, or the check times out, the plugin falls back to the newest snapshot already cached on disk and logs a warning naming it. |
-| `prototype_cache` | `bool` | `true` | Enable/disable the on-disk prototype cache (prototype mode only). See [Prototype cache](../README.md#prototype-cache-prototype-mode). |
-| `prototype_cache_dir` | `str` | `{XDG_DATA_HOME}/mycroft/m2v_prototypes/` | Override the on-disk prototype cache directory (prototype mode only). |
-| `prebuilt_prototypes` | `str` | unset | Path to a directory, or a Hugging Face Hub repo id, holding a prebuilt prototype artifact built with `ovos-m2v-prototypes export` (prototype mode only). See [Prebuilt prototypes](../README.md#prebuilt-prototypes-prototype-mode). |
-
-## Default model resolution
-
-With no `model` config, the plugin resolves to
-`OpenVoiceOS/ovos-m2v-intents-multilingual` for every language, unless
-`models[<full locale>]` or `models[<primary subtag>]` says otherwise.
-Setting `model` explicitly always wins and skips this resolution entirely.
-There is no fallback to the deprecated
-`Jarbas/ovos-model2vec-intents-distiluse-base-multilingual-cased-v2` model;
-deployments that need it must set `model` themselves.
-
-`OpenVoiceOS/ovos-m2v-intents-en` is a smaller (16 MB), English-only
-alternative available through `model` or `models["en"]`. It is not wired in
-as anyone's default, purely to keep the built-in per-language table small;
-its held-out accuracy is comparable to the multilingual model. Pick it
-where the smaller footprint is worth trading off broader language
-coverage.
-
-## Prototype Strategies (prototype mode only)
-
-`prototype_strategy` selects the algorithm used to aggregate a label's sample embeddings into match scores. Defined in `ovos_m2v_pipeline/strategies.py:51` as `PrototypeStrategy`.
-
-| Value | Storage | Scoring | Notes |
-|-------|---------|---------|-------|
-| `max_over_all` | Every sample per label (random subsample when `prototype_k` is set) | Max cosine over stored anchors | Default. |
-| `mean_centroid` | 1 anchor = mean of all samples | Cosine to centroid | Cheapest storage and inference. A classic prototype baseline. |
-| `medoid` | 1 anchor = sample closest to centroid | Cosine to medoid | Not sensitive to outliers. Avoids averaging blur. |
-| `top_k_mean` | All samples kept | Mean of top-`prototype_top_k` cosines | Combines sharpness of max with smoothing. |
-| `farthest_point` | Up to `prototype_k` samples via maximin sampling | Max cosine | Anchors span the example space. Good for diverse phrasings. |
-| `kmeans_centers` | Up to `prototype_k` spherical k-means centroids | Max cosine | Useful when a label has multi-modal phrasings. |
-| `softmax_weighted` | All samples kept | Softmax-weighted average of cosines | `prototype_tau` controls sharpness. |
-
-The default `max_over_all` produces byte-identical results to the store behavior before strategies were introduced. Existing `.npz` files and tuned thresholds remain valid.
-
-## Confidence Thresholds
-
-Each `conf_*` key sets the minimum score required for the corresponding tier method to return a match:
-
-- **`conf_high`**: threshold for `match_high()`, called when `ovos-m2v-pipeline-high` appears in the pipeline list.
-- **`conf_medium`**: threshold for `match_medium()`, called when `ovos-m2v-pipeline-medium` appears.
-- **`conf_low`**: threshold for `match_low()`, called when `ovos-m2v-pipeline-low` appears. In classifier mode the `-low` tier is a prototype stage by default (`low_tier`, below), and that stage reads its own `conf_low` from `low_prototype`.
-
-Classifier mode also takes:
-
-- **`low_tier`**: `"prototype"` (default) or `"classifier"`. Which engine answers `ovos-m2v-pipeline-low`: prototype mode built from the loaded skills' templates on the same embedding model, or the trained head at `conf_low`.
-- **`low_prototype`**: a dict of prototype-mode keys for that stage (`conf_high`, `conf_medium`, `conf_low`, `ignore_intents`, `prototype_k`, ...). The classifier's `ignore_intents` are always denied to it as well. A `model` key here is discarded with a WARNING: the stage always runs on this plugin's own model, which is what makes the two share one embedding in memory. To run a second model, give the standalone `ovos-m2v-prototype-pipeline` its own. The stage accepts every registered label, trained labels included; see "What the `-low` stage accepts" in `ovos_pipeline.md`.
-
-OVOS evaluates the pipeline list top-to-bottom and stops at the first match. Only the tiers you add to the pipeline list are ever invoked. Unused tiers consume no resources.
-
-In classifier mode the scores are softmax probabilities (sum to 1 across all labels). In prototype mode the scores are cosine similarities (typically 0-1). You may need to tune thresholds downward.
-
-Only the top-ranked valid intent is returned at each tier. If its score is below the threshold, `None` is returned and the OVOS pipeline moves to the next entry.
-
-## Ignoring Intents
-
-Use `ignore_intents` to suppress specific labels that cause repeated false matches:
-
-```json
-{
-  "ignore_intents": [
-    "ovos-skill-hello-world.openvoiceos:Greetings.intent"
-  ]
-}
-```
-
-Labels in this list are filtered out before any confidence check.
-
-## Using a Local Model
-
-Set `model` to an absolute path to use a locally saved model:
-
-```json
-{
-  "model": "/opt/models/m2v_intents_LaBSE"
-}
-```
-
-See [Models](models.md) for available pre-trained models and [Training](training.md) to produce your own.
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `prototype_k` | `int` | unset, keep every sample | Cap on stored prototype embeddings per label. |
+| `prototype_strategy` | `str` | `"max_over_all"` | Anchor and scoring algorithm. See [ovos_pipeline.md](ovos_pipeline.md#prototype-strategies). |
+| `prototype_top_k` | `int` | `3` | K for the `top_k_mean` strategy. |
+| `prototype_tau` | `float` | `0.1` | Softmax temperature for the `softmax_weighted` strategy. |
+| `prototype_cache` | `bool` | `true` | Cache each label's encoded prototypes to disk across restarts. |
+| `prototype_cache_dir` | `str` | `{XDG_DATA_HOME}/mycroft/m2v_prototypes/` | Override the cache directory. |
+| `prebuilt_prototypes` | `str` | unset | Local directory or Hugging Face repo id holding a prebuilt artifact from `ovos-m2v-prototypes export`. |
 
 ---
-[← OVOS Pipeline Plugin](ovos_pipeline.md) · [Home](README.md) · [Pipeline Internals →](pipeline.md)
+[← OVOS Pipeline Plugin](ovos_pipeline.md) · [Home](../README.md) · [Models →](models.md)
