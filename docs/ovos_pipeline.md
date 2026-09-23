@@ -125,42 +125,13 @@ OVOS does **not** call all three tiers of a plugin automatically. Instead, each 
 
 **What the `-low` stage accepts.** Every label a skill registers, trained labels included. The stage denies only `ignore_intents` (the classifier's own list, plus any list under `low_prototype`); nothing compares a registration against the model's classes. So a label the model was trained on, `ovos-skill-alerts.openvoiceos:AddListSubitems` for example, is in the `-low` prototype store as well as in the head.
 
-That is the intent. The `-low` stage is the fallback the head did not answer: it runs only after `match_high` declined at `conf_high` and `match_medium` declined at `conf_medium`. That holds because all three tiers are in the pipeline list: OVOS calls `ovos-m2v-pipeline-low` only after the `-high` and `-medium` entries above it returned nothing. A list that names `-low` without the other two gets a prototype stage with no head in front of it, which is the standalone prototype plugin's layout, and the T-1621 warning below applies to it. For a trained label the head answers first, above those thresholds, and the stage never sees the utterance. Below them the head has said it does not know, and the skill's own templates are the better source of an answer than a class the head scored under 0.50.
+That is the intent. The `-low` stage is the fallback the head did not answer: it runs only after `match_high` declined at `conf_high` and `match_medium` declined at `conf_medium`. For a trained label the head answers first, above those thresholds, and the stage never sees the utterance. Below them the head has said it does not know, and the skill's own templates are the better source of an answer than a class the head scored under 0.50.
 
 This is why the warning in the standalone plugin's docstring (T-1621: a prototype stage that runs *before* the classifier takes the utterance away from a head that would have matched it, measured as 7 of 117 alerts handler tests and 6 of 53 volume golden rows) does not apply here. That warning is about stage ORDER. At the `-low` position the classifier has already had both of its tiers. A deny list of the trained classes would be the opposite trade: it would leave a declined utterance unanswered.
 
 Known cost: one global lock covers the first `from_pretrained` of a model (`load_shared_model`), so two plugins that name two DIFFERENT models and boot at the same time wait for each other. The first load measured 13.33s. No deadlock is possible (no path holds an instance lock inside the global one) and OVOS boots pipeline plugins in sequence, so this is latency under a concurrent boot, not a failure.
 
 The same tier suffixes apply to `ovos-m2v-prototype-pipeline-high/medium/low`, the standalone prototype plugin.
-
-### An exact template line goes to the prototype stage
-
-A trained head can only answer with a label it was trained on. When a skill
-declares an intent the model does not know, and the utterance is one of that
-intent's own template lines, the head still has an answer: the nearest label
-it can emit. That answer is wrong, and it is wrong at a high confidence.
-This was measured on `ovos-skill-volume` with the classifier before the
-prototype stage: `crank the volume up`, an exact line of
-`volume.max.boost.intent`, routed to `increase_volume` at 1.00.
-
-So `match_high` and `match_medium` yield such an utterance. The head keeps a
-map of the expanded template lines it sees registered. It yields when all
-these hold:
-
-- the utterance is one of those lines, ignoring case and punctuation;
-- every label that declares the line is registered and is a label this head
-  cannot emit (it is not in the model's classes, or it is in
-  `ignore_intents`). A line that a trained label also declares is ambiguous,
-  and the head answers it;
-- a prototype stage can take the utterance: the `-low` stage of this
-  instance, or an `ovos-m2v-prototype-pipeline` entry in the caller's
-  session pipeline.
-
-The result does not depend on where the prototype stage sits: the skill
-author's own line wins, and the head still wins every line it was trained
-for. A template line that declares a `{slot}` is never an exact line, since
-the utterance carries a value the author did not write. Set
-`exact_prototype_first: false` to switch this off.
 
 Every plugin instance that names the same model shares one embedding object: the classifier, its `-low` stage and the standalone prototype plugin load the model once per process (`load_shared_model`).
 
@@ -220,6 +191,31 @@ A typical setup runs the classifier first and falls back to the prototype plugin
       "ovos-adapt-pipeline-plugin-high",
       "ovos-m2v-pipeline-high",
       "ovos-m2v-prototype-pipeline-high",
+      "ovos-fallback-pipeline-plugin-high",
+      "ovos-fallback-pipeline-plugin-medium",
+      "ovos-fallback-pipeline-plugin-low"
+    ]
+  }
+}
+```
+
+## Place Padacioso Before the Classifier
+
+The classifier stage is frozen. It answers only with labels present in its
+training set. A skill can register an exact Padatious template line for a
+label the classifier never saw. Put `ovos-padacioso-pipeline-plugin-high`
+ahead of the classifier stages so it claims that exact line first. Add the
+prototype stage after the classifier, since it reads every loaded skill's
+templates and needs no training.
+
+```json
+{
+  "intents": {
+    "pipeline": [
+      "ovos-padacioso-pipeline-plugin-high",
+      "ovos-m2v-pipeline-high",
+      "ovos-m2v-pipeline-medium",
+      "ovos-m2v-prototype-pipeline-medium",
       "ovos-fallback-pipeline-plugin-high",
       "ovos-fallback-pipeline-plugin-medium",
       "ovos-fallback-pipeline-plugin-low"
