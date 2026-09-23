@@ -2072,20 +2072,24 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                 else:
                     lines.pop(key, None)
 
-    def _prototype_stage_present(self, message: Optional[Message]) -> bool:
-        """Is there a prototype stage behind this one for THIS utterance?
+    def _prototype_stage_present(self, message: Optional[Message],
+                                  tier: str) -> bool:
+        """Is there a prototype stage AFTER this stage in the session's
+        ordered pipeline, for THIS utterance?
 
         Two layouts can hold one. This instance's own ``low_tier``
         prototype stage answers ``ovos-m2v-pipeline-low``, and a standalone
         ``ovos-m2v-prototype-pipeline`` entry answers its own. Either way
-        the stage only runs if the CALLER'S session pipeline names it:
-        owning a ``_low_prototype`` object proves nothing about the list
-        the session carries.
+        the stage only counts if it runs AFTER this call's own tier entry
+        (``ovos-m2v-pipeline-<tier>``) in the CALLER'S session pipeline:
+        a prototype stage earlier in the list already ran and declined, so
+        yielding to it loses the utterance instead of handing it on.
+        Owning a ``_low_prototype`` object proves nothing about the list
+        the session carries, or about where in it a stage sits.
 
-        That distinction is the whole guard. A session that lists ``-high``
-        and ``-medium`` and no ``-low`` has no stage behind this one, so a
-        yield would leave the utterance unanswered by this plugin instead
-        of handing it on.
+        A session that lists ``-high`` and ``-medium`` and no ``-low`` has
+        no stage behind this one, so a yield would leave the utterance
+        unanswered by this plugin instead of handing it on.
         """
         if message is None:
             return False
@@ -2094,11 +2098,19 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                       (SessionManager.get(message).pipeline or [])]
         except Exception:
             return False
-        if any("m2v-prototype" in stage for stage in stages):
+        own_entry = f"ovos-m2v-pipeline-{tier}"
+        try:
+            own_index = stages.index(own_entry)
+        except ValueError:
+            # this stage's own entry is not in the list; there is no
+            # position to compare against, so fall back to membership.
+            own_index = -1
+        behind = stages[own_index + 1:]
+        if any("m2v-prototype" in stage for stage in behind):
             return True
         return (getattr(self, "_low_prototype", None) is not None
                 and any(stage.endswith("-low") and "m2v" in stage
-                        for stage in stages))
+                        for stage in behind))
 
     def _emittable_labels(self) -> Optional[set]:
         """The labels this frozen head can answer with, or ``None`` when
@@ -2113,7 +2125,8 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         return None
 
     def _exact_prototype_owner(self, utterance: str,
-                               message: Optional[Message] = None) -> Optional[str]:
+                               message: Optional[Message] = None,
+                               tier: str = "high") -> Optional[str]:
         """The label to yield this utterance to, or ``None``.
 
         An exact template line is the skill author's declared truth. When
@@ -2143,7 +2156,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                        and (l not in emittable or l in self.ignore_labels)]
         if len(unreachable) != len(owners):
             return None
-        if not unreachable or not self._prototype_stage_present(message):
+        if not unreachable or not self._prototype_stage_present(message, tier):
             return None
         return unreachable[0]
 
@@ -2990,7 +3003,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         """
         if not utterances:
             return None
-        owner = self._exact_prototype_owner(utterances[0], message)
+        owner = self._exact_prototype_owner(utterances[0], message, "high")
         if owner:
             LOG.debug(f"yielding {utterances[0]!r} to the prototype stage: an "
                       f"exact template line of '{owner}', a label this "
@@ -3026,7 +3039,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         """
         if not utterances:
             return None
-        owner = self._exact_prototype_owner(utterances[0], message)
+        owner = self._exact_prototype_owner(utterances[0], message, "medium")
         if owner:
             LOG.debug(f"yielding {utterances[0]!r} to the prototype stage: an "
                       f"exact template line of '{owner}', a label this "

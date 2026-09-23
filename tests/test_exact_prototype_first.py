@@ -253,6 +253,21 @@ class TestTheYieldNeedsTheStageInTheSession(unittest.TestCase):
         self.assertIsNotNone(match)
         self.assertEqual(match.match_type, INCREASE)
 
+    def test_a_prototype_stage_that_already_ran_does_not_count(self):
+        """A prototype stage that sits at or before this call's own tier
+        already ran and declined; yielding to it loses the utterance
+        instead of handing it on. Only a prototype stage AFTER this one's
+        own tier entry in the session's ordered pipeline counts."""
+        utterance = "crank the volume up"
+        already_ran = ["ovos-m2v-prototype-pipeline-high",
+                       "ovos-m2v-pipeline-medium"]
+        match = self.pipeline.match_medium(
+            [utterance], "en-US", _message(utterance, already_ran))
+        self.assertIsNotNone(
+            match, "yielding to a prototype stage that already ran loses "
+                   "the utterance")
+        self.assertEqual(match.match_type, INCREASE)
+
 
 class TestExactLinesUnderThreads(unittest.TestCase):
     """Six threads: two remembering, two forgetting, two reading.
@@ -348,7 +363,9 @@ class TestExactLinesUnderThreads(unittest.TestCase):
 
         LABEL = f"{SKILL}:label0"
 
-        # The code as it was: iterate the live map, hold no lock.
+        # The code as it was: iterate the live map, hold no lock. This
+        # loop restates the body `_forget_exact_lines` had at 4939b18,
+        # before this commit read it under `_exact_lines_lock`.
         lines, written = live_map_and_old_forget()
         with self.assertRaises(RuntimeError) as raised:
             for key, labels in lines.items():
@@ -418,3 +435,51 @@ class TestExactLinesUnderThreads(unittest.TestCase):
         for thread in threads:
             thread.join(timeout=5)
         self.assertEqual(errors, [])
+
+    def test_all_four_sites_acquire_the_lock(self):
+        """Neither control above pins the lock itself: the snapshot control
+        proves the loop reads a copy, and the six-thread test can go green
+        on a run that never collides. Replace ``self._exact_lines_lock``
+        with a recorder and drive each of the four sites that hold it
+        (`_remember_exact_lines`, `_forget_exact_lines`,
+        `_handle_exact_detach_skill`, and the read in
+        `_exact_prototype_owner`) directly, so removing any `with
+        self._exact_lines_lock:` makes this fail regardless of timing.
+        """
+        import threading
+
+        class _RecordingLock:
+            def __init__(self):
+                self.acquisitions = 0
+                self._lock = threading.Lock()
+
+            def __enter__(self):
+                self.acquisitions += 1
+                return self._lock.__enter__()
+
+            def __exit__(self, *exc_info):
+                return self._lock.__exit__(*exc_info)
+
+        pipeline = _head()
+        recorder = _RecordingLock()
+        pipeline._exact_lines_lock = recorder
+
+        _register(pipeline, BOOST, ["crank [the] volume [up]"])
+        self.assertEqual(recorder.acquisitions, 1,
+                         "_remember_exact_lines did not acquire the lock")
+
+        pipeline._forget_exact_lines(BOOST)
+        self.assertEqual(recorder.acquisitions, 2,
+                         "_forget_exact_lines did not acquire the lock")
+
+        _register(pipeline, BOOST, ["crank [the] volume [up]"])
+        self.assertEqual(recorder.acquisitions, 3)
+        pipeline.bus.emit(Message("detach_skill", {"skill_id": SKILL},
+                                  {"skill_id": SKILL}))
+        self.assertEqual(recorder.acquisitions, 4,
+                         "_handle_exact_detach_skill did not acquire the lock")
+
+        pipeline._exact_prototype_owner("crank the volume up", _message("x"))
+        self.assertEqual(recorder.acquisitions, 5,
+                         "_exact_prototype_owner did not acquire the lock "
+                         "on its read of _exact_lines")
