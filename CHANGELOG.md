@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.27.3a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.27.3a1) (2026-09-23)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.27.2a3...0.27.3a1)
+
+**Merged pull requests:**
+
+- fix: expand inline \<voc\> references in plugin intents from the locale .voc [\#198](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/198) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.27.2a3](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.27.2a3) (2026-09-23)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.27.2a2...0.27.2a3)
@@ -382,10 +390,6 @@
 ## [0.13.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.0a1) (2026-09-10)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.12.4a2...0.13.0a1)
-
-**Merged pull requests:**
-
-- feat: build the corpus from the skills and their gold sentences [\#158](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/158) ([JarbasAl](https://github.com/JarbasAl))
 
 ## [0.12.4a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.12.4a2) (2026-09-10)
 
