@@ -52,6 +52,7 @@ from __future__ import annotations
 import argparse
 import collections
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -84,6 +85,110 @@ def read_at(repo: Path, rev: str, path: str) -> str:
     return git(repo, "show", f"{rev}:{path}")
 
 
+# ------------------------------------------------------- base language ----
+
+# Miro ruled on locale-parity.md §5 Q1: the reference locale is policy and
+# not specification, and each skill has the language it was WRITTEN in.
+# ovos-skill-fuster-quotes is Catalan, not English. Parity is measured
+# against that base language, so a Catalan skill is not reported as 13
+# locales short of an en-US it never had.
+#
+# No skill declares its base language today: no `skill.json` in the fleet
+# carries a language field. So the base is inferred, and every row records
+# WHICH signal decided it. A guess that cannot be traced is worse than the
+# en-US default it replaces.
+
+DEFAULT_BASE = "en-US"
+
+# Language names as a README writes them, mapped to the subtag a locale
+# directory uses. Only languages the fleet actually ships.
+README_NAMES = {
+    "catalan": "ca", "valencian": "ca", "basque": "eu", "euskara": "eu",
+    "galician": "gl", "portuguese": "pt", "spanish": "es", "castilian": "es",
+    "german": "de", "french": "fr", "italian": "it", "dutch": "nl",
+    "danish": "da", "swedish": "sv", "finnish": "fi", "russian": "ru",
+    "polish": "pl", "czech": "cs", "hungarian": "hu", "persian": "fa",
+    "kabyle": "kab", "occitan": "oc", "aragonese": "an", "arabic": "ar",
+    # english is in the map ON PURPOSE. A README that names English is not
+    # evidence of a non-English base: ovos-skill-alerts says it is "tested
+    # mainly in German and, to a lesser extent, English", which made German
+    # the only hit and moved the whole skill onto a de-DE base. With English
+    # in the map that README names two languages, the signal declines to
+    # answer, and the default takes it.
+    "english": "en",
+}
+
+
+def _subtag(lang: str) -> str:
+    return lang.split("-")[0].lower()
+
+
+def first_locale_commit_langs(repo: Path, rev: str) -> set:
+    """The locale languages present in the earliest commit that adds one."""
+    log = git(repo, "log", "--reverse", "--format=%H", "--diff-filter=A",
+              rev, "--", "locale")
+    shas = [line for line in log.splitlines() if line]
+    if not shas:
+        return set()
+    names = git(repo, "show", "--stat=400", "--format=", shas[0])
+    out = set()
+    for line in names.splitlines():
+        match = re.search(r"locale/([^/|\s]+)/", line)
+        if match:
+            out.add(match.group(1))
+    return out
+
+
+def readme_language(repo: Path, rev: str, langs: dict) -> str | None:
+    """A language named in the README that the skill also ships."""
+    for name in ("README.md", "readme.md", "README.rst"):
+        try:
+            text = read_at(repo, rev, name).lower()
+        except RuntimeError:
+            continue
+        hits = {sub for word, sub in README_NAMES.items() if word in text}
+        shipped = {sub: lang for lang in langs for sub in [_subtag(lang)]}
+        found = sorted(hits & set(shipped))
+        if len(found) == 1:
+            return shipped[found[0]]
+        return None
+    return None
+
+
+def base_language(repo: Path, rev: str, langs: dict) -> tuple:
+    """``(base language, the signal that decided it)``.
+
+    Signals in order. The first that gives ONE shipped locale wins:
+
+    * ``history``: the earliest commit that adds a locale file carries a
+      single language. A skill imported with several locales at once gives
+      no answer here, which is the common case.
+    * ``readme``: the README names exactly one language the skill ships.
+    * ``default``: ``en-US``, recorded as the default and not as a finding.
+    """
+    if not langs:
+        return DEFAULT_BASE, "default (no locale directory)"
+
+    try:
+        first = first_locale_commit_langs(repo, rev)
+    except RuntimeError:
+        first = set()
+    subtags = {_subtag(lang) for lang in first}
+    if len(subtags) == 1:
+        only = subtags.pop()
+        for lang in sorted(langs):
+            if _subtag(lang) == only:
+                return lang, "history (only language in the first locale commit)"
+
+    named = readme_language(repo, rev, langs)
+    if named:
+        return named, "readme (the one shipped language the README names)"
+
+    if DEFAULT_BASE in langs:
+        return DEFAULT_BASE, "default (no signal; en-US is shipped)"
+    return sorted(langs)[0], "default (no signal and no en-US)"
+
+
 # ------------------------------------------------------------- locales ----
 
 def locale_map(paths: list[str]) -> dict[str, dict[str, set]]:
@@ -106,15 +211,18 @@ def locale_map(paths: list[str]) -> dict[str, dict[str, set]]:
     return out
 
 
-def layer_b(langs: dict[str, dict[str, set]]) -> list[dict]:
-    """Per locale, what the reference language has and this one does not.
+def layer_b(langs: dict[str, dict[str, set]],
+            reference_lang: str = REFERENCE) -> list[dict]:
+    """Per locale, what the base language has and this one does not.
 
     SHOULD, not MUST: no clause requires mirroring (locale-parity.md §1).
+    The reference is the skill's own base language, not always en-US
+    (locale-parity.md §5 Q1, ruled by Miro).
     """
-    reference = langs.get(REFERENCE) or {}
+    reference = langs.get(reference_lang) or {}
     rows = []
     for lang in sorted(langs):
-        if lang == REFERENCE:
+        if lang == reference_lang:
             continue
         row = {"lang": lang}
         for role in ROLES:
@@ -196,17 +304,23 @@ def layer_a(repo: Path, rev: str, paths: list[str], scratch: Path) -> list[dict]
 def census_one(repo: Path, rev: str) -> dict:
     paths = files_at(repo, rev)
     langs = locale_map(paths)
+    base, how = base_language(repo, rev, langs)
     with tempfile.TemporaryDirectory(prefix="parity-census-") as scratch:
         findings = layer_a(repo, rev, paths, Path(scratch))
     return {
         "skill": repo.name,
         "sha": rev_of(repo, rev),
         "languages": sorted(langs),
+        "base_language": base,
+        "base_language_signal": how,
         "reference_present": REFERENCE in langs,
         "counts": {lang: {role: len(langs[lang].get(role) or ()) for role in ROLES}
                    for lang in sorted(langs)},
         "layer_a": findings,
-        "layer_b": layer_b(langs) if REFERENCE in langs else [],
+        "layer_b": layer_b(langs, base) if base in langs else [],
+        # what the census said before the Q1 ruling, so a row that moves is
+        # visible instead of silently rewritten
+        "layer_b_vs_en_us": layer_b(langs) if REFERENCE in langs else [],
         "slots": slot_rows(repo, rev, paths),
     }
 
@@ -290,10 +404,14 @@ def main(argv=None):
             errors = [f for f in entry["layer_a"] if f["severity"] == "error"]
             gaps = sum(len(row[role]["missing"]) for row in entry["layer_b"]
                        for role in ROLES)
+            was = sum(len(row[role]["missing"]) for row in entry["layer_b_vs_en_us"]
+                      for role in ROLES)
+            moved = "" if was == gaps else f"  (en-US said {was})"
             print(f"  {entry['skill']:<38} {entry['sha'][:8]} "
+                  f"base={entry['base_language']:<6} "
                   f"langs={len(entry['languages']):>3} "
                   f"layerA_errors={len(errors):>3} layerB_missing={gaps:>5} "
-                  f"slots={len(entry['slots']):>4}")
+                  f"slots={len(entry['slots']):>4}{moved}")
 
     errors = sum(1 for e in results for f in e["layer_a"] if f["severity"] == "error")
     return 1 if errors else 0
