@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.27.2a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.27.2a1) (2026-09-23)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.27.1a1...0.27.2a1)
+
+**Merged pull requests:**
+
+- fix: hold tokenizers below 1.0.0, which cannot load the default model [\#260](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/260) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.27.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.27.1a1) (2026-09-23)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.27.0a1...0.27.1a1)
