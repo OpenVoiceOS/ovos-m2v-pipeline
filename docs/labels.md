@@ -24,7 +24,7 @@ Three rules follow.
 **Suffix policy: no suffix.** `.intent` and `.voc` are filename extensions of
 the resource a skill ships, not part of the intent's identity, and the legacy
 handler strips `.intent` before storing the label. Training on
-`what.time.is.it.intent` — as the currently deployed model does — produces a
+`what.time.is.it.intent`, as a deployed model can, produces a
 label that matches nothing once the suffix is folded away. Sources keyed on
 file names (ovos-localize, the lang-support tracker, the GitLocalize export)
 have the suffix stripped on read.
@@ -48,7 +48,7 @@ expect: `ovos-skill-wallpapers` declares `skill-ovos-wallpapers.openvoiceos`,
 because its `setup.py` derives the id from the GitHub URL. Guessing the id
 from a corpus spelling is how 62k wallpaper rows ended up under a skill id the
 runtime never registers. The builder reads the entry point at the pinned
-revision instead — see below.
+revision instead: see below.
 
 ## Families
 
@@ -63,10 +63,10 @@ and derived from the part before the colon:
 | `stop` | `stop:` | the stop pipeline's locale intents in ovos-core |
 | `persona` | `persona:` | ovos-persona locale intents |
 
-The four pipeline families are first-class members of the vocabulary, with all
+The four pipeline families are full members of the vocabulary, with all
 of their sub-intents, not just the umbrella labels the plugin special-cases.
 Whether a family may match is the plugin's decision, taken per family from
-config and from the caller's `session.pipeline`; the model's job is to be able
+config and from the caller's `session.pipeline`. The model's job is to be able
 to recognise them at all. Training a model that cannot express `ocp:next`
 would make that config flag unimplementable.
 
@@ -74,21 +74,21 @@ Their labels live under the bare pipeline id rather than a skill id, following
 the PIPELINE-1 rule that a pipeline's namespace is its pipeline id and matching
 how the plugin already names the umbrellas in `_SPECIAL_LABELS`:
 
-- `ocp:` — `play`, `next`, `prev`, `pause`, `resume`, `media_stop`, `open`,
+- `ocp:`: `play`, `next`, `prev`, `pause`, `resume`, `media_stop`, `open`,
   `read`, `featured`, `like_song`, `play_favorites`, `load_game`, `save_game`,
   from `ocp_pipeline/locale/<lang>/` (`play.intent`, `next.intent`,
   `media_stop.intent`, …)
-- `common_query:` — `common_query` alone. The pipeline ships no intent
-  resource of its own; the umbrella is declared in `sources.yaml`
-- `stop:` — `stop`, `global_stop`, from
+- `common_query:`: `common_query` alone. The pipeline ships no intent
+  resource of its own. The umbrella is declared in `sources.yaml`
+- `stop:`: `stop`, `global_stop`, from
   `ovos_core/intent_services/locale/<lang>/` (`stop.intent`,
   `global_stop.intent`)
-- `persona:` — `ask`, `summon`, `active_persona`, `list_personas`, from
+- `persona:`: `ask`, `summon`, `active_persona`, `list_personas`, from
   `ovos_persona/locale/<lang>/` (`ask.intent`, `summon.intent`,
   `list_personas.intent`, …)
 
 Each list is read from the pinned plugin revision at build time, not written
-down here; this page names them so a reader can check the two agree.
+down here. This page names them so a reader can check the two agree.
 
 ### The three special labels
 
@@ -101,14 +101,14 @@ built-in `label_map` layer into the bus topic that actually routes
 
 Which utterances carry them:
 
-- `ocp:play` — media playback requests naming a title, artist, station, genre
+- `ocp:play`: media playback requests naming a title, artist, station, genre
   or media type. Fed by the music query templates and by
   `ovos-ocp-pipeline-plugin`'s own `play.intent`.
-- `common_query:common_query` — open-domain factual questions with no skill of
+- `common_query:common_query`: open-domain factual questions with no skill of
   their own ("how tall is the Sagrada Familia"). Fed by the common-query
   question corpus and by rows older corpora mislabelled onto a specific
   question skill.
-- `stop:stop` — bare stop/cancel commands. Fed by `stop.intent` in ovos-core's
+- `stop:stop`: bare stop/cancel commands. Fed by `stop.intent` in ovos-core's
   intent-service locale. `global_stop.intent` is a distinct, narrower
   utterance class and keeps its own label.
 
@@ -116,13 +116,13 @@ Which utterances carry them:
 
 The plugin merges three layers, later winning: the built-in special-label
 defaults, the model's own `labels.json`, then user config. A `labels.json`
-entry maps a model label to a `skill_id:intent` string; a target without a
+entry maps a model label to a `skill_id:intent` string. A target without a
 colon is used as-is with a warning, and never invented into a topic.
 
 Because the training scheme above is by construction identical to the runtime
 registration string, no label needs remapping. The `labels.json` the builder
 writes therefore carries no flat label map at all. Aliasing is resolved at
-build time instead, in the corpus, where it can be reviewed — not at match
+build time instead, in the corpus, where it can be reviewed, not at match
 time, where it would be invisible.
 
 One case cannot wait for the next build: a skill renames an intent file after
@@ -155,7 +155,7 @@ belongs to and that is a property of the trained head, not of the plugin code.
 A label absent from `families` is logged once and treated as `skill`.
 
 The three special labels appear in `valid_labels` and `families` in their raw
-form — `ocp:play`, `stop:stop`, `common_query:common_query` — never as the bus
+form (`ocp:play`, `stop:stop`, `common_query:common_query`), never as the bus
 topics they resolve to. The plugin performs that mapping at match time.
 
 ## The registry is the ground truth
@@ -165,27 +165,27 @@ The pinned refs in `sources.yaml` are not just provenance. For every skill in
 revision, the skill id its entry point declares and the intent names it
 registers: the names passed to `IntentBuilder`, the names declared by
 `@intent_handler("name.intent")`, and the stems of the `.intent` resources it
-ships. Test directories are excluded, in skills and in plugins alike — a
+ships. Test directories are excluded, in skills and in plugins alike. A
 plugin's own test-fixture skill is not a registration, which is why
 `common_query:search_fakewiki` is not a label.
 
 A locale file whose stem differs from a declared handler name only in case or
 separators loses to the handler. ovos-skill-count ships an `it-IT`
-`count_to_N.intent` against a `count_to_n` handler; the file is a typo that
+`count_to_N.intent` against a `count_to_n` handler. The file is a typo that
 the runtime never loads, and treating it as a registration is what put two
 classes for one intent in the previous model.
 
 Every corpus label is then resolved against that set:
 
-- exact match — kept;
+- exact match: kept.
 - the skill id resolves but the intent name differs only in case or
   separators (`movie.genres` against the registered `movie_genres`,
-  `enable.ggwave` against `enable_ggwave`) — aliased, with a manifest entry;
-- the skill id is a variant of a registered one — a doubled author suffix, a
+  `enable.ggwave` against `enable_ggwave`): aliased, with a manifest entry.
+- the skill id is a variant of a registered one: a doubled author suffix, a
   numeric disambiguator (`ovos-skill-days-in-history_1.openvoiceos`), or the
   package's words in the other order (`ovos-skill-wallpapers` for
-  `skill-ovos-wallpapers`) — resolved, with a manifest entry;
-- no match — the rows are **dropped**, and the label is listed in the
+  `skill-ovos-wallpapers`): resolved, with a manifest entry.
+- no match: the rows are **dropped**, and the label is listed in the
   manifest's `unresolved_labels` with its row count and the reason.
 
 Dropping is the point. A class the runtime cannot produce is a class the
@@ -206,11 +206,11 @@ A sentence carrying two labels is not a hard example, it is a contradiction:
 however the model resolves it, the corpus says it is wrong.
 
 Most of these are genuine template overlaps between adjacent intents inside a
-single skill's own locale files — `ocp:pause` and `ocp:media_stop` share
+single skill's own locale files. `ocp:pause` and `ocp:media_stop` share
 phrasings, as do `ocp:next` and `ocp:prev`. They cannot be aliased away,
 because neither is a misspelling of the other. Those rows are dropped and the
 label pairs are reported, so the overlap can be fixed upstream in the skill
-that ships it. `--allow-ambiguous` keeps them; the default does not, and the
+that ships it. `--allow-ambiguous` keeps them. The default drops them, and the
 builder asserts that no ambiguous group survives.
 
 ## Dedup and aliasing rules
@@ -222,14 +222,14 @@ Applied in this order:
 2. **Content filters.** Length bounds, rows that are a bare unexpanded `{slot}`,
    and rows with no alphabetic character at all.
 3. **Cross-source aliasing.** A small table of labels one corpus files under
-   the wrong skill entirely — `ovos-skill-ddg.openvoiceos:search_wolfie`
-   belongs to the wolfie skill; the DuckDuckGo skill's per-property intents
+   the wrong skill entirely: `ovos-skill-ddg.openvoiceos:search_wolfie`
+   belongs to the wolfie skill. The DuckDuckGo skill's per-property intents
    (`born`, `died`, `alma_mater`, …) are common-query questions and fold into
    `common_query:common_query`. Intent-level merges handle corpora that predate
    a rename (`what.date.is.it` → `current_date`).
 4. **Registry resolution**, as above: exact, spelling-folded, skill-id
    variant, or dropped as unresolved. This is what settles `count_to_n`
-   versus `count_to_N` — two classes for one intent, and the confusion pair
+   versus `count_to_N`: two classes for one intent, and the confusion pair
    that cost the previous model most of its top-confidence errors.
 5. **Exact dedup** on `(utterance, label, lang)`, case-insensitive on the
    utterance, keeping the first occurrence in a deterministic source order.
@@ -237,7 +237,7 @@ Applied in this order:
    than one label.
 7. **Rare-label drop.** A label with a single row cannot be stratified into a
    train/test split. Dropped labels are listed in the manifest rather than
-   silently removed — a real intent showing up there is a signal that its skill
+   silently removed. A real intent showing up there is a signal that its skill
    needs more locale coverage, not that the label is wrong.
 
 ## Language codes
@@ -311,18 +311,18 @@ every revision:
 4. Re-run the builder and read the manifest diff: the label count, the rows
    moved by aliasing, and the rare-label list say whether the merge landed as
    intended.
-5. Retrain. A renamed intent is a new class; there is no way to patch a frozen
-   label head.
+5. Retrain. A renamed intent is a new class, and there is no way to patch a
+   frozen label head.
 
 An alias entry is a statement that two names denote one runtime intent. It is
-not a place to fix a corpus typo — those belong upstream, in the skill.
+not a place to fix a corpus typo. Those belong upstream, in the skill.
 
 Two things disqualify an alias. The first is a split: when the old template's lines
 now spread over several intents, no single destination is right for its rows,
 and folding them all into the largest destination mislabels the rest. The old
 `volume.max` and `volume.default` templates split between `volume_level` and
 the new `volume.max.boost` and `volume.reset`, and the old alerts
-`CreateOcpAlarm` splits between `CreateAlarm` and `CreateAlarmAlt`; all three
+`CreateOcpAlarm` splits between `CreateAlarm` and `CreateAlarmAlt`. All three
 stay out for that reason.
 
 The second is a destination that does not claim the phrasing. An alias is only
@@ -332,5 +332,8 @@ into `search_wordnet`, which asks for exactly those, while its hyponym,
 hypernym, holonym and lemma rows are dropped: nothing in the surviving grammar
 mentions a relation lookup, and aliasing them would teach the model to route
 relation questions at a definition. An intent that was deleted rather than
-renamed, such as `ovos-skill-iss-location`'s `about`, has no destination at all;
-its rows go too.
+renamed, such as `ovos-skill-iss-location`'s `about`, has no destination at all,
+and its rows go too.
+
+---
+[← Training](training.md) · [Home](../README.md)

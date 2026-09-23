@@ -54,7 +54,7 @@ Fixed in 0.9.2a1: the snapshot resolution runs inside the loader's retry path, s
   for that one utterance (logging once that the model is warming up) while
   the load keeps running in the background, and normal matching resumes
   automatically once it finishes. Set `preload_model: true` to restore the
-  previous eager-load-at-construction behavior for deployments that would
+  previous eager-load-at-construction behaviour for deployments that would
   rather pay the cost at boot than on first query.
 - A failed deferred load retries on its own instead of leaving the plugin silently dead until restart: a failure clears the load thread and schedules the next attempt no sooner than a backoff window (30s, doubling on each consecutive failure, capped at 15 minutes), logging each failed attempt at ERROR.
 
@@ -100,7 +100,7 @@ Fixed in 0.9.2a1: the snapshot resolution runs inside the loader's retry path, s
 - `valid_labels` (config) is the allow-list counterpart of `ignore_intents`:
   when set, only the listed canonical labels are eligible to match. Both
   filters apply after `label_map` resolution. With no `label_map` /
-  `valid_labels` config and no `labels.json` on the model, behavior is
+  `valid_labels` config and no `labels.json` on the model, behaviour is
   unchanged.
 - A `label_map` target that is not a `skill_id:intent` string (no colon) is
   logged as a warning (once per label) and used as-is; the plugin never
