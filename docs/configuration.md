@@ -65,6 +65,7 @@ Any bare `StaticModel` on Hugging Face (or a local path) can be used as the embe
 | `conf_medium` | `float` | `0.5` | Minimum score for a `match_medium` result. |
 | `conf_low` | `float` | `0.15` | Minimum score for a `match_low` result. |
 | `ignore_intents` | `list[str]` | `[]` | Intent labels to always discard, regardless of confidence. |
+| `exact_prototype_first` | `bool` | `true` | Classifier mode: yield an exact template line of a label this head cannot emit to the prototype stage behind it. |
 | `timeout` | `int` | `1` | Seconds to wait for Adapt / Padatious manifest responses (classifier mode only). |
 | `revision` | `str` | unset | Git revision (commit SHA, branch, or tag) of the Hugging Face Hub `model` repo to load. Unset loads the latest snapshot the Hub serves: when a snapshot is already cached, this is checked with one short, bounded Hub call rather than a full re-download, so a relabelled or updated model is picked up automatically without adding meaningful startup delay. A pinned commit SHA is content-addressed and never contacts the Hub once cached. Ignored for a local path. When the Hub cannot be reached, or the check times out, the plugin falls back to the newest snapshot already cached on disk and logs a warning naming it. |
 | `prototype_cache` | `bool` | `true` | Enable/disable the on-disk prototype cache (prototype mode only). See [Prototype cache](../README.md#prototype-cache-prototype-mode). |
@@ -115,7 +116,8 @@ Each `conf_*` key sets the minimum score required for the corresponding tier met
 Classifier mode also takes:
 
 - **`low_tier`**: `"prototype"` (default) or `"classifier"`. Which engine answers `ovos-m2v-pipeline-low`: prototype mode built from the loaded skills' templates on the same embedding model, or the trained head at `conf_low`.
-- **`low_prototype`**: a dict of prototype-mode keys for that stage (`conf_high`, `conf_medium`, `conf_low`, `ignore_intents`, `prototype_k`, ...). The classifier's `ignore_intents` are always denied to it as well. A `model` key here is discarded with a WARNING: the stage always runs on this plugin's own model, which is what makes the two share one embedding in memory. To run a second model, give the standalone `ovos-m2v-prototype-pipeline` its own. The stage accepts every registered label, trained labels included; see "What the `-low` stage accepts" in `ovos_pipeline.md`.
+- **`exact_prototype_first`**: classifier mode only. `match_high` and `match_medium` return `None` for an utterance that is an exact template line of a registered label the head cannot emit, so the prototype stage behind it matches the line the skill author wrote. See "An exact template line goes to the prototype stage" in `ovos_pipeline.md`.
+- **`low_prototype`**: a dict of prototype-mode keys for that stage (`conf_high`, `conf_medium`, `conf_low`, `ignore_intents`, `prototype_k`, ...). The classifier's `ignore_intents` are always denied to it as well. A `model` key here that names a model other than this plugin's own is discarded with a WARNING: the stage always runs on this plugin's own model, which is what makes the two share one embedding in memory. To run a second model, give the standalone `ovos-m2v-prototype-pipeline` its own. The stage accepts every registered label, trained labels included; see "What the `-low` stage accepts" in `ovos_pipeline.md`.
 
 OVOS evaluates the pipeline list top-to-bottom and stops at the first match. Only the tiers you add to the pipeline list are ever invoked. Unused tiers consume no resources.
 

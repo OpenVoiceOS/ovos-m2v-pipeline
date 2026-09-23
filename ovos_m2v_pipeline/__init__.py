@@ -1029,6 +1029,18 @@ def _raw_intent_lines(path: str) -> List[str]:
         return []
 
 
+_PUNCT_RE = re.compile(r"[^\w\s]+", re.UNICODE)
+
+
+def _normalise_line(text: str) -> str:
+    """The key an exact template line is remembered and looked up under.
+
+    Case, punctuation and repeated spaces never decide whether an utterance
+    is the line a skill author wrote, so they are removed from the key.
+    """
+    return " ".join(_PUNCT_RE.sub(" ", str(text).lower()).split())
+
+
 class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
     """A pipeline that integrates Model2Vec with OVOS for intent matching.
 
@@ -1311,9 +1323,28 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                     set(proto_cfg.get("ignore_intents") or []) | set(self.ignore_labels))
                 self._low_prototype = Model2VecPrototypePipeline(self.bus, proto_cfg)
 
+            #: normalised exact template line -> the labels that declare it.
+            #: Classifier mode only: it is how `match_high`/`match_medium`
+            #: recognise a line whose owner this frozen head cannot emit.
+            self._exact_lines: Dict[str, set] = {}
+            #: guards `_exact_lines`. Registration and detach handlers run
+            #: on the bus executor's threads while `match_high` reads the
+            #: map on the dispatch thread: without this, a detach during a
+            #: registration wave (an ordinary skill reload) raises
+            #: "dictionary changed size during iteration".
+            self._exact_lines_lock = threading.Lock()
+            #: yield an exact template line of a label this head cannot emit
+            #: to the prototype stage (see `_exact_prototype_owner`)
+            self._exact_first: bool = bool(
+                self.config.get("exact_prototype_first", True))
+
             # Register event handlers for intent synchronization
             self.bus.on("mycroft.ready", self.handle_sync_intents)
             self.bus.on("padatious:register_intent", self.handle_sync_intents)
+            # the template lines themselves, read from the same topics
+            self.bus.on("padatious:register_intent", self._handle_exact_lines)
+            self.bus.on("detach_intent", self._handle_exact_detach)
+            self.bus.on("detach_skill", self._handle_exact_detach_skill)
             self.bus.on("register_intent", self.handle_sync_intents)
             self.bus.on("detach_intent", self.handle_sync_intents)
             self.bus.on("detach_skill", self.handle_sync_intents)
@@ -1959,6 +1990,189 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         self._store_context_gate(name, message)
         LOG.debug(f"Prototype store: added {n} prototype(s) for '{name}'")
 
+    # ------------------------------------------------------------------
+    # Exact template lines (classifier mode)
+    # ------------------------------------------------------------------
+
+    def _remember_exact_lines(self, label: str, samples: List[str]) -> int:
+        """Remember the expanded template lines of *label*.
+
+        A line that declares a ``{slot}`` is not remembered: the utterance
+        never carries the slot value the skill author wrote, so such a line
+        is not an exact line of anything.
+        """
+        lines = getattr(self, "_exact_lines", None)
+        if lines is None:
+            return 0
+        keys = []
+        for sample in samples:
+            if _SLOT_RE.search(sample):
+                continue
+            key = _normalise_line(sample)
+            if key:
+                keys.append(key)
+        with self._exact_lines_lock:
+            for key in keys:
+                lines.setdefault(key, set()).add(label)
+        return len(keys)
+
+    def _handle_exact_lines(self, message: Message) -> None:
+        """Read the template lines of a Padatious registration.
+
+        Classifier mode never builds prototypes, so this is the only record
+        of what the skill author actually wrote. The label itself stays with
+        ``handle_sync_intents``, which reads the manifest.
+        """
+        if getattr(self, "_exact_lines", None) is None:
+            return
+        name: str = message.data.get("name", "")
+        if name.endswith(".intent"):
+            name = name[:-len(".intent")]
+        if not name:
+            return
+        samples = message.data.get("samples") or []
+        if samples:
+            expanded: List[str] = []
+            for sample in (strip_type_prefixes(s) for s in samples):
+                try:
+                    expanded.extend(islice(iter_expand(sample),
+                                           MAX_ENTITY_EXPANSIONS))
+                except Exception:
+                    continue
+        else:
+            file_name = message.data.get("file_name", "")
+            expanded = ([strip_type_prefixes(s)
+                         for s in _parse_intent_file(file_name)]
+                        if file_name else [])
+        if expanded:
+            n = self._remember_exact_lines(name, expanded)
+            LOG.debug(f"exact lines: {n} line(s) remembered for '{name}'")
+
+    def _forget_exact_lines(self, label: str) -> None:
+        lines = getattr(self, "_exact_lines", None)
+        if lines is None:
+            return
+        with self._exact_lines_lock:
+            for key in list(lines):
+                labels = lines.get(key)
+                if labels is None or label not in labels:
+                    continue
+                labels.discard(label)
+                if not labels:
+                    lines.pop(key, None)
+
+    def _handle_exact_detach(self, message: Message) -> None:
+        name: str = message.data.get("intent_name", "")
+        if name.endswith(".intent"):
+            name = name[:-len(".intent")]
+        if name:
+            self._forget_exact_lines(name)
+
+    def _handle_exact_detach_skill(self, message: Message) -> None:
+        skill_id = self._legacy_skill_id(message, message.msg_type)
+        lines = getattr(self, "_exact_lines", None)
+        if not skill_id or not lines:
+            return
+        prefix = skill_id + ":"
+        with self._exact_lines_lock:
+            for key in list(lines):
+                labels = lines.get(key)
+                if labels is None:
+                    continue
+                kept = {l for l in labels if not l.startswith(prefix)}
+                if kept:
+                    lines[key] = kept
+                else:
+                    lines.pop(key, None)
+
+    def _prototype_stage_present(self, message: Optional[Message],
+                                  tier: str) -> bool:
+        """Is there a prototype stage AFTER this stage in the session's
+        ordered pipeline, for THIS utterance?
+
+        Two layouts can hold one. This instance's own ``low_tier``
+        prototype stage answers ``ovos-m2v-pipeline-low``, and a standalone
+        ``ovos-m2v-prototype-pipeline`` entry answers its own. Either way
+        the stage only counts if it runs AFTER this call's own tier entry
+        (``ovos-m2v-pipeline-<tier>``) in the CALLER'S session pipeline:
+        a prototype stage earlier in the list already ran and declined, so
+        yielding to it loses the utterance instead of handing it on.
+        Owning a ``_low_prototype`` object proves nothing about the list
+        the session carries, or about where in it a stage sits.
+
+        A session that lists ``-high`` and ``-medium`` and no ``-low`` has
+        no stage behind this one, so a yield would leave the utterance
+        unanswered by this plugin instead of handing it on.
+        """
+        if message is None:
+            return False
+        try:
+            stages = [str(stage) for stage in
+                      (SessionManager.get(message).pipeline or [])]
+        except Exception:
+            return False
+        own_entry = f"ovos-m2v-pipeline-{tier}"
+        try:
+            own_index = stages.index(own_entry)
+        except ValueError:
+            # this stage's own entry is not in the list; there is no
+            # position to compare against, so fall back to membership.
+            own_index = -1
+        behind = stages[own_index + 1:]
+        if any("m2v-prototype" in stage for stage in behind):
+            return True
+        return (getattr(self, "_low_prototype", None) is not None
+                and any(stage.endswith("-low") and "m2v" in stage
+                        for stage in behind))
+
+    def _emittable_labels(self) -> Optional[set]:
+        """The labels this frozen head can answer with, or ``None`` when
+        that is not known yet (the model is still loading and the manifest
+        declares no vocabulary)."""
+        model = self.model
+        classes = getattr(model, "classes_", None) if model is not None else None
+        if classes is not None:
+            return set(classes)
+        if self.valid_labels:
+            return set(self.valid_labels)
+        return None
+
+    def _exact_prototype_owner(self, utterance: str,
+                               message: Optional[Message] = None,
+                               tier: str = "high") -> Optional[str]:
+        """The label to yield this utterance to, or ``None``.
+
+        An exact template line is the skill author's declared truth. When
+        the utterance is such a line, and every label that declares it is
+        one this frozen head cannot emit, the head must not answer with
+        some other label it can emit: it yields, and the prototype stage
+        behind it matches the line the author wrote (T-3659).
+        """
+        if not getattr(self, "_exact_first", False) or \
+                getattr(self, "_exact_lines", None) is None:
+            return None
+        with self._exact_lines_lock:
+            owners = self._exact_lines.get(_normalise_line(utterance))
+            owners = set(owners) if owners else None
+        if not owners:
+            return None
+        emittable = self._emittable_labels()
+        if emittable is None:
+            return None
+        # a line that any emittable label also declares is ambiguous: the
+        # head is allowed to answer it. An owner the manifest does not list
+        # is not counted either: `self.intents` and the model's classes are
+        # the one namespace this head compares in, and a name that never
+        # reaches it proves nothing about what the head can emit.
+        unreachable = [l for l in sorted(owners)
+                       if l in self.intents
+                       and (l not in emittable or l in self.ignore_labels)]
+        if len(unreachable) != len(owners):
+            return None
+        if not unreachable or not self._prototype_stage_present(message, tier):
+            return None
+        return unreachable[0]
+
     def _handle_register_adapt(self, message: Message) -> None:
         """Track Adapt intent labels (no example sentences -> no prototypes)."""
         name: str = message.data.get("name", "")
@@ -2128,6 +2342,13 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                 )
             self.intents.add(label)
             self._store_context_gate(label, message)
+            try:
+                self._remember_exact_lines(label, [
+                    line for sample in samples
+                    for line in islice(iter_expand(sample),
+                                       MAX_ENTITY_EXPANSIONS)])
+            except Exception as exc:
+                LOG.debug(f"exact lines: '{label}' expands no line: {exc}")
             LOG.debug(f"Model2Vec: tracking INTENT-4 template label '{label}'")
             return
 
@@ -2795,6 +3016,12 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         """
         if not utterances:
             return None
+        owner = self._exact_prototype_owner(utterances[0], message, "high")
+        if owner:
+            LOG.debug(f"yielding {utterances[0]!r} to the prototype stage: an "
+                      f"exact template line of '{owner}', a label this "
+                      f"classifier cannot emit")
+            return None
         min_conf = self._min_conf("conf_high")
         LOG.debug(f"Matching intents via Model2Vec (min_conf: {min_conf}) - {utterances[0]}")
         for skill_id, label, prob, slots in self._match(utterances[0], message, lang):
@@ -2824,6 +3051,12 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             An IntentHandlerMatch if a medium-confidence match is found, None otherwise.
         """
         if not utterances:
+            return None
+        owner = self._exact_prototype_owner(utterances[0], message, "medium")
+        if owner:
+            LOG.debug(f"yielding {utterances[0]!r} to the prototype stage: an "
+                      f"exact template line of '{owner}', a label this "
+                      f"classifier cannot emit")
             return None
         min_conf = self._min_conf("conf_medium")
         LOG.debug(f"Matching intents via Model2Vec (min_conf: {min_conf}) - {utterances[0]}")
