@@ -30,6 +30,14 @@ dependencies = [
     # (StaticModelPipeline) load path now needs scikit-learn + skops
     # directly to deserialize the legacy sklearn head.
     "model2vec>=0.9.0",
+    # model2vec asks for `tokenizers>=0.20` with no ceiling, so under
+    # `--prerelease=allow` the resolver takes 1.0.0rc2. That release ships
+    # without the `fancy-regex` backend, and every model whose tokenizer
+    # uses a regex `Split` pre-tokenizer then fails to load:
+    # `ValueError: no system-regex backend compiled`. The default model is
+    # one of them, so the plugin cannot load any model at all. The ceiling
+    # belongs upstream in model2vec; it is held here until that lands.
+    "tokenizers<1.0.0",
     "scikit-learn",
     "skops",
 ]
