@@ -1309,6 +1309,12 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                     proto_cfg["revision"] = self.config["revision"]
                 proto_cfg["ignore_intents"] = sorted(
                     set(proto_cfg.get("ignore_intents") or []) | set(self.ignore_labels))
+                # The stage runs on this plugin's own model, so it must
+                # follow this plugin's load policy too: without this it
+                # starts its own eager load whatever the caller asked for.
+                for key in ("eager_model_load", "preload_model"):
+                    if key in self.config and key not in proto_cfg:
+                        proto_cfg[key] = self.config[key]
                 self._low_prototype = Model2VecPrototypePipeline(self.bus, proto_cfg)
 
             # Register event handlers for intent synchronization
@@ -1333,6 +1339,12 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
 
         if preload:
             self._ensure_model(background_ok=False)
+        elif bool(self.config.get("eager_model_load", True)):
+            # Not `preload`: this returns at once and the model arrives on
+            # its own thread. Without it the load waited for the first
+            # utterance, so the cold start was paid by a user and not by
+            # the boot.
+            self.start_model_load()
 
     def _cached_snapshot_if_current(self, repo_id: str) -> Optional[str]:
         """Return the cached snapshot for ``repo_id`` if it is confirmed
@@ -1525,6 +1537,43 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                 self._model_load_thread = None
         LOG.info(f"Model2Vec model '{self._model_path}' loaded in "
                  f"{time.monotonic() - start:.2f}s (deferred load)")
+
+    @property
+    def model_ready(self) -> bool:
+        """Is the shared model loaded, so a match can answer?
+
+        False while the background load runs, and False again while a
+        failed load waits out its backoff. Read it to decide whether this
+        plugin can answer yet; ovos-core can hold its ready signal on it
+        where the deployment wants the first utterance to match rather
+        than to fall through.
+        """
+        return self.model is not None
+
+    def start_model_load(self) -> None:
+        """Start the load now and return at once.
+
+        The load used to start at the FIRST MATCH: the model was not read
+        until an utterance asked for it, so a user paid the whole cold
+        start interactively, and every utterance inside that window was
+        declined. Starting here moves the window to boot, where it
+        overlaps the rest of the service coming up, and nothing waits on
+        it: `_ensure_model` still declines quickly while it runs.
+
+        `preload_model` is the other setting and it is unchanged: that one
+        BLOCKS construction until the model is in memory, which is what a
+        deployment wants when a declined first utterance is worse than a
+        slow boot.
+        """
+        if self.model is not None:
+            return
+        with self._model_lock:
+            if self.model is not None or self._model_load_thread is not None:
+                return
+            self._model_load_thread = threading.Thread(
+                target=self._load_model_now,
+                name="m2v-eager-model-load", daemon=True)
+            self._model_load_thread.start()
 
     def _ensure_model(self, background_ok: bool = True) -> bool:
         """Make sure ``self.model`` is loaded, returning ``True`` once it is.

@@ -14,6 +14,13 @@ import numpy as np
 from ovos_bus_client.message import Message
 from ovos_utils.fakebus import FakeBus
 
+#: Every test here is about the DEFERRED path: the load that waits for the
+#: first use. `eager_model_load` defaults to True, so each pipeline below
+#: pins it False; without that the constructor starts a background load and
+#: these assertions race it. The eager default has its own file,
+#: `tests/test_model_warmup.py`.
+_DEFER = {"eager_model_load": False}
+
 
 def _fake_m2v_module(embed_model):
     fake_m2v = MagicMock()
@@ -27,7 +34,7 @@ class TestConstructorIsCheap(unittest.TestCase):
         with patch("ovos_m2v_pipeline.StaticModelPipeline") as MockSMP, \
              patch("ovos_m2v_pipeline.Configuration", return_value={}):
             pipeline = Model2VecIntentPipeline(
-                bus=FakeBus(), config={"model": "fake-model"})
+                bus=FakeBus(), config={**_DEFER, "model": "fake-model"})
             MockSMP.from_pretrained.assert_not_called()
         self.assertIsNone(pipeline.model)
 
@@ -40,7 +47,7 @@ class TestConstructorIsCheap(unittest.TestCase):
              patch.dict(sys.modules, {"model2vec": fake_m2v}):
             pipeline = Model2VecIntentPipeline(
                 bus=FakeBus(),
-                config={"model": "fake-embed-model", "mode": "prototype"})
+                config={**_DEFER, "model": "fake-embed-model", "mode": "prototype"})
             fake_m2v.StaticModel.from_pretrained.assert_not_called()
         self.assertIsNone(pipeline.model)
 
@@ -54,7 +61,7 @@ class TestConstructorIsCheap(unittest.TestCase):
             MockSMP.from_pretrained.return_value = mock_model
             pipeline = Model2VecIntentPipeline(
                 bus=FakeBus(),
-                config={"model": "fake-model", "preload_model": True})
+                config={**_DEFER, "model": "fake-model", "preload_model": True})
             MockSMP.from_pretrained.assert_called_once()
         self.assertIs(pipeline.model, mock_model)
 
@@ -75,7 +82,7 @@ class TestBufferedRegistrations(unittest.TestCase):
              patch("ovos_m2v_pipeline.Configuration", return_value={}):
             pipeline = Model2VecIntentPipeline(
                 bus=FakeBus(),
-                config={"model": "fake-embed-model", "mode": "prototype"})
+                config={**_DEFER, "model": "fake-embed-model", "mode": "prototype"})
         return pipeline
 
     def test_registration_before_load_buffers_and_encodes_once(self):
@@ -145,7 +152,7 @@ class TestConcurrentFirstLoad(unittest.TestCase):
                           lambda self, p: p):
             MockSMP.from_pretrained.side_effect = slow_from_pretrained
             pipeline = Model2VecIntentPipeline(
-                bus=FakeBus(), config={"model": "fake-model"})
+                bus=FakeBus(), config={**_DEFER, "model": "fake-model"})
 
             results = []
 
@@ -219,7 +226,7 @@ class TestSuccessPathClearsThreadAndModelAtomically(unittest.TestCase):
                           lambda self, p: p):
             MockSMP.from_pretrained.side_effect = fake_from_pretrained
             pipeline = Model2VecIntentPipeline(
-                bus=FakeBus(), config={"model": "fake-model"})
+                bus=FakeBus(), config={**_DEFER, "model": "fake-model"})
             pipeline._model_lock = WideningRLock(pipeline)
 
             results = []
@@ -272,7 +279,7 @@ class TestLoadRetryBackoff(unittest.TestCase):
                           lambda self, p: p):
             MockSMP.from_pretrained = from_pretrained
             pipeline = Model2VecIntentPipeline(
-                bus=FakeBus(), config={"model": "fake-model"})
+                bus=FakeBus(), config={**_DEFER, "model": "fake-model"})
 
             # first attempt: fails
             self.assertFalse(pipeline._ensure_model(background_ok=False))
@@ -328,7 +335,7 @@ class TestRevisionResolutionFailure(unittest.TestCase):
             MockSMP.from_pretrained.return_value = mock_model
             pipeline = Model2VecIntentPipeline(
                 bus=FakeBus(),
-                config={"model": "fake-model", "revision": "does-not-exist"})
+                config={**_DEFER, "model": "fake-model", "revision": "does-not-exist"})
 
             self.assertFalse(pipeline._ensure_model(background_ok=False))
             mock_log.exception.assert_called_once()

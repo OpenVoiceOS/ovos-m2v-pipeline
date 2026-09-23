@@ -18,9 +18,19 @@ import requests
 from ovos_bus_client.message import Message  # noqa: F401  (import parity with sibling tests)
 from ovos_utils.fakebus import FakeBus
 
+#: Every test here reads what `_resolve_model_revision` asks the Hub.
+#: `eager_model_load` defaults to True and its background load does its own
+#: resolve, so `_make_pipeline` pins it False; without that every call count
+#: below is one higher and races the thread. `eager_model_load` defaults to True, so each pipeline below
+#: pins it False; without that the constructor starts a background load and
+#: these assertions race it. The eager default has its own file,
+#: `tests/test_model_warmup.py`.
+_DEFER = {"eager_model_load": False}
+
 
 def _make_pipeline(config):
     from ovos_m2v_pipeline import Model2VecIntentPipeline
+    config = {**_DEFER, **config}
     with patch("ovos_m2v_pipeline.StaticModelPipeline"), \
          patch("ovos_m2v_pipeline.Configuration", return_value={}):
         return Model2VecIntentPipeline(bus=FakeBus(), config=config)
