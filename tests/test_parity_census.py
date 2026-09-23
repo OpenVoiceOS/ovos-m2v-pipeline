@@ -172,3 +172,95 @@ def test_a_repository_without_dev_is_read_at_master(tmp_path, capsys):
                    capture_output=True)
     census.main(["--workspace", str(tmp_path / "ws")])
     assert "1 skills in, 1 rows out" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# OVOS-INTENT-2 §2.3 (architecture#272, NOT merged: read at head 32f0973).
+# Two defect classes Layer B does not report, and the two exceptions the
+# clause carries. These tests are what says the clause was read, not guessed.
+# ---------------------------------------------------------------------------
+
+
+def test_2_3_reports_an_extra_file_against_the_locale_that_lacks_it(tmp_path):
+    """Layer B calls this a locale-specific addition. §2.3 calls it a defect.
+
+    The direction is what changed: a pair in ANY locale must be in EVERY
+    other, so the file de-DE has and en-US lacks is reported against en-US.
+    """
+    repo = _skill(tmp_path, {
+        "locale/en-US/play.intent": "play {query}\n",
+        "locale/de-DE/play.intent": "spiele {query}\n",
+        "locale/de-DE/extra.dialog": "extra\n",
+    })
+    out = census.census_one(repo, "origin/dev")
+    rows = {r["lang"]: r["missing"] for r in out["parity_defects_2_3"]}
+    assert "en-US" in rows, out["parity_defects_2_3"]
+    assert {"role": ".dialog", "name": "extra"} in rows["en-US"]
+    assert "de-DE" not in rows
+
+    # and Layer B still calls it an extra, so the two reports stay apart
+    layer_b = {r["lang"]: r for r in out["layer_b_vs_en_us"]}
+    assert layer_b["de-DE"][".dialog"]["extra"] == ["extra"]
+    assert layer_b["de-DE"][".dialog"]["missing"] == []
+
+
+def test_2_3_excepts_blacklist_and_prompt(tmp_path):
+    """A blacklist is a property of one language; a prompt is model input."""
+    repo = _skill(tmp_path, {
+        "locale/en-US/play.intent": "play {query}\n",
+        "locale/de-DE/play.intent": "spiele {query}\n",
+        "locale/de-DE/pronoun.blacklist": "er\n",
+    })
+    out = census.census_one(repo, "origin/dev")
+    for row in out["parity_defects_2_3"]:
+        assert all(m["role"] != ".blacklist" for m in row["missing"]), row
+
+
+def test_2_3_a_voc_an_intent_references_inline_is_not_a_parity_gap(tmp_path):
+    """§2.3: one file is never both a parity gap and a malformed-file error.
+
+    en-US ships `colour.voc` and de-DE does not, which is a parity gap —
+    UNLESS a de-DE `.intent` carries `<colour>` inline. Then that `.intent`
+    is malformed under OVOS-INTENT-1 §3.6 and the linter owns it.
+    """
+    repo = _skill(tmp_path, {
+        "locale/en-US/play.intent": "play {query}\n",
+        "locale/en-US/colour.voc": "red\n",
+        "locale/de-DE/play.intent": "spiele <colour> {query}\n",
+    })
+    out = census.census_one(repo, "origin/dev")
+    rows = {r["lang"]: r["missing"] for r in out["parity_defects_2_3"]}
+    assert {"role": ".voc", "name": "colour"} not in rows.get("de-DE", [])
+
+    # the control: with no inline reference, the same gap IS a parity defect
+    (tmp_path / "b").mkdir()
+    other = _skill(tmp_path / "b", {
+        "locale/en-US/play.intent": "play {query}\n",
+        "locale/en-US/colour.voc": "red\n",
+        "locale/de-DE/play.intent": "spiele {query}\n",
+    })
+    out2 = census.census_one(other, "origin/dev")
+    rows2 = {r["lang"]: r["missing"] for r in out2["parity_defects_2_3"]}
+    assert {"role": ".voc", "name": "colour"} in rows2["de-DE"]
+
+
+def test_2_3_reports_a_slot_set_difference_by_intent_name(tmp_path):
+    """The union of the slot names one intent declares, per locale."""
+    repo = _skill(tmp_path, {
+        "locale/en-US/play.intent": "play {query} by {artist}\n",
+        "locale/de-DE/play.intent": "spiele {query}\n",
+    })
+    out = census.census_one(repo, "origin/dev")
+    rows = {r["intent"]: r for r in out["slot_set_defects_2_3"]}
+    assert "play" in rows, out["slot_set_defects_2_3"]
+    assert rows["play"]["union"] == ["artist", "query"]
+    assert rows["play"]["missing_per_lang"] == {"de-DE": ["artist"]}
+
+
+def test_2_3_an_identical_slot_set_is_not_reported(tmp_path):
+    repo = _skill(tmp_path, {
+        "locale/en-US/play.intent": "play {query}\n",
+        "locale/de-DE/play.intent": "spiele {query}\n",
+    })
+    out = census.census_one(repo, "origin/dev")
+    assert out["slot_set_defects_2_3"] == []

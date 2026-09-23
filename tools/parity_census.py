@@ -233,6 +233,99 @@ def layer_b(langs: dict[str, dict[str, set]],
     return rows
 
 
+# ------------------------------------------------- §2.3 parity defects ----
+
+# OVOS-INTENT-2 §2.3, in architecture#272. NOT MERGED at the time of
+# writing: read at head 32f0973, which is not the 80a7d5f the task cited,
+# so the clause moved once already. These two reports are produced beside
+# the existing Layer B rows and change no verdict until the clause lands.
+#
+# What §2.3 says, and what makes it different from Layer B above:
+#
+# * A (role, base name) in ANY locale must be in EVERY other. Both
+#   directions. So the "extra" column of Layer B, which that layer calls a
+#   locale-specific addition and never a failure, becomes a defect of every
+#   OTHER locale, reported against the locale that lacks the file.
+# * `.blacklist` and `.prompt` are excepted. A blacklist is a property of
+#   one language, and a prompt is language-model input.
+# * A missing `.voc` is a parity gap ONLY when no `.intent` of that locale
+#   references it inline. When one carries `<name>`, that `.intent` is
+#   malformed under OVOS-INTENT-1 §3.6 and the linter reports the error.
+#   §2.3: "One file is never both."
+# * An intent's available slot set, the union over that locale's templates,
+#   must be identical in every locale. Reported by intent name.
+
+PARITY_EXEMPT = (".blacklist", ".prompt")
+INLINE_REF = re.compile(r"<([^<>]+)>")
+
+
+def inline_voc_refs(repo: Path, rev: str, paths: list[str], lang: str) -> set:
+    """Every `<name>` an .intent of this locale references inline."""
+    out = set()
+    for path in paths:
+        if not path.endswith(".intent"):
+            continue
+        parts = path.split("/")
+        if "locale" not in parts or parts[parts.index("locale") + 1] != lang:
+            continue
+        try:
+            text = read_at(repo, rev, path)
+        except (RuntimeError, UnicodeDecodeError):
+            continue
+        out.update(m.group(1).strip() for m in INLINE_REF.finditer(text))
+    return out
+
+
+def parity_defects(repo: Path, rev: str, paths: list[str],
+                   langs: dict) -> list[dict]:
+    """§2.3 file-set defects, both directions, per locale that lacks a pair."""
+    universe: dict[str, set] = collections.defaultdict(set)
+    for lang, roles in langs.items():
+        for role in ROLES:
+            if role in PARITY_EXEMPT:
+                continue
+            universe[role] |= (roles.get(role) or set())
+    rows = []
+    for lang in sorted(langs):
+        missing = []
+        for role in ROLES:
+            if role in PARITY_EXEMPT:
+                continue
+            gap = sorted(universe[role] - (langs[lang].get(role) or set()))
+            if role == ".voc" and gap:
+                # §2.3: a .voc an .intent of this locale references inline is
+                # an INTENT-1 §3.6 error, reported by the linter, not here.
+                referenced = inline_voc_refs(repo, rev, paths, lang)
+                gap = [name for name in gap if name not in referenced]
+            missing += [{"role": role, "name": name} for name in gap]
+        if missing:
+            rows.append({"lang": lang, "missing": missing})
+    return rows
+
+
+def slot_set_defects(slots: list[dict]) -> list[dict]:
+    """§2.3 slot-set differences for one intent, reported by intent name."""
+    by_intent: dict[str, dict[str, set]] = collections.defaultdict(
+        lambda: collections.defaultdict(set))
+    for row in slots:
+        if row.get("slot") is None:
+            continue                      # a malformed template, already an error
+        base = row["intent"]
+        if base.endswith(".intent"):
+            base = base[: -len(".intent")]
+        by_intent[base][row["lang"]].add(row["slot"])
+    rows = []
+    for intent in sorted(by_intent):
+        per_lang = by_intent[intent]
+        union = set().union(*per_lang.values())
+        differing = {lang: sorted(union - names)
+                     for lang, names in per_lang.items() if names != union}
+        if differing:
+            rows.append({"intent": intent, "union": sorted(union),
+                         "missing_per_lang": differing})
+    return rows
+
+
 # ---------------------------------------------------------------- slots ----
 
 def slot_rows(repo: Path, rev: str, paths: list[str]) -> list[dict]:
@@ -305,6 +398,7 @@ def census_one(repo: Path, rev: str) -> dict:
     paths = files_at(repo, rev)
     langs = locale_map(paths)
     base, how = base_language(repo, rev, langs)
+    slots = slot_rows(repo, rev, paths)
     with tempfile.TemporaryDirectory(prefix="parity-census-") as scratch:
         findings = layer_a(repo, rev, paths, Path(scratch))
     return {
@@ -321,7 +415,11 @@ def census_one(repo: Path, rev: str) -> dict:
         # what the census said before the Q1 ruling, so a row that moves is
         # visible instead of silently rewritten
         "layer_b_vs_en_us": layer_b(langs) if REFERENCE in langs else [],
-        "slots": slot_rows(repo, rev, paths),
+        "slots": slots,
+        # OVOS-INTENT-2 §2.3, architecture#272, not merged: reported, and
+        # no verdict depends on it yet
+        "parity_defects_2_3": parity_defects(repo, rev, paths, langs),
+        "slot_set_defects_2_3": slot_set_defects(slots),
     }
 
 
@@ -407,11 +505,14 @@ def main(argv=None):
             was = sum(len(row[role]["missing"]) for row in entry["layer_b_vs_en_us"]
                       for role in ROLES)
             moved = "" if was == gaps else f"  (en-US said {was})"
+            p23 = sum(len(row["missing"]) for row in entry["parity_defects_2_3"])
+            s23 = len(entry["slot_set_defects_2_3"])
             print(f"  {entry['skill']:<38} {entry['sha'][:8]} "
                   f"base={entry['base_language']:<6} "
                   f"langs={len(entry['languages']):>3} "
                   f"layerA_errors={len(errors):>3} layerB_missing={gaps:>5} "
-                  f"slots={len(entry['slots']):>4}{moved}")
+                  f"slots={len(entry['slots']):>4}{moved}\n"
+                  f"      §2.3 file_defects={p23:>5}  slot_set_defects={s23:>3}")
 
     errors = sum(1 for e in results for f in e["layer_a"] if f["severity"] == "error")
     return 1 if errors else 0
