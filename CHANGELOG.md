@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.27.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.27.1a1) (2026-09-23)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.27.0a1...0.27.1a1)
+
+**Merged pull requests:**
+
+- fix: log a prototype label a person can read [\#258](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/258) ([goldyfruit](https://github.com/goldyfruit))
+- fix: an exact template line goes to the prototype stage, not the head [\#254](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/254) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.27.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.27.0a1) (2026-09-19)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.26.0a2...0.27.0a1)
@@ -385,10 +394,6 @@
 ## [0.12.2a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.12.2a2) (2026-09-08)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.12.2a1...0.12.2a2)
-
-**Merged pull requests:**
-
-- test: survive a loading model, and drop an xfail dev already passes [\#145](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/145) ([JarbasAl](https://github.com/JarbasAl))
 
 ## [0.12.2a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.12.2a1) (2026-09-08)
 
