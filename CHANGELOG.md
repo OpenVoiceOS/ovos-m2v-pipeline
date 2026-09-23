@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.27.2a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.27.2a2) (2026-09-23)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.27.2a1...0.27.2a2)
+
+**Merged pull requests:**
+
+- revert: exact template lines belong to padacioso, document the pipeline order [\#262](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/262) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.27.2a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.27.2a1) (2026-09-23)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.27.1a1...0.27.2a1)
@@ -327,10 +335,6 @@
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.6a1...0.13.7a1)
 
-**Merged pull requests:**
-
-- fix: fold ovos-spec-tools version into prototype cache key [\#152](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/152) ([JarbasAl](https://github.com/JarbasAl))
-
 ## [0.13.6a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.6a1) (2026-09-11)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.5a1...0.13.6a1)
@@ -351,10 +355,6 @@
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.3a1...0.13.4a1)
 
-**Merged pull requests:**
-
-- fix: spec registrations resolve the skill from the payload only [\#150](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/150) ([JarbasAl](https://github.com/JarbasAl))
-
 ## [0.13.3a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.3a1) (2026-09-10)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.2a1...0.13.3a1)
@@ -366,10 +366,6 @@
 ## [0.13.2a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.2a1) (2026-09-10)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.1a1...0.13.2a1)
-
-**Merged pull requests:**
-
-- fix: no utterance may appear on both sides of the split [\#154](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/154) ([JarbasAl](https://github.com/JarbasAl))
 
 ## [0.13.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.1a1) (2026-09-10)
 
