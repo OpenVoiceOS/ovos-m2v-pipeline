@@ -128,6 +128,59 @@ _SHARED_MODELS_LOCK = threading.Lock()
 _SHARED_MODEL_LOADS: int = 0
 
 
+#: The distributions only the LEGACY checkpoint format needs. A checkpoint
+#: that ships `pipeline.skops` instead of `head.safetensors` is deserialized
+#: by model2vec through skops and scikit-learn; a current checkpoint is plain
+#: numpy and imports neither. They are an optional extra rather than a
+#: runtime dependency, because carrying them costs every install 151 MB of
+#: site-packages for a format the shipped models do not use.
+_LEGACY_MODULES = ("sklearn", "scikit-learn", "skops", "scipy", "joblib")
+#: the extra that installs them, named in the error so the reader can act
+_LEGACY_EXTRA = "ovos-m2v-pipeline[legacy]"
+
+
+class LegacyCheckpointExtraMissing(ImportError):
+    """A legacy `pipeline.skops` checkpoint was loaded without the extra."""
+
+
+def _load_classifier_pipeline(model_path: str) -> Any:
+    """`StaticModelPipeline.from_pretrained`, with a readable failure.
+
+    model2vec falls back to the legacy skops reader when a checkpoint has no
+    `head.safetensors`, and that reader needs skops and scikit-learn. With
+    the `legacy` extra absent the failure says `Converting a legacy pipeline
+    requires \`scikit-learn\` and \`skops\`.`, which names neither this
+    package, nor the checkpoint, nor the way out. This names all three.
+
+    Only an import error about a legacy module is translated. Any other one
+    propagates as itself, so a genuinely broken install is not reported as a
+    checkpoint-format problem.
+
+    Two shapes are matched, because model2vec raises both: the
+    `ModuleNotFoundError` of a bare import, which carries `name`, and its own
+    guard's plain `ImportError`, which carries no `name` at all. Matching on
+    `name` alone missed the second, measured against the real package.
+    """
+    try:
+        return StaticModelPipeline.from_pretrained(model_path)
+    except ImportError as err:
+        missing = getattr(err, "name", None)
+        if missing is None:
+            text = str(err)
+            missing = next((mod for mod in _LEGACY_MODULES if mod in text),
+                           None)
+        if missing not in _LEGACY_MODULES:
+            raise
+        raise LegacyCheckpointExtraMissing(
+            f"{model_path} is a legacy checkpoint: it ships `pipeline.skops` "
+            f"instead of `head.safetensors`, and reading it needs "
+            f"{missing!r}, which this install does not have. Install the "
+            f"extra that carries it (`pip install \"{_LEGACY_EXTRA}\"`), or "
+            f"convert the checkpoint with model2vec's "
+            f"`convert_legacy_pipeline` and publish `head.safetensors`."
+        ) from err
+
+
 def load_shared_model(model_path: str, mode: str) -> Any:
     """Return the process-wide model object for ``model_path`` in ``mode``.
 
@@ -152,7 +205,7 @@ def load_shared_model(model_path: str, mode: str) -> Any:
             return embedding
         if entry is not None and entry["pipeline"] is not None:
             return entry["pipeline"]
-        pipeline = StaticModelPipeline.from_pretrained(model_path)
+        pipeline = _load_classifier_pipeline(model_path)
         if entry is not None:
             # the embedding is already in memory: share it, drop the copy
             pipeline.model = entry["embedding"]
