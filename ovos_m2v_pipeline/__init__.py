@@ -1934,8 +1934,15 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         # entities registered so far are the only ones visible, so this is a
         # one-shot fill just like the INTENT-4 path (neither re-expands on
         # later entity registration).
-        sentences = self._expand_entities(sentences, skill_id, reg_lang)
         slots = {slot for s in raw_samples for slot in _SLOT_RE.findall(s)}
+        # The same rule as the INTENT-4 template topic: with no ``lang`` the
+        # entity fill runs against ``{}`` and embeds the literal ``{slot}``,
+        # the outcome ``TestPadatiousLegacyEntityExpansion`` exists to
+        # prevent. Only a registration that declares a slot is affected.
+        if slots and not reg_lang:
+            LOG.warning(f"rejecting registration: missing lang {ctx}")
+            return
+        sentences = self._expand_entities(sentences, skill_id, reg_lang)
         entity_values = self._entity_values(skill_id, slots, reg_lang)
         cache_key = self._prototype_cache_key(raw_samples, entity_values, lang=reg_lang)
         if (cache_key is not None
@@ -2119,6 +2126,19 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             self._intent4_warn(topic, message,
                                f"required_slots {undeclared!r} not declared "
                                "by any sample template")
+            return
+        # §6.3 is silent about a missing ``lang`` exactly as §7.2 is, and the
+        # ruling behind the entity half covers this one. Without it
+        # ``_expand_entities`` runs with ``lang=None``, ``_entities_for``
+        # answers ``{}``, and the ``{slot}`` is embedded as a literal
+        # prototype no utterance can match. Deriving the value from the
+        # session would invent what the producer omitted, so the registration
+        # is skipped and the WARN names the field, as on the entity topic.
+        # Only a template that declares a slot is affected: with nothing to
+        # fill, the language is not read on this path and a registration that
+        # omits it is unchanged.
+        if declared and not reg_lang:
+            self._intent4_warn(topic, message, "missing lang")
             return
 
         blacklist = message.data.get("blacklist")

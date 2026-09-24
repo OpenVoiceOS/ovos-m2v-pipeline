@@ -1424,3 +1424,76 @@ class TestIntent4EntityScope(unittest.TestCase):
             context={"skill_id": "a.skill"}))
         self.assertNotIn("a.skill", p.entities)
         self.assertIn("engine", p.entities["b.skill"]["en-US"])
+
+
+class TestTemplateRegistrationWithoutLang(unittest.TestCase):
+    """A template registration that names no ``lang`` must not embed the
+    literal ``{slot}`` as a prototype.
+
+    The entity topic already refuses a missing ``lang`` and WARNs (§7.1
+    required, §7.2 silent about it). The two template topics did neither:
+    they indexed the registration and called ``_expand_entities`` with
+    ``lang=None``, which answers ``{}``, so ``"I like {color}"`` was embedded
+    whole. That is the outcome
+    ``TestPadatiousLegacyEntityExpansion`` exists to prevent, and nothing
+    told the skill author. §6.3 is silent about a missing ``lang`` exactly as
+    §7.2 is, so the same ruling covers both topics.
+    """
+
+    def _pipeline_with_entity(self):
+        p = _make_prototype_pipeline({"prototype_cache": False})
+        p._handle_intent4_register_entity(Message(
+            SpecMessage.ENTITY_REGISTER.value,
+            data={"skill_id": "paint.skill", "entity_name": "color",
+                  "lang": "en-US", "samples": ["red", "blue"]},
+            context={"skill_id": "paint.skill"}))
+        self.assertIn("color", p.entities["paint.skill"]["en-US"])
+        encoded = []
+        p.model.encode.side_effect = lambda sents, **kw: (
+            encoded.extend(sents),
+            np.eye(len(sents), 4, dtype=np.float32))[1]
+        return p, encoded
+
+    def test_intent4_template_without_lang_is_skipped_and_warns(self):
+        p, encoded = self._pipeline_with_entity()
+        with patch("ovos_m2v_pipeline.LOG.warning") as warn:
+            p._handle_intent4_register_template(Message(
+                SpecMessage.INTENT_REGISTER_TEMPLATE.value,
+                data={"skill_id": "paint.skill", "intent_name": "paint_it",
+                      "samples": ["I like {color}"]},
+                context={"skill_id": "paint.skill"}))
+        self.assertNotIn("I like {color}", encoded)
+        self.assertNotIn("paint.skill:paint_it", p.intents)
+        warn.assert_called()
+        self.assertTrue(
+            any("lang" in str(c) for c in warn.call_args_list),
+            f"no WARN naming lang: {warn.call_args_list}")
+
+    def test_legacy_template_without_lang_is_skipped_and_warns(self):
+        p, encoded = self._pipeline_with_entity()
+        with patch("ovos_m2v_pipeline.LOG.warning") as warn:
+            p._handle_register_padatious(Message(
+                "padatious:register_intent",
+                data={"name": "paint.skill:paint_it",
+                      "samples": ["I like {color}"]},
+                context={"skill_id": "paint.skill"}))
+        self.assertNotIn("I like {color}", encoded)
+        self.assertNotIn("paint.skill:paint_it", p.intents)
+        warn.assert_called()
+        self.assertTrue(
+            any("lang" in str(c) for c in warn.call_args_list),
+            f"no WARN naming lang: {warn.call_args_list}")
+
+    def test_a_template_naming_lang_still_fills_its_slots(self):
+        """The positive control: the refusal is about the missing field, not
+        about slot filling, which must be untouched."""
+        p, encoded = self._pipeline_with_entity()
+        p._handle_intent4_register_template(Message(
+            SpecMessage.INTENT_REGISTER_TEMPLATE.value,
+            data={"skill_id": "paint.skill", "intent_name": "paint_it",
+                  "lang": "en-US", "samples": ["I like {color}"]},
+            context={"skill_id": "paint.skill"}))
+        self.assertIn("paint.skill:paint_it", p.intents)
+        self.assertNotIn("I like {color}", encoded)
+        self.assertIn("I like red", encoded)
+        self.assertIn("I like blue", encoded)
