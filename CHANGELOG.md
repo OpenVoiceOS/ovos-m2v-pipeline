@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.28.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.28.1a1) (2026-09-24)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.28.0a1...0.28.1a1)
+
+**Merged pull requests:**
+
+- fix: key an entity on its language [\#265](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/265) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
+## [0.28.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.28.0a1) (2026-09-23)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.27.3a1...0.28.0a1)
+
 ## [0.27.3a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.27.3a1) (2026-09-23)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.27.2a3...0.27.3a1)
@@ -374,10 +386,6 @@
 ## [0.13.3a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.3a1) (2026-09-10)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.2a1...0.13.3a1)
-
-**Merged pull requests:**
-
-- fix: correct row-level-split figure in model\_comparison.md [\#161](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/161) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
 
 ## [0.13.2a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.2a1) (2026-09-10)
 
