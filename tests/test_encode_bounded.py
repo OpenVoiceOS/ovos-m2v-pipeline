@@ -23,13 +23,13 @@ def test_entity_expansion_is_bounded():
     cartesian product (observed: ~4.8M strings, 23G swap, OOM-kill)."""
     from ovos_m2v_pipeline import MAX_ENTITY_EXPANSIONS, Model2VecIntentPipeline
     p = Model2VecIntentPipeline.__new__(Model2VecIntentPipeline)
-    p.entities = {"dex": {"mon": [f"mon{i}" for i in range(2200)],
-                  "move": [f"move{i}" for i in range(2200)]}}
-    out = p._expand_entities(["can {mon} learn {move}"], "dex")
+    p.entities = {"dex": {"en-US": {"mon": [f"mon{i}" for i in range(2200)],
+                                    "move": [f"move{i}" for i in range(2200)]}}}
+    out = p._expand_entities(["can {mon} learn {move}"], "dex", "en-US")
     assert len(out) == MAX_ENTITY_EXPANSIONS
     assert len(set(out)) == len(out)
     # deterministic: same input, same sample
-    assert out == p._expand_entities(["can {mon} learn {move}"], "dex")
+    assert out == p._expand_entities(["can {mon} learn {move}"], "dex", "en-US")
     # endpoints of the combination space are kept
     assert "can mon0 learn move0" in out
     assert "can mon2199 learn move2199" in out
@@ -38,8 +38,8 @@ def test_entity_expansion_is_bounded():
 def test_small_expansion_untouched():
     from ovos_m2v_pipeline import Model2VecIntentPipeline
     p = Model2VecIntentPipeline.__new__(Model2VecIntentPipeline)
-    p.entities = {"wx": {"city": ["porto", "lisbon"]}}
-    out = p._expand_entities(["weather in {city}"], "wx")
+    p.entities = {"wx": {"en-US": {"city": ["porto", "lisbon"]}}}
+    out = p._expand_entities(["weather in {city}"], "wx", "en-US")
     assert sorted(out) == ["weather in lisbon", "weather in porto"]
 
 
