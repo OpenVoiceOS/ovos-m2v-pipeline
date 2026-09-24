@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.28.2a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.28.2a1) (2026-09-24)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.28.1a1...0.28.2a1)
+
+**Merged pull requests:**
+
+- fix: the parity census names the listing it counted and what it did not see [\#252](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/252) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.28.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.28.1a1) (2026-09-24)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.28.0a1...0.28.1a1)
