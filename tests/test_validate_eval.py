@@ -167,3 +167,53 @@ def test_a_malformed_row_does_not_hide_the_other_problems(tmp_path):
     corpus = write_corpus(tmp_path / "corpus", ["unrelated"], ["known:label"])
     result = run(corpus, path)
     assert_rejected(result, "line 17", "unknown label 'absent:label'")
+
+
+# The label shapes the real corpus uses. The toy labels above ("known:label")
+# cannot express the defect these guard against: an eval set written with the
+# handler's PascalCase class name instead of the `.intent` file's snake_case
+# name passes every toy assertion and names an intent the corpus does not
+# have. 555 rows shipped that way in #129 and the class was invisible here.
+REAL_LABEL = "ovos-skill-alerts.openvoiceos:add_list_subitems"
+PASCAL_LABEL = "ovos-skill-alerts.openvoiceos:AddListSubitems"
+DOTTED_LABEL = "ovos-skill-volume.openvoiceos:volume.unmute"
+HYPHEN_LABEL = "skill-ovos-randomness.openvoiceos:flip-a-coin"
+UNDERSCORE_LABEL = "skill-ovos-randomness.openvoiceos:flip_a_coin"
+
+
+def test_a_pascal_case_label_is_rejected_against_a_snake_case_corpus(tmp_path):
+    rows = enough_rows(PASCAL_LABEL, "put milk on the shopping list")
+    path = write_eval(tmp_path / "eval.jsonl", rows)
+    corpus = write_corpus(tmp_path / "corpus", ["unrelated"], [REAL_LABEL])
+    result = run(corpus, path)
+    assert_rejected(result, f"unknown label '{PASCAL_LABEL}'")
+
+
+def test_the_same_label_in_the_corpus_spelling_is_accepted(tmp_path):
+    """The control: the only difference is the spelling of the intent part."""
+    rows = enough_rows(REAL_LABEL, "put milk on the shopping list")
+    path = write_eval(tmp_path / "eval.jsonl", rows)
+    corpus = write_corpus(tmp_path / "corpus", ["unrelated"], [REAL_LABEL])
+    result = run(corpus, path)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_a_dotted_intent_name_is_a_real_shape(tmp_path):
+    """`volume.unmute` is how the corpus spells it, dots and all.
+
+    A validator that assumed snake_case everywhere would reject a correct
+    label, which is the opposite failure and just as wrong.
+    """
+    rows = enough_rows(DOTTED_LABEL, "turn the sound back on")
+    path = write_eval(tmp_path / "eval.jsonl", rows)
+    corpus = write_corpus(tmp_path / "corpus", ["unrelated"], [DOTTED_LABEL])
+    result = run(corpus, path)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_a_hyphenated_label_is_rejected_when_the_corpus_uses_underscores(tmp_path):
+    rows = enough_rows(HYPHEN_LABEL, "flip a coin for me")
+    path = write_eval(tmp_path / "eval.jsonl", rows)
+    corpus = write_corpus(tmp_path / "corpus", ["unrelated"], [UNDERSCORE_LABEL])
+    result = run(corpus, path)
+    assert_rejected(result, f"unknown label '{HYPHEN_LABEL}'")
