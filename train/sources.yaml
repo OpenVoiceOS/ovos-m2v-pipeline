@@ -54,7 +54,7 @@ git_sources:
     pipeline_id: ocp
     repo: https://github.com/OpenVoiceOS/ovos-ocp-pipeline-plugin
     path: ovos/plugins/pipeline/ovos-ocp-pipeline-plugin
-    revision: f198b8584916e9d7a0c14a02cbdcf565427de571
+    revision: 2cab80461d69cf68b9752b38c45e23cfbd501fd9
     files: "**/locale/*/*.intent"
     license: "Apache-2.0"
 
@@ -64,7 +64,7 @@ git_sources:
     pipeline_id: common_query
     repo: https://github.com/OpenVoiceOS/ovos-common-query-pipeline-plugin
     path: ovos/plugins/pipeline/ovos-common-query-pipeline-plugin
-    revision: 787594a3c6c1ee2adcd4980da01565bbc9cae20f
+    revision: 6444c24e18ed088c25f9316ce59bacee679793f7
     files: "**/locale/*/*.intent"
     license: "Apache-2.0"
     extra_intents: [common_query]
@@ -81,7 +81,7 @@ git_sources:
     pipeline_id: persona
     repo: https://github.com/OpenVoiceOS/ovos-persona
     path: ovos/plugins/pipeline/ovos-persona
-    revision: b9a2a880ffc49d77852b91b96e51ed8c2bb25235
+    revision: b7777eb97feff9cb175a74deaa721254bc13893c
     files: "**/locale/*/*.intent"
     license: "Apache-2.0"
 
@@ -91,7 +91,7 @@ git_sources:
     pipeline_id: stop
     repo: https://github.com/OpenVoiceOS/ovos-core
     path: ovos/core/ovos-core
-    revision: 996b4483772491c0c7d19ae0c0496115446ee2ea
+    revision: ef0d57e3fdbc994b4a93b1203870e30f5912cf46
     files: "ovos_core/intent_services/locale/*/*.intent"
     license: "Apache-2.0"
     notes: >
@@ -105,7 +105,7 @@ git_sources:
     pipeline_id: common_reading
     repo: https://github.com/andlo/ovos-common-reading-pipeline-plugin
     path: ovos/plugins/pipeline/ovos-common-reading-pipeline-plugin
-    revision: 8f9c29a985f6510a9aba5ea048df3125c6bc70e6
+    revision: 648bda0ade5088c142416c0bfbde6fa3eff12769
     files: "locale/*/*.intent"
     license: "GPL-3.0-or-later"
     notes: >
