@@ -16,7 +16,7 @@ git_sources:
     kind: localize_jsonl
     repo: https://github.com/OpenVoiceOS/ovos-localize
     path: ovos/web/ovos-localize
-    revision: a88aae4442f5c616295e4500ed05e87ba16f3f22
+    revision: e4829ad034f6927cd3f79a7883302d2a1aecb873
     files: "data/datasets/classification/*.jsonl"
     license: "Apache-2.0 (OVOS skill locale files, community translations)"
     columns:
