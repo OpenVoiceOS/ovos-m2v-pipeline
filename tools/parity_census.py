@@ -54,9 +54,14 @@ census the fleet listing and it names what it did not see:
     python tools/parity_census.py --workspace ~/AgentWorkspaces --fleet names.txt
 
 `--org` reads the organisation's repositories through `gh`; `--fleet` reads a
-file with one repository name per line. Either way every `ovos-skill-*` name
-in the listing with no clone is printed as `NOT CLONED`, and every clone that
-the listing does not carry as `NOT IN FLEET`.
+file with one repository name per line. Either way the `ovos-skill-` prefix
+filter applies, every `ovos-skill-*` name in the listing with no clone is
+printed as `NOT CLONED`, and every clone that the listing does not carry as
+`NOT IN FLEET`.
+
+The listing is matched against the clones **by directory name**, and the
+report says so. A clone whose `origin` is a fork of the organisation's
+repository reads as that repository: the census compares names, not remotes.
 
 An archived repository is not a gap: cloning it does not fix anything, so
 `--org` excludes it from the listing before the comparison runs. The report
@@ -274,17 +279,33 @@ def _split_archived(raw: str) -> tuple[list[str], int]:
 
 
 def fleet_from_file(path: Path) -> list[str]:
-    """One repository name per line; blank lines and ``#`` comments skipped."""
+    """One repository name per line; blank lines and ``#`` comments skipped.
+
+    The ``ovos-skill-`` prefix filter applies here as it does to ``--org``.
+    A listing that carries ``ovos-core`` or ``ovos-utils`` names a repository
+    the census never measures: the workspace glob holds skills only, so an
+    unfiltered line would print as a gap that cloning cannot close.
+    """
     names = []
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
-        if line and not line.startswith("#"):
-            names.append(line.rsplit("/", 1)[-1])
+        if not line or line.startswith("#"):
+            continue
+        name = line.rsplit("/", 1)[-1]
+        if not name.startswith("ovos-skill-"):
+            continue
+        names.append(name)
     return sorted(names)
 
 
 def fleet_diff(fleet: list[str], cloned: list[str]) -> dict:
-    """What the listing has and the workspace lacks, and the reverse."""
+    """What the listing has and the workspace lacks, and the reverse.
+
+    The match is by directory name. A clone whose ``origin`` points at a fork
+    of the organisation's repository still reads as that repository, because
+    only the name is compared. The report states this, so a reader does not
+    take a matched row as proof of the remote.
+    """
     fleet_set, cloned_set = set(fleet), set(cloned)
     return {
         "named": len(fleet),
@@ -370,6 +391,7 @@ def main(argv=None):
         report["fleet"] = fleet_diff(fleet, [r.name for r in repos])
         report["fleet"]["source"] = f"org {args.org}" if args.org else args.fleet
         report["fleet"]["archived_excluded"] = archived_excluded
+        report["fleet"]["matched_by"] = "directory name"
     if args.as_json:
         json.dump(report, sys.stdout, indent=2, sort_keys=True)
         print()
@@ -384,6 +406,7 @@ def main(argv=None):
             print(f"fleet: {diff['source']} names {diff['named']}, "
                   f"{len(diff['not_cloned'])} not cloned, "
                   f"{len(diff['not_in_fleet'])} clones not in the listing")
+            print("fleet: matched by directory name, not by remote")
             if diff["archived_excluded"] is not None:
                 print(f"fleet: {diff['archived_excluded']} archived "
                       f"repositories excluded from the listing")

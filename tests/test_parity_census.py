@@ -270,3 +270,61 @@ def test_org_and_fleet_together_are_refused(tmp_path):
         census.main(["--workspace", str(tmp_path / "ws"), "--org", "x",
                      "--fleet", str(tmp_path / "none.txt")])
     assert "not both" in str(raised.value)
+
+
+def test_a_fleet_file_line_without_the_skill_prefix_is_not_a_gap(tmp_path, capsys):
+    """`--fleet` applies the same `ovos-skill-` filter as `--org`.
+
+    The workspace glob holds skills only. Before this, `ovos-core` and
+    `ovos-utils` in a listing printed as NOT CLONED, which named a gap that
+    cloning the repository cannot close, and the docstring said the filter
+    applied either way.
+    """
+    root = tmp_path / "ws" / "ovos" / "skills"
+    root.mkdir(parents=True)
+    _skill(root, {"locale/en-US/one.dialog": "hello\n"})
+    listing = tmp_path / "fleet.txt"
+    listing.write_text("ovos-core\novos-utils\novos-skill-fake\n"
+                       "ovos-skill-news\n", encoding="utf-8")
+    census.main(["--workspace", str(tmp_path / "ws"), "--fleet", str(listing)])
+    out = capsys.readouterr().out
+    assert "NOT CLONED ovos-core" not in out
+    assert "NOT CLONED ovos-utils" not in out
+    # The control: a real skill in the same listing still reports as a gap.
+    assert "  NOT CLONED ovos-skill-news\n" in out
+    assert "names 2, 1 not cloned, 0 clones not in the listing" in out
+
+
+def test_the_fleet_report_says_the_match_is_by_directory_name(tmp_path, capsys):
+    """A matched row proves the directory name, never the remote."""
+    root = tmp_path / "ws" / "ovos" / "skills"
+    root.mkdir(parents=True)
+    _skill(root, {"locale/en-US/one.dialog": "hello\n"})
+    listing = tmp_path / "fleet.txt"
+    listing.write_text("ovos-skill-fake\n", encoding="utf-8")
+    census.main(["--workspace", str(tmp_path / "ws"), "--fleet", str(listing)])
+    out = capsys.readouterr().out
+    assert "fleet: matched by directory name, not by remote" in out
+
+
+def test_the_match_statement_is_absent_when_no_listing_is_given(tmp_path, capsys):
+    """The control for the line above: no listing, nothing to match."""
+    root = tmp_path / "ws" / "ovos" / "skills"
+    root.mkdir(parents=True)
+    _skill(root, {"locale/en-US/one.dialog": "hello\n"})
+    census.main(["--workspace", str(tmp_path / "ws")])
+    out = capsys.readouterr().out
+    assert "matched by directory name" not in out
+
+
+def test_the_json_fleet_diff_records_how_it_matched(tmp_path, capsys):
+    import json
+    root = tmp_path / "ws" / "ovos" / "skills"
+    root.mkdir(parents=True)
+    _skill(root, {"locale/en-US/one.dialog": "hello\n"})
+    listing = tmp_path / "fleet.txt"
+    listing.write_text("ovos-skill-fake\n", encoding="utf-8")
+    census.main(["--workspace", str(tmp_path / "ws"), "--fleet", str(listing),
+                 "--json"])
+    report = json.loads(capsys.readouterr().out)
+    assert report["fleet"]["matched_by"] == "directory name"
