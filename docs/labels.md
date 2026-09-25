@@ -335,5 +335,42 @@ relation questions at a definition. An intent that was deleted rather than
 renamed, such as `ovos-skill-iss-location`'s `about`, has no destination at all,
 and its rows go too.
 
+### Labels an unfilled slot limits
+
+A label can reach the split with too few rows for a reason no contribution
+upstream can fix. If every phrasing it carries in a language ends in a slot the
+pinned refs register no values for, the entity fill leaves the placeholder
+literal and each of those phrasings is dropped, so the label arrives with only
+whatever slot-free lines it happens to have.
+
+The manifest reports those apart from the genuinely thin ones, under
+`labels_limited_by_unfilled_slots`, naming the slot and the languages. The
+distinction is not cosmetic: a thin label asks for a phrasing or a translation,
+while a limited one asks for an entity file in the skill or a change here, and
+reading the second as the first sends a maintainer a request they cannot act on.
+
+Some of those slots are deliberately open. A pipeline that forwards whatever
+word the user said as a search hint, and leaves the vocabulary to the skills
+that answer, has no entity file to ship and no reason to grow one. Such a label
+cannot be scored by a corpus that expands templates, and the manifest entry
+says so rather than implying a gap.
+
+### Entity values do not cross languages
+
+A running pipeline holds one language's resources at a time, so the flat
+`entities` dict it accumulates never mixes languages. The corpus reads every
+locale of every skill at once, and pooling those values fills a Catalan
+template from an English or Italian file.
+
+Values are therefore kept under the language whose locale directory attests
+them. A row is filled from its own language, falling back to entity files that
+sit outside a locale tree, and never from another language. A slot with no
+values in the row's language keeps its placeholder and the row is dropped, the
+same as any other unfilled slot.
+
+This costs rows, and the cost is the point: those rows were sentences in no
+language. A corpus that reports a language it can only produce by borrowing
+another language's words overstates its coverage.
+
 ---
 [← Training](training.md) · [Home](../README.md)
