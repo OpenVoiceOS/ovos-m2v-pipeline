@@ -347,10 +347,6 @@
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.9a1...0.13.10a1)
 
-**Merged pull requests:**
-
-- fix: silence the slots:expand\_entities WARNING flood in build\_dataset.py [\#165](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/165) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
-
 ## [0.13.9a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.9a1) (2026-09-13)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.8a1...0.13.9a1)
@@ -382,10 +378,6 @@
 ## [0.13.5a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.5a1) (2026-09-11)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.4a1...0.13.5a1)
-
-**Merged pull requests:**
-
-- fix: remove training rows that leak into the gold test set [\#166](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/166) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
 
 ## [0.13.4a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.4a1) (2026-09-10)
 
