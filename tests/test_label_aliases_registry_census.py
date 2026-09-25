@@ -76,35 +76,39 @@ PINNED_REGISTRATIONS = {
         "create_list", "create_reminder", "create_reminder_recurring",
         "create_timer", "dav_sync", "delete_list", "delete_list_entries",
         "list_alerts", "missed_alerts", "query_list_entries",
-        "query_list_names", "reschedule_alert", "timer_status",
+        "query_list_names", "reschedule_alert", "timer_status"
     },
     "ovos-skill-confucius-quotes.openvoiceos": {
-        "confucius_lifespan", "confucius_quote", "who",
+        "confucius_lifespan", "confucius_quote", "who"
     },
     "ovos-skill-fuster-quotes.openvoiceos": {
-        "fuster_lifespan", "fuster_quotes", "who",
+        "fuster_lifespan", "fuster_quotes", "who"
     },
     "ovos-skill-mark1-ctrl.openvoiceos": {
         "blink", "brightness", "crazy_eyes", "custom_eye_color",
         "eye_color", "listen", "look_down", "look_left", "look_left_right",
         "look_right", "look_up", "look_up_down", "narrow_eyes", "reset",
-        "smile", "spin", "think",
+        "smile", "spin", "think"
     },
     "ovos-skill-volume.openvoiceos": {
-        "change_volume", "current_volume", "increase_volume", "less_volume",
-        "volume.max.boost", "volume.mute", "volume.mute.toggle",
-        "volume.reset", "volume.unmute", "volume_level",
+        "change_volume", "current_volume", "increase_volume",
+        "less_volume", "volume_level", "volume_max_boost", "volume_mute",
+        "volume_mute_toggle", "volume_reset", "volume_unmute"
     },
     "ovos-skill-weather.openvoiceos": {
-        "do-i-need-an-umbrella", "do.i.need.an.umbrella", "humidity",
-        "is_hot_or_cold", "is_wind", "next_rain", "sunrise", "sunset",
-        "temperature", "weather", "weather_condition",
+        "humidity", "is_hot_or_cold", "is_wind", "next_rain", "sunrise",
+        "sunset", "temperature", "weather", "weather_condition"
     },
-    "ovos-skill-wolfie.openvoiceos": {"search_wolfie"},
-    "ovos-skill-wordnet.openvoiceos": {"search_wordnet"},
+    "ovos-skill-wolfie.openvoiceos": {
+        "search_wolfie"
+    },
+    "ovos-skill-wordnet.openvoiceos": {
+        "search_wordnet"
+    },
     "skill-ovos-wallpapers.openvoiceos": {
-        "make_wallpaper", "next_picture", "picture_about", "picture_random",
-        "previous_picture", "wallpaper_about", "wallpaper_random",
+        "make_wallpaper", "next_picture", "picture_about",
+        "picture_random", "previous_picture", "wallpaper_about",
+        "wallpaper_random"
     },
 }
 
@@ -112,23 +116,23 @@ PINNED_REGISTRATIONS = {
 #: read at. A re-pin in `train/sources.yaml` must update both tables.
 PINNED_REFS = {
     "ovos-skill-alerts.openvoiceos":
-        ("ovos/skills/ovos-skill-alerts", "9f6f7ec7d8cc6059ec024bdddae8b85968b48342"),
+        ("ovos/skills/ovos-skill-alerts", "149d791e416fd58a3c079c03a1f6cf8856cf6d45"),
     "ovos-skill-confucius-quotes.openvoiceos":
-        ("ovos/skills/ovos-skill-confucius-quotes", "eb0dd4cdfffa99b7e369378a4b3150a92f1e73d2"),
+        ("ovos/skills/ovos-skill-confucius-quotes", "1574c3cadaf2dd0922b3579f7696e883afb8c811"),
     "ovos-skill-fuster-quotes.openvoiceos":
-        ("ovos/skills/ovos-skill-fuster-quotes", "adcd72cbc2e883f434a81cafe818a76dde829d22"),
+        ("ovos/skills/ovos-skill-fuster-quotes", "1bf2b3edf6feef8653d191dee970f7fc2d4d61de"),
     "ovos-skill-mark1-ctrl.openvoiceos":
-        ("ovos/skills/ovos-skill-mark1-ctrl", "3d3e5abe2f9bef4e9a8a9a042abda4827b40fd57"),
+        ("ovos/skills/ovos-skill-mark1-ctrl", "026a4dd3b9754e77b664acad52f5975adb2bbea3"),
     "ovos-skill-volume.openvoiceos":
-        ("ovos/skills/ovos-skill-volume", "94a3c3ac7841edffb15546abe50f16b404561092"),
+        ("ovos/skills/ovos-skill-volume", "7051f0916040af1a3f2d10ef7863ba41813fb058"),
     "ovos-skill-weather.openvoiceos":
-        ("ovos/skills/ovos-skill-weather", "64900360ba0eb1a59cbdad638ec3780c63e20b41"),
+        ("ovos/skills/ovos-skill-weather", "8ea76a165008c50cd49668cb014ce8c5d8f8183c"),
     "ovos-skill-wolfie.openvoiceos":
-        ("ovos/skills/ovos-skill-wolfie", "bca7e6e6754626823990cc13093f9de8ba1b8e47"),
+        ("ovos/skills/ovos-skill-wolfie", "c9ef761359ec8ba945d79b7a9edbd9c3b0b1de3c"),
     "ovos-skill-wordnet.openvoiceos":
-        ("ovos/skills/ovos-skill-wordnet", "6efb78c2250c3ab0c4b754fa75be99d5ad260c6e"),
+        ("ovos/skills/ovos-skill-wordnet", "bcd1a7e7d63f16c48d973f9432849a03dfa93617"),
     "skill-ovos-wallpapers.openvoiceos":
-        ("ovos/skills/ovos-skill-wallpapers", "209a55c372eeb06b600e18b4076f8579029aea73"),
+        ("ovos/skills/ovos-skill-wallpapers", "da6c979324f858643855ba4fe42d858f37a310cb"),
 }
 
 SOURCES = Path(__file__).resolve().parents[1] / "train" / "sources.yaml"
