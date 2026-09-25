@@ -138,6 +138,15 @@ _LEGACY_MODULES = ("sklearn", "scikit-learn", "skops", "scipy", "joblib")
 #: the extra that installs them, named in the error so the reader can act
 _LEGACY_EXTRA = "ovos-m2v-pipeline[legacy]"
 
+#: The inference runtimes. ``"model2vec"`` is the reference implementation and
+#: the default. ``"lean"`` is the numpy forward path of
+#: ``ovos_m2v_pipeline.lean``: the same arithmetic on `tokenizers`, `numpy`
+#: and `safetensors`, with no `model2vec` import on the path. Step 2 of
+#: `knowledge/wiki/plans/m2v-lean-inference.md`; the default does not move
+#: until step 3.
+RUNTIMES = ("model2vec", "lean")
+DEFAULT_RUNTIME = "model2vec"
+
 
 class LegacyCheckpointExtraMissing(ImportError):
     """A legacy `pipeline.skops` checkpoint was loaded without the extra."""
@@ -181,7 +190,8 @@ def _load_classifier_pipeline(model_path: str) -> Any:
         ) from err
 
 
-def load_shared_model(model_path: str, mode: str) -> Any:
+def load_shared_model(model_path: str, mode: str,
+                      runtime: str = DEFAULT_RUNTIME) -> Any:
     """Return the process-wide model object for ``model_path`` in ``mode``.
 
     ``"classifier"`` returns the ``StaticModelPipeline`` (embedding plus
@@ -193,26 +203,41 @@ def load_shared_model(model_path: str, mode: str) -> Any:
     fails caches nothing, so the caller's retry accounting stays as it is.
     """
     global _SHARED_MODEL_LOADS
+    if runtime not in RUNTIMES:
+        raise ValueError(f"unknown runtime {runtime!r}, expected one of "
+                         f"{list(RUNTIMES)}")
+    # the two runtimes hold different objects for one checkpoint, so they are
+    # different cache entries; a mixed process pays for two embedding
+    # matrices, which is what `shared_model_stats()["loads"]` then reports
+    key = model_path if runtime == DEFAULT_RUNTIME else f"{runtime}\0{model_path}"
     with _SHARED_MODELS_LOCK:
-        entry = _SHARED_MODELS.get(model_path)
+        entry = _SHARED_MODELS.get(key)
         if mode == "prototype":
             if entry is not None:
                 return entry["embedding"]
-            from model2vec import StaticModel
-            embedding = StaticModel.from_pretrained(model_path)
-            _SHARED_MODELS[model_path] = {"pipeline": None, "embedding": embedding}
+            if runtime == "lean":
+                from ovos_m2v_pipeline.lean import load_lean_embedding
+                embedding = load_lean_embedding(model_path)
+            else:
+                from model2vec import StaticModel
+                embedding = StaticModel.from_pretrained(model_path)
+            _SHARED_MODELS[key] = {"pipeline": None, "embedding": embedding}
             _SHARED_MODEL_LOADS += 1
             return embedding
         if entry is not None and entry["pipeline"] is not None:
             return entry["pipeline"]
-        pipeline = _load_classifier_pipeline(model_path)
+        if runtime == "lean":
+            from ovos_m2v_pipeline.lean import LeanStaticModelPipeline
+            pipeline = LeanStaticModelPipeline.from_pretrained(model_path)
+        else:
+            pipeline = _load_classifier_pipeline(model_path)
         if entry is not None:
             # the embedding is already in memory: share it, drop the copy
             pipeline.model = entry["embedding"]
             entry["pipeline"] = pipeline
         else:
-            _SHARED_MODELS[model_path] = {"pipeline": pipeline,
-                                          "embedding": pipeline.model}
+            _SHARED_MODELS[key] = {"pipeline": pipeline,
+                                   "embedding": pipeline.model}
             _SHARED_MODEL_LOADS += 1
         return pipeline
 
@@ -1227,6 +1252,13 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
 
         mode = self.config.get("mode", "classifier")
         self._mode = mode
+        #: which forward path serves this instance; see `RUNTIMES`. An
+        #: unknown name is refused here, at construction, rather than on the
+        #: first utterance inside the background loader thread.
+        self._runtime = self.config.get("runtime", DEFAULT_RUNTIME)
+        if self._runtime not in RUNTIMES:
+            raise ValueError(f"unknown runtime {self._runtime!r}, expected "
+                             f"one of {list(RUNTIMES)}")
         self._model_path = model_path
         #: guards `self.model` (assigned exactly once, by `_load_model_now`)
         #: and `self._pending_additions` (mutated from bus-handler threads
@@ -1542,7 +1574,8 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             # revision or a transient hub failure must hit the same
             # failure-accounting path as a `from_pretrained` failure below.
             model_path = self._resolve_model_revision(self._model_path)
-            model = load_shared_model(model_path, self._mode)
+            model = load_shared_model(model_path, self._mode,
+                                      self._runtime)
             # `_ensure_model` checks `self.model is not None` before it
             # ever looks at `_model_load_thread`, so the thread handle
             # must not be cleared until `self.model` is visible under the
