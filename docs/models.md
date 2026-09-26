@@ -1,55 +1,31 @@
-# Pre-trained Models
+# Models
 
-All models are published on Hugging Face in the [ovos-model2vec-intents](https://huggingface.co/collections/Jarbas/ovos-model2vec-intents-681c478aecb9979e659b17f8) collection.
+## Classifier models
 
-They are trained on OVOS skill intent examples from [GitLocalize](https://gitlocalize.com/users/OpenVoiceOS) and the `ovos_intent_examples` / `music_queries_templates` datasets.
+`OpenVoiceOS/ovos-m2v-intents-multilingual` is the default for every
+language with no `models` override. It is a `StaticModelPipeline`: an
+embedding model plus a trained classifier head, distilled from a
+multilingual base and fit on the OVOS skill intent corpus (see
+[Training](training.md)).
 
----
+`OpenVoiceOS/ovos-m2v-intents-en` is a smaller, English-only alternative
+with comparable held-out accuracy, but its model card reports that
+end-to-end dispatch testing ranks paraphrases worse in prototype mode than
+the multilingual model does on the same cases. That is why it is not wired
+in as the default for any language, English included. Opt in with `model`
+or `models["en"]` only after reading the card's Trade-offs section and
+accepting that weakness. Check each repo's model card on Hugging Face for
+its exact size, language list and held-out accuracy.
 
-## Multilingual Model (Default)
+## Prototype mode
 
-| Model | Base | Languages | Approx. Size |
-|-------|------|-----------|-------------|
-| `Jarbas/ovos-model2vec-intents-LaBSE` | `minishlab/M2V_multilingual_output` (distilled from LaBSE) | en, pt, eu, es, gl, nl, fr, de, ca, it, da | ~500 MB |
+Prototype mode needs no classifier head: any Model2Vec `StaticModel` works
+as the embedding backbone, including the base a classifier model was
+distilled from. `train/distill.py` lists the base models this repo
+distills; a base's own model card names its source Sentence Transformer and
+language coverage.
 
-### Benchmark
-
-| Language | Accuracy | F1 Score |
-|----------|----------|----------|
-| multilingual | 0.9916 | 0.9911 |
-
----
-
-## English Models
-
-Distilled from the [Potion](https://huggingface.co/collections/minishlab/potion-6721e0abd4ea41881417f062) family of English static models.
-
-| Hugging Face Repo | Base Model | Approx. Size | Accuracy | F1 Score |
-|-------------------|-----------|-------------|----------|----------|
-| `Jarbas/ovos-model2vec-intents-potion-base-2M` | `minishlab/potion-base-2M` | ~8 MB | 0.9233 | 0.9127 |
-| `Jarbas/ovos-model2vec-intents-potion-base-4M` | `minishlab/potion-base-4M` | ~16 MB | 0.9129 | 0.9076 |
-| `Jarbas/ovos-model2vec-intents-potion-base-8M` | `minishlab/potion-base-8M` | ~32 MB | 0.9303 | 0.9255 |
-| `Jarbas/ovos-model2vec-intents-potion-base-32M` | `minishlab/potion-base-32M` | ~128 MB | 0.9338 | 0.9302 |
-| `Jarbas/ovos-model2vec-intents-potion-retrieval-32M` | `minishlab/potion-retrieval-32M` | ~128 MB | 0.9408 | 0.9352 |
-
-> Benchmarks were measured on a 10% held-out split of the English training data.
-
----
-
-## Choosing a Model
-
-| Use case | Recommendation |
-|----------|----------------|
-| Multilingual OVOS instance | Default multilingual (`LaBSE`-based) |
-| English-only, resource-constrained | `potion-base-2M` (~8 MB, loads in ~130 ms) |
-| English-only, best accuracy | `potion-retrieval-32M` |
-| English-only, balanced | `potion-base-8M` or `potion-base-32M` |
-
----
-
-## Using a Custom Model
-
-Point `model` at any local directory or Hugging Face repo that contains a `StaticModelPipeline` checkpoint:
+## Pointing at another model
 
 ```json
 {
@@ -61,4 +37,11 @@ Point `model` at any local directory or Hugging Face repo that contains a `Stati
 }
 ```
 
-See [Training](training.md) to produce your own model.
+`model` accepts a Hugging Face repo id or a local directory holding a
+`StaticModelPipeline` checkpoint (classifier mode) or a bare `StaticModel`
+(prototype mode). `models` sets a different `model` per language. See
+[Configuration](configuration.md) for both keys, and
+[Training](training.md) to produce a model of your own.
+
+---
+[← Configuration](configuration.md) · [Home](../README.md) · [Training →](training.md)
