@@ -70,6 +70,19 @@ RENAMED_LABELS = {
     "ovos-skill-alerts.openvoiceos:QueryListNames": "ovos-skill-alerts.openvoiceos:query_list_names",
     "ovos-skill-alerts.openvoiceos:RescheduleAlert": "ovos-skill-alerts.openvoiceos:reschedule_alert",
     "ovos-skill-alerts.openvoiceos:TimerStatus": "ovos-skill-alerts.openvoiceos:timer_status",
+    # ovos-skill-alerts#216 is a MERGE, not a §2 rename: four intents became
+    # two. DeleteListEntries and DeleteTodoEntries both became
+    # delete_list_entries, and QueryListEntries and QueryTodoEntries both
+    # became query_list_entries, because the todo kind stopped being its own
+    # intent. So two of these four keys map many-to-one, which a rename table
+    # allows and a rename wave never produces. Every published model was
+    # trained before the merge and emits all four (the builder's own note
+    # counts 235 labels at the old pins and 233 at the new, the two that left
+    # being the todo pair).
+    "ovos-skill-alerts.openvoiceos:DeleteListEntries": "ovos-skill-alerts.openvoiceos:delete_list_entries",
+    "ovos-skill-alerts.openvoiceos:DeleteTodoEntries": "ovos-skill-alerts.openvoiceos:delete_list_entries",
+    "ovos-skill-alerts.openvoiceos:QueryListEntries": "ovos-skill-alerts.openvoiceos:query_list_entries",
+    "ovos-skill-alerts.openvoiceos:QueryTodoEntries": "ovos-skill-alerts.openvoiceos:query_list_entries",
     # ovos-skill-wikipedia: WikiMore.intent renamed to wiki_more.intent
     # (OVOS-INTENT-2 §2); the duplicate copies of both were removed.
     "ovos-skill-wikipedia.openvoiceos:WikiMore": "ovos-skill-wikipedia.openvoiceos:wiki_more",

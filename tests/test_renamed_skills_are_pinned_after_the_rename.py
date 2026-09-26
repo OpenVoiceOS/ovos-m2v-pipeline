@@ -117,18 +117,25 @@ def test_the_pin_registers_the_new_names_and_not_the_old(skill_id):
     registered = bd.registered_intents(repo, refs[path])
     assert registered, f"{path}@{refs[path][:7]} registers nothing"
     pairs = _by_skill()[skill_id]
-    news = {new for _, new in pairs if new in registered}
-    olds = {old for old, _ in pairs if old in registered}
-    if len(news) == len(pairs) and not olds:
+    # Count DISTINCT names, not pairs: ovos-skill-alerts#216 merged four
+    # intents into two, so two pairs share one target and a pair count can
+    # never equal the number of names the pin registers. Comparing pair counts
+    # made this case unsatisfiable in both directions at once.
+    all_new = {new for _, new in pairs}
+    all_old = {old for old, _ in pairs}
+    news = {new for new in all_new if new in registered}
+    olds = {old for old in all_old if old in registered}
+    if len(news) == len(all_new) and not olds:
         return
     # A bridge may land before the skill's rename merges (laugh#131 is open
     # while m2v#215 is on dev). Then the pin registers every old name and
     # no new one, the bridge is inert, and that is allowed as long as the
     # repository's dev head registers the old names too. Once dev carries
     # the rename, a pin behind it trains the label the bridge maps away.
-    assert len(olds) == len(pairs) and not news, (
+    assert len(olds) == len(all_old) and not news, (
         f"{skill_id}: the pin {refs[path][:7]} registers new {sorted(news)} "
-        f"and old {sorted(olds)} of {len(pairs)} bridged names")
+        f"and old {sorted(olds)} of {len(all_new)} bridged targets and "
+        f"{len(all_old)} bridged sources")
     on_dev = bd.registered_intents(repo, "origin/dev")
     refused = _refuse_a_stale_pin(skill_id, path, refs[path], pairs, olds, on_dev)
     assert refused is None, refused
