@@ -26,9 +26,10 @@ dependencies = [
     "ovos-config",
     "ovos-utils>=0.3.4,<1.0.0",
     "ovos-spec-tools>=1.11.2a1",
-    # model2vec 0.9.0 removed the `inference` extra; the classifier
-    # (StaticModelPipeline) load path now needs scikit-learn + skops
-    # directly to deserialize the legacy sklearn head.
+    # model2vec 0.9.0 removed the `inference` extra. The classifier load
+    # path needs scikit-learn + skops only for a LEGACY `pipeline.skops`
+    # head; those two live in the `legacy` extra below and are imported
+    # when such a checkpoint is read, never at import time.
     "model2vec>=0.9.0",
     # model2vec asks for `tokenizers>=0.20` with no ceiling, so under
     # `--prerelease=allow` the resolver takes 1.0.0rc2. That release ships
@@ -38,11 +39,20 @@ dependencies = [
     # one of them, so the plugin cannot load any model at all. The ceiling
     # belongs upstream in model2vec; it is held here until that lands.
     "tokenizers<1.0.0",
-    "scikit-learn",
-    "skops",
 ]
 
 [project.optional-dependencies]
+# Only the LEGACY checkpoint format needs these. model2vec reads a
+# `pipeline.skops` head through skops and scikit-learn, which pull scipy and
+# joblib with them: 151 MB of site-packages measured on python 3.11. Every
+# model this plugin ships uses `head.safetensors`, which is plain numpy, so
+# the runtime carried that weight for a format it never loads. A legacy
+# checkpoint loaded without this extra raises
+# `LegacyCheckpointExtraMissing`, which names the extra and the converter.
+legacy = [
+    "scikit-learn",
+    "skops",
+]
 test = [
     "pytest",
     "pytest-cov",
