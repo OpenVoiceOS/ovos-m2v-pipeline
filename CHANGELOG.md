@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.29.0a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.29.0a2) (2026-09-26)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.29.0a1...0.29.0a2)
+
+**Merged pull requests:**
+
+- test: a held pin may lag its upstream rename [\#274](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/274) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
+## [0.29.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.29.0a1) (2026-09-25)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.28.2a1...0.29.0a1)
+
 ## [0.28.2a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.28.2a1) (2026-09-24)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.28.1a1...0.28.2a1)
@@ -358,10 +370,6 @@
 ## [0.13.8a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.8a1) (2026-09-13)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.7a1...0.13.8a1)
-
-**Merged pull requests:**
-
-- fix: a template that fails to expand contributes nothing \(OVOS-INTENT-4 §6.3\) [\#168](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/168) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
 
 ## [0.13.7a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.7a1) (2026-09-11)
 
