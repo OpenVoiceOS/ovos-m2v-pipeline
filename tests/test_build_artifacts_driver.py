@@ -150,3 +150,132 @@ def test_two_different_corpora_get_different_identities(tmp_path):
         ids.append(json.loads(
             (out / "classifier" / "build.json").read_text())["dataset_manifest_sha256"])
     assert ids[0] != ids[1]
+
+
+# --- the three fixes from reviewer-skills' second round (T-6024) ---------
+
+
+def test_a_producer_that_exits_0_and_writes_nothing_leaves_no_staging(tmp_path):
+    """The exit the earlier try/except did not cover.
+
+    A producer that exits 0 and writes no labels.json raised straight out of
+    main(), past every cleanup, and the staging tree stayed on disk holding
+    whatever the other producer had written.
+    """
+    root = _stub_tree(tmp_path, ["a.skill:one"], ["a.skill:one"])
+    (root / "train" / "train.py").write_text(
+        "import sys\nfrom pathlib import Path\n"
+        "Path(sys.argv[sys.argv.index('--out') + 1]).mkdir(parents=True, "
+        "exist_ok=True)\n", encoding="utf-8")
+    out = tmp_path / "artifacts"
+    result = _run(root, out, _dataset_with_manifest(tmp_path))
+    assert result.returncode == 1
+    assert not out.exists()
+    assert not (tmp_path / "artifacts.staging").exists(), (
+        "a producer that exited 0 and wrote no labels left the staging tree")
+    assert "labels could not be read" in result.stderr
+
+
+def test_a_producer_that_writes_unreadable_labels_leaves_no_staging(tmp_path):
+    """The same exit by a different route: the file is there and is not JSON."""
+    root = _stub_tree(tmp_path, ["a.skill:one"], ["a.skill:one"])
+    (root / "train" / "train.py").write_text(
+        "import sys\nfrom pathlib import Path\n"
+        "out = Path(sys.argv[sys.argv.index('--out') + 1])\n"
+        "out.mkdir(parents=True, exist_ok=True)\n"
+        "(out / 'labels.json').write_text('not json')\n", encoding="utf-8")
+    out = tmp_path / "artifacts"
+    result = _run(root, out, _dataset_with_manifest(tmp_path))
+    assert result.returncode == 1
+    assert not (tmp_path / "artifacts.staging").exists()
+
+
+def test_the_identity_survives_a_reformatted_manifest(tmp_path):
+    """Two spellings of one manifest are one corpus.
+
+    The identity used to hash the raw bytes, so a writer that changed its
+    indent or its key order renamed the corpus and two builds of one dataset
+    stopped looking like one dataset.
+    """
+    payload = {"rows_final": 12, "revisions": {"b": "2", "a": "1"}}
+    root = _stub_tree(tmp_path, ["a.skill:one"], ["a.skill:one"])
+
+    first = tmp_path / "compact"
+    first.mkdir()
+    (first / "manifest.json").write_text(json.dumps(payload, separators=(",", ":")),
+                                         encoding="utf-8")
+    out_a = tmp_path / "art-a"
+    assert _run(root, out_a, first).returncode == 0
+
+    second = tmp_path / "indented"
+    second.mkdir()
+    (second / "manifest.json").write_text(
+        json.dumps(payload, indent=4, sort_keys=True) + "\n", encoding="utf-8")
+    out_b = tmp_path / "art-b"
+    assert _run(root, out_b, second).returncode == 0
+
+    id_a = json.loads((out_a / "classifier" / "build.json").read_text())
+    id_b = json.loads((out_b / "classifier" / "build.json").read_text())
+    assert id_a["dataset_manifest_sha256"] == id_b["dataset_manifest_sha256"], (
+        "the same manifest written two ways produced two corpus identities")
+    assert id_a["dataset_manifest_sha256"], "the identity must not be empty"
+
+
+def test_a_different_manifest_is_a_different_identity(tmp_path):
+    """The control for the test above: canonicalising must not flatten
+    everything to one id."""
+    root = _stub_tree(tmp_path, ["a.skill:one"], ["a.skill:one"])
+    out_a = tmp_path / "art-a"
+    out_b = tmp_path / "art-b"
+    one = _dataset_with_manifest(tmp_path / "one", {"rows_final": 12})
+    two = _dataset_with_manifest(tmp_path / "two", {"rows_final": 13})
+    assert _run(root, out_a, one).returncode == 0
+    assert _run(root, out_b, two).returncode == 0
+    assert (json.loads((out_a / "classifier" / "build.json").read_text())
+            ["dataset_manifest_sha256"]
+            != json.loads((out_b / "classifier" / "build.json").read_text())
+            ["dataset_manifest_sha256"])
+
+
+def test_a_manifest_that_is_not_json_takes_the_empty_identity(tmp_path):
+    """An id that cannot be reproduced pairs nothing, so there is none."""
+    root = _stub_tree(tmp_path, ["a.skill:one"], ["a.skill:one"])
+    dataset = tmp_path / "broken"
+    dataset.mkdir()
+    (dataset / "manifest.json").write_text("{not json", encoding="utf-8")
+    out = tmp_path / "artifacts"
+    assert _run(root, out, dataset).returncode == 0
+    stamp = json.loads((out / "classifier" / "build.json").read_text())
+    assert stamp["dataset_manifest_sha256"] == ""
+
+
+def test_both_sides_default_to_one_backbone_and_say_which(tmp_path):
+    """The classifier and the prototypes are published as a pair, so a pair
+    built on two embedding spaces is a pair in name only."""
+    labels = ["a.skill:one"]
+    root = _stub_tree(tmp_path, labels, labels)
+    out = tmp_path / "artifacts"
+    assert _run(root, out, _dataset_with_manifest(tmp_path)).returncode == 0
+    stamp = json.loads((out / "classifier" / "build.json").read_text())
+    backbones = stamp["backbones"]
+    assert backbones["classifier"] == backbones["prototypes"], (
+        "the two sides defaulted to two different backbones")
+    assert backbones["classifier"], "build.json must name the backbone"
+    assert json.loads((out / "prototypes" / "build.json").read_text()) == stamp
+
+
+def test_an_overridden_backbone_is_recorded_as_given(tmp_path):
+    """The control: the stamp reports what ran, it does not echo the default."""
+    labels = ["a.skill:one"]
+    root = _stub_tree(tmp_path, labels, labels)
+    out = tmp_path / "artifacts"
+    result = subprocess.run(
+        [sys.executable, str(root / "train" / "build_artifacts.py"),
+         "--dataset", str(_dataset_with_manifest(tmp_path)),
+         "--out", str(out),
+         "--classifier-base", "some/other-backbone"],
+        capture_output=True, text=True, cwd=str(root))
+    assert result.returncode == 0, result.stderr
+    stamp = json.loads((out / "classifier" / "build.json").read_text())
+    assert stamp["backbones"]["classifier"] == "some/other-backbone"
+    assert stamp["backbones"]["prototypes"] != "some/other-backbone"
