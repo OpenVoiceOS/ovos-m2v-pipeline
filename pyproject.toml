@@ -44,7 +44,10 @@ dependencies = [
 
 [project.optional-dependencies]
 test = [
-    "pytest",
+    # Measured floor for the --import-mode=importlib in [tool.pytest.ini_options]:
+    # 7.0.0 collects all 712 tests under it. 6.2.5 cannot run this dependency
+    # set at all, because the installed anyio plugin imports _pytest.scope.
+    "pytest>=7.0",
     "pytest-cov",
     "numpy",
     # INTENT-4 consumer e2e stack floor (ovos.intent.register.* topics +
@@ -76,3 +79,18 @@ include-package-data = true
 
 [tool.setuptools.dynamic]
 version = { attr = "ovos_m2v_pipeline.version.__version__" }
+
+
+[tool.pytest.ini_options]
+# Seven test modules do `from tests.X import ...`, which needs the repository
+# root to be importable. The obvious key, `pythonpath = ["."]`, does that and
+# also puts the root FIRST on sys.path, so the flat-layout `ovos_m2v_pipeline/`
+# directory shadows the installed wheel and the suite stops testing what was
+# built. gh-automations#159 moved CI to the `pytest` console script to obtain
+# that guarantee; the key silently gives it back.
+#
+# importlib mode inserts nothing into sys.path, so the wheel stays the thing
+# under test and the seven modules still resolve. Measured with the wheel
+# installed non-editable, a raise planted in the repository-root copy, and the
+# console script: 0 hits on the planted copy, 712 tests collected.
+addopts = "--import-mode=importlib"

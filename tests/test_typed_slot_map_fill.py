@@ -19,7 +19,7 @@ import numpy as np
 from ovos_bus_client.message import Message
 from ovos_spec_tools import SpecMessage
 
-from test_intent4 import _make_prototype_pipeline
+from tests.test_intent4 import _make_prototype_pipeline
 
 SKILL = "light.skill"
 LABEL = f"{SKILL}:brightness"
