@@ -447,7 +447,25 @@ def main() -> int:
     # 27 added).
     # 232 after the gold-skill pin move: ovos-skill-moviemaster#79 dropped the
     # dead movie_information and movie_production intents on purpose.
-    ap.add_argument("--min-labels", type=int, default=232)
+    # 229 after the T-4808 ref bump. 14 labels leave and 11 arrive, and the
+    # 11 are one-to-one renames of the same intents: the dots-and-hyphens to
+    # underscores wave reaches cmd (run_script_command), color-picker
+    # (request_color and its by_hex, by_name, by_rgb siblings), naptime
+    # (wake_up) and volume (volume_max_boost, volume_mute,
+    # volume_mute_toggle, volume_reset, volume_unmute). The three that
+    # genuinely leave are each a skill fixing itself, not a template the
+    # expansion dropped:
+    #   ovos-skill-hello-world:HowAreYou was a stray .intent file in gl-ES
+    #   alone, folded into the canonical how_are_you by f444f5b (#148),
+    #   which exists at both refs in every locale;
+    #   ovos-skill-weather:do-i-need-an-umbrella and its dotted twin are one
+    #   retired intent -- 21 locale .intent files at the old ref, and at the
+    #   new ref the only surviving file is
+    #   test/unittests/test_umbrella_phrasings_route.py, the test that
+    #   asserts those phrasings now route elsewhere.
+    # Restoring either by holding its ref would put a duplicate label and a
+    # retired intent back in the corpus, so the floor moves instead.
+    ap.add_argument("--min-labels", type=int, default=229)
     # Measured on the same tree: 53 distinct locale directories folded to 52
     # once fa-ir/fa-IR merged under OVOS-INTENT-2 2's case-insensitive tag
     # comparison. The prior floor of 53 counted that pair twice.
