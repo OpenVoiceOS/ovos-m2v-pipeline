@@ -335,5 +335,45 @@ relation questions at a definition. An intent that was deleted rather than
 renamed, such as `ovos-skill-iss-location`'s `about`, has no destination at all,
 and its rows go too.
 
+## The label ledger
+
+The corpus must never quietly shrink, and for a long time the guard against
+that was one number: `--min-labels`. A number cannot say which label left, so
+it cannot tell a resource deleted by mistake from an intent that was folded
+into another one on purpose. It is also a net. A label lost on the same day
+another is gained moves the total by nothing, so the loss never reaches the
+number at all. And the only repair a number offers is a smaller number.
+
+`train/labels.yaml` replaces the number with a list.
+
+* `baseline` is the label set of the last published corpus, all 232 names of
+  v6.1, read from the published dataset.
+* `removed` names every label the pins in `train/sources.yaml` drop against
+  that set. Each entry carries the reason it left and `merged_into`, the
+  label its phrasings went to, or `merged_into: null` when there is none.
+* `added` names every label the pins add, with the reason.
+
+The builder derives `--min-labels` as the baseline count, minus the
+removals, plus the additions. Nobody types it. `--min-labels` remains as an
+override that can only make the floor stricter: a value below the derived
+one is refused with the reason.
+
+Two checks then read the finished label set name by name, and the manifest
+records both under `label_ledger`:
+
+* A label in the baseline that is not in the corpus and not in `removed`
+  fails the build. This is the check a count cannot make.
+* A removal whose `merged_into` label is itself absent fails the build. A
+  fold that moves phrasings into a label the corpus does not carry has moved
+  them into nothing.
+
+The ledger is allowed to lead the pins. An entry is written the day the
+change is read in a skill; the pin that carries it into the corpus moves
+later. So a listed removal that has not happened yet, and a listed addition
+that has not arrived yet, are reported in the manifest and are not failures.
+
+Lowering the floor is therefore an act of writing: name the label, say why it
+left, and say where its phrasings went.
+
 ---
 [← Training](training.md) · [Home](../README.md)

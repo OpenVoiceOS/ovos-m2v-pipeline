@@ -423,6 +423,98 @@ def count_ambiguous_rows(rows) -> int:
                if (row["lang"], row["utterance"]) in conflicted)
 
 
+def load_label_ledger(path: Path) -> dict:
+    """Read the label ledger: the baseline label set and every change to it.
+
+    A bare count cannot tell a label that left on purpose from a label whose
+    resource was deleted by mistake, and the only repair a bare count offers
+    is to lower the floor, which deletes the signal the floor exists to
+    raise. The ledger replaces the count with a list. It holds the label set
+    of the last published corpus, every label the current pins remove from
+    that set with the reason it left, and every label they add. The floor is
+    derived from those three numbers and never typed.
+
+    Every removal names a reason. A removal that folds one label into another
+    names the surviving label under ``merged_into``; once the removal takes
+    effect, that survivor must be in the corpus, or the fold moved the
+    phrasings nowhere. A removal of a label with no survivor says
+    ``merged_into: null`` and says in its reason where the phrasings went.
+    """
+    doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+    baseline = doc["baseline"]
+    names = baseline["labels"]
+    labels = set(names)
+    if len(labels) != len(names):
+        raise SystemExit(f"{path}: the baseline label list repeats a label")
+    if len(labels) != baseline["labels_trained"]:
+        raise SystemExit(
+            f"{path}: the baseline lists {len(labels)} labels and claims "
+            f"{baseline['labels_trained']}")
+    removed, added = {}, {}
+    for entry in doc.get("removed") or []:
+        label = entry["label"]
+        if label not in labels:
+            raise SystemExit(
+                f"{path}: removed entry {label} is not a baseline label, so "
+                f"there is nothing for it to remove")
+        if not (entry.get("reason") or "").strip():
+            raise SystemExit(f"{path}: removed entry {label} has no reason")
+        if "merged_into" not in entry:
+            raise SystemExit(
+                f"{path}: removed entry {label} does not say which label the "
+                f"phrasings went to (use `merged_into: null` for none)")
+        removed[label] = entry
+    for entry in doc.get("added") or []:
+        label = entry["label"]
+        if label in labels:
+            raise SystemExit(
+                f"{path}: added entry {label} is already a baseline label")
+        if not (entry.get("reason") or "").strip():
+            raise SystemExit(f"{path}: added entry {label} has no reason")
+        added[label] = entry
+    return {
+        "path": str(path),
+        "corpus": baseline.get("corpus"),
+        "baseline_labels": labels,
+        "baseline_count": baseline["labels_trained"],
+        "removed": removed,
+        "added": added,
+        "min_labels": baseline["labels_trained"] - len(removed) + len(added),
+    }
+
+
+def check_label_ledger(ledger: dict, labels_trained: set) -> dict:
+    """Compare the built label set against the ledger, name by name.
+
+    The ledger may lead the pins: an entry is written when the change is
+    read, and the pin that carries it moves later. So a removal that has not
+    happened yet and an addition that has not arrived yet are reported and
+    are not failures. A loss nobody wrote down is the failure, because it is
+    the one a count would have hidden.
+    """
+    lost = ledger["baseline_labels"] - labels_trained
+    gained = labels_trained - ledger["baseline_labels"]
+    orphaned = sorted(
+        entry["merged_into"] for label, entry in ledger["removed"].items()
+        if label in lost and entry["merged_into"]
+        and entry["merged_into"] not in labels_trained)
+    return {
+        "ledger": ledger["path"],
+        "baseline_corpus": ledger["corpus"],
+        "baseline_labels": ledger["baseline_count"],
+        "min_labels_derived": ledger["min_labels"],
+        "labels_lost_against_baseline": sorted(lost),
+        "labels_gained_against_baseline": sorted(gained),
+        "labels_lost_and_unlisted": sorted(lost - set(ledger["removed"])),
+        "labels_gained_and_unlisted": sorted(gained - set(ledger["added"])),
+        "listed_removals_not_yet_applied":
+            sorted(set(ledger["removed"]) & labels_trained),
+        "listed_additions_not_yet_arrived":
+            sorted(set(ledger["added"]) - labels_trained),
+        "merge_targets_missing_from_the_corpus": orphaned,
+    }
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--sources", default="train/sources.yaml")
@@ -430,27 +522,20 @@ def main() -> int:
     ap.add_argument("--out", required=True)
     ap.add_argument("--dry-run", action="store_true")
     # Floors rather than an equality: the corpus grows as skills gain
-    # resources, and it must never quietly shrink. Both numbers move the
+    # resources, and it must never quietly shrink. The number moves the
     # moment the expansion step starts discarding templates again, which is
     # the failure this build already had once and which no count revealed.
-    # Measured at the pins in train/sources.yaml: 235 labels trained (dev
-    # measured 227). Folds remove labels: date-time, randomness, wallpapers
-    # and pokepedia renamed their resources to underscored base names,
-    # volume and weather consolidated several intents into slot intents,
-    # and the it-IT count file lost its capital. The new pokepedia pin and
-    # the skill_refs that were missing add more labels than the folds
-    # remove, so the net count goes up and the floor goes up with it.
-    # 233 after the OVOS-INTENT-2 2 rename wave re-pin: ovos-skill-alerts#216
-    # merged DeleteTodoEntries and QueryTodoEntries into their list-kind
-    # siblings, so two labels leave and every other rename is one to one
-    # (measured: 235 labels at the old pins, 233 at the new, 29 removed,
-    # 27 added).
-    # 232 after the gold-skill pin move: ovos-skill-moviemaster#79 dropped the
-    # dead movie_information and movie_production intents on purpose.
-    ap.add_argument("--min-labels", type=int, default=232)
-    # Measured on the same tree: 53 distinct locale directories folded to 52
-    # once fa-ir/fa-IR merged under OVOS-INTENT-2 2's case-insensitive tag
-    # comparison. The prior floor of 53 counted that pair twice.
+    #
+    # The label floor is not typed. It is derived from train/labels.yaml:
+    # the label set of the last published corpus, minus every removal that
+    # file lists with its reason, plus every addition. A loss the ledger
+    # does not list fails the build whatever the count says, so the floor
+    # can no longer be satisfied by a hand-lowered number, and a loss can no
+    # longer hide inside a net count that a gain holds up. --min-labels
+    # stays as an override for a stricter floor only: a value below the
+    # derived one is refused.
+    ap.add_argument("--labels", default="train/labels.yaml")
+    ap.add_argument("--min-labels", type=int, default=None)
     ap.add_argument("--min-languages", type=int, default=52)
     # The zero this build asserts on the overlap is satisfied trivially when
     # the test side is empty: a gold glob renamed or moved out from under the
@@ -471,6 +556,19 @@ def main() -> int:
     # here would be red on arrival and loosened away by whoever ran it next.
     ap.add_argument("--max-noncompliant-base-names", type=int, default=None)
     args = ap.parse_args()
+
+    ledger = load_label_ledger(Path(args.labels))
+    if args.min_labels is None:
+        args.min_labels = ledger["min_labels"]
+    elif args.min_labels < ledger["min_labels"]:
+        print(f"--min-labels {args.min_labels} is below the floor "
+              f"{ledger['min_labels']} that {args.labels} derives "
+              f"({ledger['baseline_count']} baseline labels, "
+              f"{len(ledger['removed'])} listed removals, "
+              f"{len(ledger['added'])} listed additions). A floor is lowered "
+              f"by listing the label that left and why, not by typing a "
+              f"smaller number.", file=sys.stderr)
+        return 1
 
     cfg = yaml.safe_load(Path(args.sources).read_text(encoding="utf-8"))
     ws = Path(args.workspace or cfg["workspace"]).expanduser()
@@ -574,6 +672,10 @@ def main() -> int:
     starved = sorted(scored_labels & labels_with_templates - labels_trained)
     unsupported = sorted(scored_labels - labels_with_templates)
 
+    # Name by name, not count against count: the ledger reads the finished
+    # label set and says which of its losses were written down.
+    ledger_report = check_label_ledger(ledger, labels_trained)
+
     report = {
         "train_rows": len(train),
         "test_rows": len(test),
@@ -616,6 +718,7 @@ def main() -> int:
         "noncompliant_base_names": len(violations),
         "noncompliant_base_names_detail": sorted(violations),
         "label_function": "train/skill_labels.py (no spelling fallback)",
+        "label_ledger": ledger_report,
         "gold_labels_starved_of_slot_examples": starved,
         "gold_labels_no_skill_supports": unsupported,
         "stats": dict(stats),
@@ -623,11 +726,30 @@ def main() -> int:
     print(json.dumps({k: v for k, v in report.items()
                       if not isinstance(v, list)}, indent=2))
     short = []
+    if ledger_report["labels_lost_and_unlisted"]:
+        short.append(
+            f"{len(ledger_report['labels_lost_and_unlisted'])} labels left "
+            f"the corpus and {args.labels} does not list them: "
+            f"{', '.join(ledger_report['labels_lost_and_unlisted'])}. Either "
+            f"the resource was dropped by mistake, which is a regression to "
+            f"fix in the skill, or it left on purpose, which is an entry in "
+            f"the ledger naming the reason and the label its phrasings went "
+            f"to. A net count hides this whenever a gain holds the total up")
+    if ledger_report["merge_targets_missing_from_the_corpus"]:
+        short.append(
+            f"a removal in {args.labels} folds a label into "
+            f"{', '.join(ledger_report['merge_targets_missing_from_the_corpus'])}"
+            f", and the corpus does not carry that label: the phrasings the "
+            f"fold moved are in no label at all")
     if report["labels_trained"] < args.min_labels:
         short.append(
             f"the corpus shrank to {report['labels_trained']} labels, floor "
-            f"{args.min_labels}: a template the expansion drops takes its "
-            f"label with it and no other count shows the loss")
+            f"{args.min_labels} derived from {args.labels} "
+            f"({ledger['baseline_count']} baseline labels, "
+            f"{len(ledger['removed'])} listed removals, "
+            f"{len(ledger['added'])} listed additions): a template the "
+            f"expansion drops takes its label with it and no other count "
+            f"shows the loss")
     if report["languages_train"] < args.min_languages:
         short.append(
             f"the corpus shrank to {report['languages_train']} languages, "
