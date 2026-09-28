@@ -219,6 +219,9 @@ def norm_lang(lang: str) -> str:
         return f"{base.lower()}-{region.upper()}"
     return lang.lower()
 _SLOT_RE = re.compile(r"\{[^}]*\}")
+#: Named slot, e.g. the `query` in `{query}` -- used to name the exact
+#: entity an unfilled row was missing, for `exclusions.json`.
+_SLOT_NAME_RE = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
 
 
 def norm_intent(name: str) -> str:
@@ -793,7 +796,8 @@ def sha256_file(path: Path) -> str:
 #: Files a dataset build writes to `--out`; the exact set `push_dataset`
 #: uploads to the Hub, additively, one commit per file.
 DATASET_FILES = ("train.parquet", "train.jsonl", "test.parquet", "test.jsonl",
-                 "labels.json", "manifest.json", "README.md")
+                 "labels.json", "manifest.json", "README.md",
+                 "exclusions.json")
 
 #: A language is only counted as covered when this many skills contribute
 #: rows to it. One skill's templates translated into a language says the
@@ -1200,9 +1204,76 @@ def main(argv=None):
               f"MAX_ENTITY_EXPANSIONS ({MAX_ENTITY_EXPANSIONS}) and were "
               f"evenly sampled -- worst offenders: {worst_str}")
     df = df.explode("utterance", ignore_index=False)
+
+    # Row count per language before any exclusion, for exclusions.json: a
+    # language that ends at zero rows must stay on the record, not vanish
+    # as if nobody had ever added it. Counted here, after the template-fill
+    # explode, so it is at the same row granularity as everything it is
+    # later compared against (`rows_kept` etc.) -- one raw templated row can
+    # explode into many filled rows, and counting "before" pre-explode made
+    # `rows_dropped` go negative for template-heavy languages.
+    rows_before_by_lang = df["lang"].value_counts().to_dict()
+
+    # Every dropped row gets a named cause. Before this, only the
+    # unfilled-slot cause was recorded, so a language could be reported with
+    # `rows_dropped: 2` and no reason at all and a reader had to conclude the
+    # manifest was broken. The content filters and the rare-label filter are
+    # both live causes on the real corpus.
+    drop_causes_by_lang = collections.defaultdict(collections.Counter)
+    _last_counts = dict(rows_before_by_lang)
+
+    def _variant_counts():
+        """Row counts keyed on the dialect, whichever column still holds it.
+
+        Halfway down this function `lang` is narrowed to the bare language
+        and the dialect moves to `lang_variant`. Counting `lang` on both
+        sides of that rename compares `en-US` before with `en` after, every
+        variant looks like it lost all its rows, and the manifest reports 50
+        of 54 languages absent from a corpus that carries most of them.
+        """
+        col = "lang_variant" if "lang_variant" in df.columns else "lang"
+        return df[col].value_counts().to_dict()
+
+    def _account(cause):
+        """Attribute the rows lost since the previous call to *cause*."""
+        nonlocal _last_counts
+        now = _variant_counts()
+        for lang, was in _last_counts.items():
+            lost = int(was) - int(now.get(lang, 0))
+            if lost:
+                drop_causes_by_lang[lang][cause] += lost
+        _last_counts = now
+
     still_literal = df["utterance"].str.contains("{", regex=False, na=False)
     n_unfilled_slot = int(still_literal.sum())
+
+    # Named per (lang, skill_id, slot): exactly which entity was missing,
+    # for every row this drops -- exclusions.json's per-language reason.
+    # Each dropped row is attributed to exactly one (skill_id, slot) pair
+    # (its first slot name in sorted order) so the per-group counts sum to
+    # `rows_dropped_unfilled_slot` instead of over-counting rows that carry
+    # more than one distinct slot placeholder: the row lands in one bucket
+    # whose `slot` names every unfilled slot, joined by "+", so the
+    # worklist a maintainer reads from the manifest is complete.
+    unfilled_reasons = collections.Counter()
+    unfilled_rows_by_lang = collections.Counter()
+    for lang, label, utt in zip(df.loc[still_literal, "lang"],
+                                df.loc[still_literal, "label"],
+                                df.loc[still_literal, "utterance"]):
+        unfilled_rows_by_lang[lang] += 1
+        skill_id = label.split(":", 1)[0]
+        slots = sorted(set(_SLOT_NAME_RE.findall(utt)))
+        if not slots:
+            # `{...}` present but its content is not a valid slot
+            # identifier (e.g. a hyphen, a leading digit, non-ASCII
+            # letters) -- still name the row's own bracket, so every
+            # dropped row lands in exactly one reason bucket and the
+            # per-language sum keeps matching `rows_dropped_unfilled_slot`.
+            slots = sorted(set(m.strip("{}") for m in _SLOT_RE.findall(utt))) or ["<unnamed>"]
+        unfilled_reasons[(lang, skill_id, "+".join(slots))] += 1
+
     df = df[~still_literal]
+    _account("unfilled_slot")
 
     # ---- content filters
     f = cfg["filters"]
@@ -1223,6 +1294,7 @@ def main(argv=None):
         keep &= u.map(lambda s: any(ch.isalpha() for ch in str(s)))
     n_filtered = int((~keep).sum())
     df = df[keep]
+    _account("content_filter")
 
     # ---- resolve every label against what the pinned refs register
     registry, by_skill_fold, intents_by_skill = build_registry(cfg, ws)
@@ -1241,6 +1313,7 @@ def main(argv=None):
                            "canonical": canonical, "resolved_by": how})
     n_unresolved = int(sum(v["rows"] for v in unresolved.values()))
     df = df[df["label"].isin(resolution)]
+    _account("unresolved_label")
     df["label"] = df["label"].map(resolution).astype(object)
 
     # ---- an unknown-registry drop is a coverage gap, not a hygiene detail:
@@ -1276,6 +1349,7 @@ def main(argv=None):
     excluded = {"thin_languages": {"languages": thin,
                                    "rows": int(df["lang"].isin(thin).sum())}}
     df = df[~df["lang"].isin(thin)]
+    _account("thin_language")
 
     # ---- exact dedup on (utterance, label, lang)
     n_before = len(df)
@@ -1283,6 +1357,7 @@ def main(argv=None):
     df["_k"] = (df["label"].astype(str) + "\x1f" + df["utterance"].str.lower().astype(str)
                + "\x1f" + df["lang"].astype(str))
     df = df[~df.duplicated("_k", keep="first")].drop(columns=["_k"])
+    _account("duplicate_row")
     n_dedup = n_before - len(df)
 
     df["family"] = df["label"].map(family_of)
@@ -1309,6 +1384,7 @@ def main(argv=None):
                        for k, v in pair_counts.most_common(30)]
     if not args.allow_ambiguous:
         df = df[~ambiguous_mask]
+        _account("ambiguous_label")
         residual = 0
     else:
         residual = n_ambiguous_groups
@@ -1322,6 +1398,7 @@ def main(argv=None):
     counts = df["label"].value_counts()
     rare = sorted(counts[counts < f["min_rows_per_label"]].index)
     df = df[~df["label"].isin(rare)]
+    _account("rare_label")
 
     # ---- no row may ever reach the export with a literal `{slot}` in it.
     # A regression in the entity-fill step above must fail the build loudly
@@ -1331,6 +1408,41 @@ def main(argv=None):
         raise SystemExit(
             f"[slots] {len(leftover)} row(s) still contain a literal '{{' "
             f"after entity-fill; this is a bug, e.g. {leftover['utterance'].iloc[0]!r}")
+
+    # ---- exclusions.json: a language that ends at zero rows is
+    # indistinguishable from one nobody ever added it unless the drop is
+    # named. Every language that had at least one row before the
+    # unfilled-slot exclusion gets its own entry -- before/kept/dropped
+    # counts, plus the exact (skill id, slot) that caused each unfilled
+    # drop -- even when it ends at zero and disappears from every other
+    # report field.
+    rows_after_by_lang = _variant_counts()
+    exclusions_by_lang = {}
+    for lang, before in sorted(rows_before_by_lang.items()):
+        kept = int(rows_after_by_lang.get(lang, 0))
+        reasons = sorted(
+            ({"skill_id": skill_id, "slot": slot, "rows": n}
+             for (l, skill_id, slot), n in unfilled_reasons.items() if l == lang),
+            key=lambda r: (-r["rows"], r["skill_id"], r["slot"]))
+        causes = {c: int(n) for c, n in
+                  sorted(drop_causes_by_lang.get(lang, {}).items())}
+        exclusions_by_lang[lang] = {
+            "rows_before": int(before),
+            "rows_kept": kept,
+            "rows_dropped": int(before) - kept,
+            "rows_dropped_unfilled_slot": int(unfilled_rows_by_lang.get(lang, 0)),
+            "unfilled_slot_reasons": reasons,
+            # Every dropped row, by cause. The counts here sum to
+            # `rows_dropped`, so a language can never be reported with rows
+            # lost and nothing to explain them.
+            "rows_dropped_by_cause": causes,
+        }
+    languages_absent_from_output = sorted(
+        lang for lang, excl in exclusions_by_lang.items() if excl["rows_kept"] == 0)
+    exclusions = {
+        "languages": exclusions_by_lang,
+        "languages_absent_from_output": languages_absent_from_output,
+    }
 
     report = {
         "rows_raw": n_raw,
@@ -1380,6 +1492,7 @@ def main(argv=None):
         "ambiguous_residual_groups": residual,
         "ambiguous_label_pairs": ambiguous_pairs,
         "split": cfg["split"],
+        "exclusions": exclusions,
     }
 
     if args.dry_run:
@@ -1423,6 +1536,12 @@ def main(argv=None):
                       {"labels": len(set(train["label"]) - set(test["label"])),
                        "names": sorted(set(train["label"]) - set(test["label"]))})
 
+    p = out / "exclusions.json"
+    p.write_text(json.dumps(exclusions, indent=2, ensure_ascii=False), encoding="utf-8")
+    written[p.name] = sha256_file(p)
+
+    # The card is written last so it can report the exclusions alongside
+    # everything else, and its own sha is recorded after it exists.
     write_dataset_card(out, report)
     written["README.md"] = sha256_file(out / "README.md")
 
