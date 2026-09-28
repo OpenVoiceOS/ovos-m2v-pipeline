@@ -52,9 +52,11 @@ import argparse
 import collections
 import json
 import re
+import shutil
 import string
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import yaml
@@ -376,6 +378,37 @@ def fill(template: str, hints: dict, keywords: dict, stats: collections.Counter,
     return out
 
 
+class RowsOnDisk:
+    """A re-readable view of the streamed corpus.
+
+    The builder used to hold every row in a list, then build a second full
+    list for the dedup and a third for the gold-overlap removal, so its peak
+    scaled with rows: measured 2.12 GB at 2.24M rows, and killed at the
+    4.0 GiB cgroup ceiling at 4.46M (T-6737). Rows go to disk instead.
+
+    The three counters below read the FINISHED corpus, and one of them,
+    count_ambiguous_rows, iterates it twice. Re-opening the file on each
+    __iter__ leaves all three unchanged. That matters more than saving the
+    second read: a counter rewritten to one pass is a counter whose agreement
+    with the old build would have to be argued instead of measured.
+    """
+
+    def __init__(self, path: Path):
+        self.path = path
+        self._len = None
+
+    def __iter__(self):
+        with self.path.open(encoding="utf-8") as fh:
+            for line in fh:
+                if line.strip():
+                    yield json.loads(line)
+
+    def __len__(self):
+        if self._len is None:
+            self._len = sum(1 for _ in self)
+        return self._len
+
+
 def count_leftover_template_syntax(rows) -> int:
     """Written rows that still carry template syntax other than `{slot}`.
 
@@ -477,205 +510,252 @@ def main() -> int:
     refs = cfg["skill_refs"]["refs"]
 
     stats = collections.Counter()
-    train, test = [], []
+    test = []
     labels_trained, labels_scored = set(), set()
     labels_with_templates = set()
     no_gold, no_resources = [], []
     violations = set()
     dropped_templates = []
 
-    for key, rev in sorted(refs.items()):
-        repo, repo_name = ws / key, key.rsplit("/", 1)[-1]
-        if not repo.is_dir():
-            stats["skill_missing_clone"] += 1
-            continue
-        templates, hints, keywords = read_skill(repo, rev, repo_name, stats,
-                                                violations, dropped_templates)
-        if not templates:
-            no_resources.append(repo_name)
-        for _, label, _ in templates:
-            labels_with_templates.add(label)
-        for lang, label, template in templates:
-            for sentence in fill(template, hints.get(lang, {}),
-                                 keywords.get(lang, {}), stats, lang):
-                train.append({"lang": lang, "label": label,
-                              "utterance": sentence, "source": f"skill:{repo_name}",
-                              "template": template})
-                labels_trained.add(label)
-        # The gold side is read by build_eval.read_gold, the same reader the
-        # eval builder uses, and labelled by the same function as the train
-        # rows above. No spelling fallback: a gold label the train side does
-        # not carry is reported by the manifest and refused by the census.
-        gold = read_gold(repo, rev, repo_name, stats)
-        if not gold:
-            no_gold.append(repo_name)
-        for row in gold:
-            test.append(row)
-            labels_scored.add(row["label"])
+    # The rows go to disk as they are filled, in two passes, and the only
+    # structure that holds the whole corpus is the dedup key set. `scratch`
+    # is removed on every exit path including a refusal: the old builder
+    # created --out only after the floors passed, and half a corpus left
+    # where a reader expects a whole one is worse than none.
+    scratch = Path(tempfile.mkdtemp(prefix="m2v-build-"))
+    deduped_path = scratch / "deduped.jsonl"
+    train_path = scratch / "train.jsonl"
+    try:
+        # Pass 1: read each skill, fill its templates, drop duplicates, write.
+        # The repo loop keeps its order and still reads the skill before the
+        # gold, so `stats` gains its keys in the same order as before and the
+        # manifest stays comparable key for key with an older build.
+        seen = set()
+        # Counted locally and folded into `stats` after the loop, where the
+        # old builder's dedup pass created this key. The value is the same
+        # either way; the placement keeps the manifest comparable key for key
+        # and in order with a build from before this change.
+        duplicates = 0
+        with deduped_path.open("w", encoding="utf-8") as raw:
+            for key, rev in sorted(refs.items()):
+                repo, repo_name = ws / key, key.rsplit("/", 1)[-1]
+                if not repo.is_dir():
+                    stats["skill_missing_clone"] += 1
+                    continue
+                templates, hints, keywords = read_skill(
+                    repo, rev, repo_name, stats, violations, dropped_templates)
+                if not templates:
+                    no_resources.append(repo_name)
+                for _, label, _ in templates:
+                    labels_with_templates.add(label)
+                for lang, label, template in templates:
+                    for sentence in fill(template, hints.get(lang, {}),
+                                         keywords.get(lang, {}), stats, lang):
+                        key_seen = (label, lang, sentence.lower())
+                        if key_seen in seen:
+                            duplicates += 1
+                            continue
+                        seen.add(key_seen)
+                        raw.write(json.dumps(
+                            {"lang": lang, "label": label,
+                             "utterance": sentence,
+                             "source": f"skill:{repo_name}",
+                             "template": template},
+                            ensure_ascii=False) + "\n")
+                # The gold side is read by build_eval.read_gold, the same
+                # reader the eval builder uses, and labelled by the same
+                # function as the train rows above. No spelling fallback: a
+                # gold label the train side does not carry is reported by the
+                # manifest and refused by the census.
+                gold = read_gold(repo, rev, repo_name, stats)
+                if not gold:
+                    no_gold.append(repo_name)
+                for row in gold:
+                    test.append(row)
+                    labels_scored.add(row["label"])
+        del seen
+        # Guarded, because `Counter[k] += 0` CREATES the key. The old builder
+        # incremented once per duplicate, so a duplicate-free build carried no
+        # such key at all, and an unguarded fold would add
+        # `"train_duplicate_rows_removed": 0` to a manifest that never had it.
+        if duplicates:
+            stats["train_duplicate_rows_removed"] += duplicates
 
-    seen = set()
-    deduped = []
-    for row in train:
-        key = (row["label"], row["lang"], row["utterance"].lower())
-        if key in seen:
-            stats["train_duplicate_rows_removed"] += 1
-            continue
-        seen.add(key)
-        deduped.append(row)
-    train = deduped
+        # A gold sentence and an expansion of the same skill's own template
+        # are both somebody reaching for the obvious phrasing of the same
+        # intent, so they collide regardless of which file either was read
+        # from. Every training row that collides with a gold row -- match
+        # after lowercasing, whitespace collapse, and stripping edge
+        # punctuation, the same fold the runtime utterance normalizer applies
+        # before an intent engine matches -- is removed from the training
+        # side; the gold side is never touched. Measured, not assumed: the
+        # overlap under both comparisons and the templates the removal
+        # silences all go in the manifest.
+        gold_normalized = {normalize_utterance(r["utterance"]) for r in test}
+        gold_normalized_wide = {
+            normalize_utterance_punct_insensitive(r["utterance"])
+            for r in test}
 
-    # A gold sentence and an expansion of the same skill's own template are
-    # both somebody reaching for the obvious phrasing of the same intent, so
-    # they collide regardless of which file either was read from. Every
-    # training row that collides with a gold row -- match after lowercasing,
-    # whitespace collapse, and stripping edge punctuation, the same fold the
-    # runtime utterance normalizer applies before an intent engine matches
-    # -- is removed from the training side; the gold side is never touched.
-    # Measured, not assumed: the overlap under both comparisons and the
-    # templates the removal silences all go in the manifest.
-    gold_normalized = {normalize_utterance(r["utterance"]) for r in test}
-    gold_normalized_wide = {
-        normalize_utterance_punct_insensitive(r["utterance"]) for r in test}
-    templates_before = collections.defaultdict(set)
-    for row in train:
-        templates_before[row["template"]].add(row["label"])
-    train_gold_overlap = [
-        row for row in train
-        if normalize_utterance_punct_insensitive(row["utterance"])
-        in gold_normalized_wide]
-    train = [row for row in train
-             if normalize_utterance_punct_insensitive(row["utterance"])
-             not in gold_normalized_wide]
-    templates_after = {row["template"] for row in train}
-    silenced_templates = sorted(t for t in templates_before
-                                if t not in templates_after)
-    silenced_labels = sorted({label for t in silenced_templates
-                              for label in templates_before[t]})
-    # The overlap this fix removes may have been the only training rows a
-    # label had; re-derive labels_trained from what survives rather than
-    # from the pre-removal pass, or the manifest would call a label trained
-    # when its last row was just deleted.
-    labels_trained = {row["label"] for row in train}
-    train_gold_overlap_after = sum(
-        1 for row in train if normalize_utterance(row["utterance"]) in gold_normalized)
-    train_gold_overlap_after_punct_insensitive = sum(
-        1 for row in train
-        if normalize_utterance_punct_insensitive(row["utterance"])
-        in gold_normalized_wide)
+        # Pass 2: drop the rows that collide with a gold row. Only the
+        # per-template label map is held, which is one entry per distinct
+        # template rather than one per row.
+        templates_before = collections.defaultdict(set)
+        templates_after = set()
+        train_gold_overlap_count = 0
+        train_gold_overlap_after = 0
+        train_gold_overlap_after_punct_insensitive = 0
+        languages_train = set()
+        labels_trained = set()
+        with train_path.open("w", encoding="utf-8") as out_fh:
+            for row in RowsOnDisk(deduped_path):
+                templates_before[row["template"]].add(row["label"])
+                if normalize_utterance_punct_insensitive(
+                        row["utterance"]) in gold_normalized_wide:
+                    train_gold_overlap_count += 1
+                    continue
+                templates_after.add(row["template"])
+                # The overlap this fix removes may have been the only
+                # training rows a label had, so both sets are derived from
+                # what SURVIVES; deriving them from the pre-removal pass
+                # would call a label trained when its last row was just
+                # deleted.
+                labels_trained.add(row["label"])
+                languages_train.add(row["lang"])
+                # Both counters are re-measured on the surviving rows rather
+                # than asserted to be zero by construction: the filter and
+                # the check must be able to disagree, or the check proves
+                # nothing about the filter.
+                if normalize_utterance(row["utterance"]) in gold_normalized:
+                    train_gold_overlap_after += 1
+                if normalize_utterance_punct_insensitive(
+                        row["utterance"]) in gold_normalized_wide:
+                    train_gold_overlap_after_punct_insensitive += 1
+                out_fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+        deduped_path.unlink()
+        train = RowsOnDisk(train_path)
+        silenced_templates = sorted(t for t in templates_before
+                                    if t not in templates_after)
+        silenced_labels = sorted({label for t in silenced_templates
+                                  for label in templates_before[t]})
+        del templates_before, templates_after
 
-    # A gold sentence naming a label no skill trains is two different
-    # findings wearing one shape, and they ask for opposite work. If the
-    # skill ships the intent and it produces no rows, the intent is starved
-    # of slot examples and the skill is fine. If the skill does not ship the
-    # intent at all, the gold row asserts a routing its own skill never
-    # supported -- either written wrong, or written before a rename nobody
-    # carried into the gold file.
-    scored_labels = {r["label"] for r in test}
-    starved = sorted(scored_labels & labels_with_templates - labels_trained)
-    unsupported = sorted(scored_labels - labels_with_templates)
+        # A gold sentence naming a label no skill trains is two different
+        # findings wearing one shape, and they ask for opposite work. If the
+        # skill ships the intent and it produces no rows, the intent is starved
+        # of slot examples and the skill is fine. If the skill does not ship the
+        # intent at all, the gold row asserts a routing its own skill never
+        # supported -- either written wrong, or written before a rename nobody
+        # carried into the gold file.
+        scored_labels = {r["label"] for r in test}
+        starved = sorted(scored_labels & labels_with_templates - labels_trained)
+        unsupported = sorted(scored_labels - labels_with_templates)
 
-    report = {
-        "train_rows": len(train),
-        "test_rows": len(test),
-        "labels_trained": len(labels_trained),
-        "labels_scored": len(labels_scored & labels_trained),
-        "labels_never_scored": len(labels_trained - labels_scored),
-        "languages_train": len({r["lang"] for r in train}),
-        "languages_test": len({r["lang"] for r in test}),
-        "train_gold_overlap_removed": len(train_gold_overlap),
-        "train_gold_overlap_after_fix": train_gold_overlap_after,
-        "train_gold_overlap_after_fix_punct_insensitive":
-            train_gold_overlap_after_punct_insensitive,
-        "templates_silenced": len(silenced_templates),
-        "templates_silenced_detail": silenced_templates,
-        "labels_with_a_silenced_template": silenced_labels,
-        # A row still carrying template syntax other than an unfilled `{slot}`
-        # is unusable, whatever the per-stage counters above say. This is the
-        # number that would have caught the shipped-alternation defect: it
-        # reads the finished corpus rather than trusting the builder's own
-        # account of its work.
-        "train_rows_with_leftover_template_syntax":
-            count_leftover_template_syntax(train),
-        # Both read the finished corpus. The per-stage counters under "stats"
-        # count sentences as the expander sees them, which is a different
-        # number and carries a different name.
-        "train_rows_with_an_unfilled_slot":
-            count_rows_with_an_unfilled_slot(train),
-        "train_rows_ambiguous_same_utterance_different_label":
-            count_ambiguous_rows(train),
-        "templates_dropped_for_a_bare_alternation": len(dropped_templates),
-        "templates_dropped_for_a_bare_alternation_detail":
-            sorted(dropped_templates),
-        "gold_flags_are_not_evidence": (
-            "every gold sentence in this fleet was written by a model, so the "
-            "machine_generated field is unreliable wherever it claims False "
-            "and is not read; needs_manual marks a row somebody meant a human "
-            "to check, and whether that check happened is unrecorded"),
-        "skills_without_gold": sorted(no_gold),
-        "skills_without_locale_resources": sorted(no_resources),
-        "noncompliant_base_names": len(violations),
-        "noncompliant_base_names_detail": sorted(violations),
-        "label_function": "train/skill_labels.py (no spelling fallback)",
-        "gold_labels_starved_of_slot_examples": starved,
-        "gold_labels_no_skill_supports": unsupported,
-        "stats": dict(stats),
-    }
-    print(json.dumps({k: v for k, v in report.items()
-                      if not isinstance(v, list)}, indent=2))
-    short = []
-    if report["labels_trained"] < args.min_labels:
-        short.append(
-            f"the corpus shrank to {report['labels_trained']} labels, floor "
-            f"{args.min_labels}: a template the expansion drops takes its "
-            f"label with it and no other count shows the loss")
-    if report["languages_train"] < args.min_languages:
-        short.append(
-            f"the corpus shrank to {report['languages_train']} languages, "
-            f"floor {args.min_languages}")
-    if report["test_rows"] < args.min_test_rows:
-        short.append(
-            f"the gold side shrank to {report['test_rows']} test rows, "
-            f"floor {args.min_test_rows}: a moved or renamed gold glob "
-            f"that matches nothing builds an overlap of zero by having "
-            f"nothing to overlap with, and no other count shows the loss")
-    if report["labels_scored"] < args.min_labels_scored:
-        short.append(
-            f"the gold side scores only {report['labels_scored']} labels, "
-            f"floor {args.min_labels_scored}")
-    if report["train_gold_overlap_after_fix"] != 0:
-        short.append(
-            f"{report['train_gold_overlap_after_fix']} training rows still "
-            f"match a gold utterance after the removal pass: the fix did "
-            f"not do what it claims")
-    if report["train_gold_overlap_after_fix_punct_insensitive"] != 0:
-        short.append(
-            f"{report['train_gold_overlap_after_fix_punct_insensitive']} "
-            f"training rows still match a gold utterance once edge "
-            f"punctuation is stripped, the fold the runtime normalizer "
-            f"applies before an intent engine ever compares the two: the "
-            f"fix did not do what it claims")
-    cap = args.max_noncompliant_base_names
-    if cap is not None and report["noncompliant_base_names"] > cap:
-        short.append(
-            f"{report['noncompliant_base_names']} resource base names break "
-            f"OVOS-INTENT-2 2, ceiling {cap}: the set may shrink as skills "
-            f"are renamed and must never gain a member")
-    if short:
-        for line in short:
-            print(f"[gate] {line}", file=sys.stderr)
-        return 1
-    if args.dry_run:
-        return 0
-    out = Path(args.out)
-    out.mkdir(parents=True, exist_ok=True)
-    for name, rows in (("train.jsonl", train), ("test.jsonl", test)):
-        with (out / name).open("w", encoding="utf-8") as fh:
-            for row in rows:
+        report = {
+            "train_rows": len(train),
+            "test_rows": len(test),
+            "labels_trained": len(labels_trained),
+            "labels_scored": len(labels_scored & labels_trained),
+            "labels_never_scored": len(labels_trained - labels_scored),
+            "languages_train": len(languages_train),
+            "languages_test": len({r["lang"] for r in test}),
+            "train_gold_overlap_removed": train_gold_overlap_count,
+            "train_gold_overlap_after_fix": train_gold_overlap_after,
+            "train_gold_overlap_after_fix_punct_insensitive":
+                train_gold_overlap_after_punct_insensitive,
+            "templates_silenced": len(silenced_templates),
+            "templates_silenced_detail": silenced_templates,
+            "labels_with_a_silenced_template": silenced_labels,
+            # A row still carrying template syntax other than an unfilled `{slot}`
+            # is unusable, whatever the per-stage counters above say. This is the
+            # number that would have caught the shipped-alternation defect: it
+            # reads the finished corpus rather than trusting the builder's own
+            # account of its work.
+            "train_rows_with_leftover_template_syntax":
+                count_leftover_template_syntax(train),
+            # Both read the finished corpus. The per-stage counters under "stats"
+            # count sentences as the expander sees them, which is a different
+            # number and carries a different name.
+            "train_rows_with_an_unfilled_slot":
+                count_rows_with_an_unfilled_slot(train),
+            "train_rows_ambiguous_same_utterance_different_label":
+                count_ambiguous_rows(train),
+            "templates_dropped_for_a_bare_alternation": len(dropped_templates),
+            "templates_dropped_for_a_bare_alternation_detail":
+                sorted(dropped_templates),
+            "gold_flags_are_not_evidence": (
+                "every gold sentence in this fleet was written by a model, so the "
+                "machine_generated field is unreliable wherever it claims False "
+                "and is not read; needs_manual marks a row somebody meant a human "
+                "to check, and whether that check happened is unrecorded"),
+            "skills_without_gold": sorted(no_gold),
+            "skills_without_locale_resources": sorted(no_resources),
+            "noncompliant_base_names": len(violations),
+            "noncompliant_base_names_detail": sorted(violations),
+            "label_function": "train/skill_labels.py (no spelling fallback)",
+            "gold_labels_starved_of_slot_examples": starved,
+            "gold_labels_no_skill_supports": unsupported,
+            "stats": dict(stats),
+        }
+        print(json.dumps({k: v for k, v in report.items()
+                          if not isinstance(v, list)}, indent=2))
+        short = []
+        if report["labels_trained"] < args.min_labels:
+            short.append(
+                f"the corpus shrank to {report['labels_trained']} labels, floor "
+                f"{args.min_labels}: a template the expansion drops takes its "
+                f"label with it and no other count shows the loss")
+        if report["languages_train"] < args.min_languages:
+            short.append(
+                f"the corpus shrank to {report['languages_train']} languages, "
+                f"floor {args.min_languages}")
+        if report["test_rows"] < args.min_test_rows:
+            short.append(
+                f"the gold side shrank to {report['test_rows']} test rows, "
+                f"floor {args.min_test_rows}: a moved or renamed gold glob "
+                f"that matches nothing builds an overlap of zero by having "
+                f"nothing to overlap with, and no other count shows the loss")
+        if report["labels_scored"] < args.min_labels_scored:
+            short.append(
+                f"the gold side scores only {report['labels_scored']} labels, "
+                f"floor {args.min_labels_scored}")
+        if report["train_gold_overlap_after_fix"] != 0:
+            short.append(
+                f"{report['train_gold_overlap_after_fix']} training rows still "
+                f"match a gold utterance after the removal pass: the fix did "
+                f"not do what it claims")
+        if report["train_gold_overlap_after_fix_punct_insensitive"] != 0:
+            short.append(
+                f"{report['train_gold_overlap_after_fix_punct_insensitive']} "
+                f"training rows still match a gold utterance once edge "
+                f"punctuation is stripped, the fold the runtime normalizer "
+                f"applies before an intent engine ever compares the two: the "
+                f"fix did not do what it claims")
+        cap = args.max_noncompliant_base_names
+        if cap is not None and report["noncompliant_base_names"] > cap:
+            short.append(
+                f"{report['noncompliant_base_names']} resource base names break "
+                f"OVOS-INTENT-2 2, ceiling {cap}: the set may shrink as skills "
+                f"are renamed and must never gain a member")
+        if short:
+            for line in short:
+                print(f"[gate] {line}", file=sys.stderr)
+            return 1
+        if args.dry_run:
+            return 0
+        out = Path(args.out)
+        out.mkdir(parents=True, exist_ok=True)
+        # train.jsonl is already written, row for row, in the scratch directory:
+        # move it instead of serialising every row a second time.
+        shutil.move(str(train_path), str(out / "train.jsonl"))
+        with (out / "test.jsonl").open("w", encoding="utf-8") as fh:
+            for row in test:
                 fh.write(json.dumps(row, ensure_ascii=False) + "\n")
-    (out / "manifest.json").write_text(
-        json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
-    return 0
-
+        (out / "manifest.json").write_text(
+            json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+        return 0
+    finally:
+        # Removed whether the floors passed, refused, or the build raised.
+        shutil.rmtree(scratch, ignore_errors=True)
 
 if __name__ == "__main__":
     sys.exit(main())

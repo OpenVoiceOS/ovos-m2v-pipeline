@@ -8,8 +8,10 @@ reproduces something no runtime does, and it does it silently -- the rows
 simply are not there, so no count reveals the loss.
 """
 import collections
+import json
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -286,3 +288,139 @@ def test_ambiguity_is_counted_apart_from_duplication():
         {"lang": "de-DE", "utterance": "stop", "label": "a:stop"},
     ]
     assert bfs.count_ambiguous_rows(rows) == 2
+
+
+def test_rows_on_disk_can_be_read_more_than_once(tmp_path):
+    """count_ambiguous_rows iterates its argument TWICE.
+
+    A plain generator over the streamed corpus is exhausted after the first
+    pass, so the conflicted set would be built and then counted against
+    nothing: the counter would read 0 on a corpus full of conflicts and the
+    build would look clean. RowsOnDisk re-opens the file on every __iter__,
+    and this asserts that the answer off disk equals the answer in RAM.
+    """
+    rows = [
+        {"lang": "en-US", "utterance": "stop", "label": "a:stop"},
+        {"lang": "en-US", "utterance": "stop", "label": "b:halt"},
+        {"lang": "en-US", "utterance": "play hey jude", "label": "c:play"},
+        {"lang": "de-DE", "utterance": "stop", "label": "a:stop"},
+    ]
+    path = tmp_path / "train.jsonl"
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows),
+                    encoding="utf-8")
+    on_disk = bfs.RowsOnDisk(path)
+
+    assert bfs.count_ambiguous_rows(on_disk) == bfs.count_ambiguous_rows(rows)
+    assert bfs.count_ambiguous_rows(on_disk) == 2
+    # the second pass is the point: a one-shot iterator passes the line above
+    # and fails here
+    assert len(list(on_disk)) == 4
+    assert len(list(on_disk)) == 4
+    assert len(on_disk) == 4
+
+
+def test_a_blank_line_in_the_streamed_corpus_is_not_a_row(tmp_path):
+    path = tmp_path / "train.jsonl"
+    path.write_text('{"lang": "en-US", "utterance": "a", "label": "x:y"}\n\n',
+                    encoding="utf-8")
+    assert len(bfs.RowsOnDisk(path)) == 1
+
+
+def _sources(tmp_path, refs):
+    path = tmp_path / "sources.yaml"
+    path.write_text(
+        "workspace: " + str(tmp_path) + "\n"
+        "skill_refs:\n  refs:\n"
+        + "".join(f'    {k}: "{v}"\n' for k, v in refs.items()),
+        encoding="utf-8")
+    return path
+
+
+def _run(sources, out, extra=()):
+    argv = ["--sources", str(sources), "--out", str(out),
+            "--min-labels", "1", "--min-languages", "1",
+            "--min-test-rows", "0", "--min-labels-scored", "0", *extra]
+    saved = sys.argv
+    sys.argv = ["build_from_skills.py", *argv]
+    try:
+        return bfs.main()
+    finally:
+        sys.argv = saved
+
+
+def test_a_build_writes_the_three_files_and_leaves_no_scratch(tmp_path):
+    _write_skill_repo(tmp_path / "ovos-skill-alpha", {
+        "locale/en-US/pick.intent": "play {genre}\n",
+        "locale/en-US/genre.entity": "rock\n",
+    })
+    out = tmp_path / "out"
+    before = set(Path(tempfile.gettempdir()).glob("m2v-build-*"))
+
+    assert _run(_sources(tmp_path, {"ovos-skill-alpha": "HEAD"}), out) == 0
+
+    assert (out / "train.jsonl").is_file()
+    assert (out / "test.jsonl").is_file()
+    assert (out / "manifest.json").is_file()
+    assert set(Path(tempfile.gettempdir()).glob("m2v-build-*")) == before
+
+
+def test_a_refused_build_writes_no_output_and_leaves_no_scratch(tmp_path):
+    """The floors refuse before anything is published.
+
+    The rows are streamed to a scratch file as they are filled, so the
+    refusal path has to remove that file AND still not create --out. Half a
+    corpus where a reader expects a whole one is worse than none.
+    """
+    _write_skill_repo(tmp_path / "ovos-skill-alpha", {
+        "locale/en-US/pick.intent": "play {genre}\n",
+        "locale/en-US/genre.entity": "rock\n",
+    })
+    out = tmp_path / "out"
+    before = set(Path(tempfile.gettempdir()).glob("m2v-build-*"))
+
+    rc = _run(_sources(tmp_path, {"ovos-skill-alpha": "HEAD"}), out,
+              extra=("--min-labels", "999"))
+
+    assert rc == 1
+    assert not out.exists()
+    assert set(Path(tempfile.gettempdir()).glob("m2v-build-*")) == before
+
+
+def test_a_duplicate_free_build_carries_no_duplicate_key(tmp_path):
+    """`Counter[k] += 0` creates the key, and the old builder created none.
+
+    The dedup count is folded into `stats` after the streaming pass, at the
+    point the old dedup block created the key. Folding it unguarded would put
+    `"train_duplicate_rows_removed": 0` into the manifest of a build that has
+    no duplicates, where the old builder emitted no such key, and the claim
+    that the two manifests compare key for key would be false.
+    """
+    _write_skill_repo(tmp_path / "ovos-skill-alpha", {
+        "locale/en-US/pick.intent": "play {genre}\n",
+        "locale/en-US/genre.entity": "rock\n",
+    })
+    out = tmp_path / "out"
+
+    assert _run(_sources(tmp_path, {"ovos-skill-alpha": "HEAD"}), out) == 0
+
+    manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
+    assert "train_duplicate_rows_removed" not in manifest["stats"]
+
+
+def test_a_build_with_duplicates_still_counts_them(tmp_path):
+    """The control on the guard: the key appears when there ARE duplicates.
+
+    Without this, `if duplicates:` could be `if False:` and the test above
+    would still pass.
+    """
+    _write_skill_repo(tmp_path / "ovos-skill-alpha", {
+        # the same phrasing twice in one intent file: same label, same
+        # locale, same utterance, so the second row is a duplicate
+        "locale/en-US/pick.intent": "play rock\nplay rock\n",
+    })
+    out = tmp_path / "out"
+
+    assert _run(_sources(tmp_path, {"ovos-skill-alpha": "HEAD"}), out) == 0
+
+    manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["stats"]["train_duplicate_rows_removed"] == 1
