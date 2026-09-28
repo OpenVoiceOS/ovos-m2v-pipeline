@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.29.2a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.29.2a2) (2026-09-28)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.29.2a1...0.29.2a2)
+
+**Merged pull requests:**
+
+- perf: stream the corpus build instead of holding it in RAM [\#280](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/280) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.29.2a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.29.2a1) (2026-09-28)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.29.1a1...0.29.2a1)
