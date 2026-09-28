@@ -67,8 +67,50 @@ def test_values_are_distinct():
 
 
 def test_the_sample_is_capped():
+    """The cap counts surfaces, so a two-surface type keeps its values."""
     for slot_type in ts.resolvable():
-        assert len(ts.values_for(slot_type, "en-US")) <= ts.SAMPLES_PER_SLOT
+        assert len(ts.values_for(slot_type, "en-US")) <= ts.cap_for(slot_type)
+
+
+def test_a_one_surface_type_is_still_capped_at_the_sample_count():
+    """The control: the new cap must not loosen every other type.
+
+    `date` has one surface per value, so its cap does not move. If `cap_for`
+    ever multiplied the wrong types, this is what fails.
+    """
+    assert ts.cap_for("date") == ts.SAMPLES_PER_SLOT
+    assert ts.cap_for("number") == ts.SAMPLES_PER_SLOT * 2
+    assert len(ts.values_for("date", "en-US")) <= ts.SAMPLES_PER_SLOT
+
+
+def test_the_number_sample_carries_both_surfaces():
+    """Digits for what an ASR sends, words for what a person says."""
+    values = ts.values_for("number", "en-US")
+    assert [v for v in values if v.isdigit()], values
+    assert [v for v in values if not v.isdigit()], values
+
+
+def test_every_anchor_keeps_both_of_its_surfaces():
+    """The contract the corpus depends on, asserted per anchor.
+
+    A cap that counted values rather than surfaces would silently drop whole
+    anchors from the end of the list, and a test that only asks whether SOME
+    digit and SOME word survive would still pass. This asks per anchor.
+    """
+    values = ts.values_for("number", "en-US")
+    for anchor in ts._NUMBERS:
+        assert str(anchor) in values, (anchor, values)
+    assert len([v for v in values if not v.isdigit()]) == len(ts._NUMBERS), values
+
+
+def test_a_language_with_no_wordlist_still_gets_the_digits():
+    """The digits are language-neutral, so no language is left with no rows.
+
+    Before the ruling a language whose wordlist the parser lacks produced no
+    numeric surface at all, and every template naming a number slot was
+    dropped for it.
+    """
+    assert [v for v in ts.values_for("number", "xx-XX") if v.isdigit()]
 
 
 def test_coverage_reports_every_registered_type():

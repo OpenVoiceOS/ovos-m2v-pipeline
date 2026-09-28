@@ -32,12 +32,53 @@ def test_a_typed_slot_never_survives_into_a_row():
         assert not PLACEHOLDER.search(row), row
 
 
-def test_the_value_is_this_language_and_not_english():
+def _word_surfaces(lang):
+    """A language's own number words, with the language-neutral digits left out."""
+    return [v for v in ts.values_for("number", lang) if not v.isdigit()]
+
+
+def test_the_word_form_is_this_language_and_not_english():
+    """A German row may not say "forty two".
+
+    Only the WORD surfaces carry a language. The digits are shared by every
+    language on purpose, so asserting over every surface would assert that
+    German rows contain no digits, which is not the property that matters.
+    """
     german = sentences("wie spät ist es in {number:offset} minuten", lang="de-DE")
     english = sentences("what time will it be in {number:offset} minutes")
     assert german and english
+    english_words = _word_surfaces("en-US")
+    assert english_words, "no en-US word surface, so this test proves nothing"
     assert not any(value in " ".join(german)
-                   for value in ts.values_for("number", "en-US")), german
+                   for value in english_words), german
+
+
+def test_the_digit_form_is_shared_by_every_language():
+    """The positive control for the test above.
+
+    It proves the narrowing is real rather than a hole: the digits DO appear
+    in both languages, so the test above passes because the word forms differ
+    and not because no surface reaches a German row at all.
+    """
+    german = sentences("wie spät ist es in {number:offset} minuten", lang="de-DE")
+    english = sentences("what time will it be in {number:offset} minutes")
+    digits = [v for v in ts.values_for("number", "en-US") if v.isdigit()]
+    assert digits, "no digit surface at all, so the ruling is not implemented"
+    for value in digits:
+        assert value in " ".join(english), value
+        assert value in " ".join(german), value
+
+
+def test_both_numeric_surfaces_reach_a_row():
+    """The ruling itself: an ASR front end emits digits, a person says words.
+
+    A corpus with only one of the two leaves the classifier blind to the
+    other.
+    """
+    joined = " ".join(sentences("what time will it be in {number:offset} minutes"))
+    values = ts.values_for("number", "en-US")
+    assert any(v.isdigit() and v in joined for v in values), joined
+    assert any(not v.isdigit() and v in joined for v in values), joined
 
 
 def test_an_untyped_slot_still_behaves_as_before():

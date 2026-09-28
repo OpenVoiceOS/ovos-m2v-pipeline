@@ -32,6 +32,25 @@ from typing import Dict, FrozenSet, List
 
 SAMPLES_PER_SLOT = 3
 
+#: How many surface forms one sampled value yields, by type. A numeric value
+#: has two surfaces: the DIGITS an ASR front end sends ("in 2 hours") and the
+#: WORDS a person says ("in two hours"). The corpus carries both, because the
+#: classifier meets both. Words alone leave no row that matches what the
+#: recogniser emits, which is the state this entry ends (orchestrator ruling,
+#: 2026-09-28, on the en-US row loss measured for v7.0).
+SURFACES_PER_VALUE = {"number": 2}
+
+
+def cap_for(slot_type: str) -> int:
+    """How many surfaces one slot of this type may contribute.
+
+    The cap bounds corpus growth and it counts SURFACES, not values. A type
+    with two surfaces per value therefore keeps SAMPLES_PER_SLOT values, not
+    half of them.
+    """
+    return SAMPLES_PER_SLOT * SURFACES_PER_VALUE.get(slot_type, 1)
+
+
 #: Anchors chosen to be unremarkable in every calendar: a mid-month day in a
 #: non-leap year, and durations a person would actually say.
 _DATE_ANCHORS = [
@@ -69,9 +88,20 @@ def unresolvable() -> FrozenSet[str]:
 
 
 def _numbers(lang: str) -> List[str]:
+    """Both surfaces of each anchor: the digits, then the language's words.
+
+    The digits are language-neutral and are emitted for every language, so a
+    language whose wordlist the parser lacks still gets numeric rows instead
+    of none. The word form is still that language's own: a German row does
+    not say "forty two".
+
+    The two surfaces of one anchor sit together, digits first, and `cap_for`
+    admits both surfaces of every anchor, so nothing is truncated here.
+    """
     from ovos_number_parser import pronounce_number
     out = []
     for value in _NUMBERS:
+        out.append(str(value))
         try:
             spoken = pronounce_number(value, lang=lang)
         except Exception:
@@ -176,7 +206,7 @@ _GENERATORS = {
 
 @functools.lru_cache(maxsize=None)
 def values_for(slot_type: str, lang: str) -> tuple:
-    """Up to SAMPLES_PER_SLOT surface values for one type in one language.
+    """Up to `cap_for(slot_type)` surfaces for one type in one language.
 
     An empty result is a real answer: this language has no generator for
     this type, and the caller must leave the template out rather than fill
@@ -197,7 +227,7 @@ def values_for(slot_type: str, lang: str) -> tuple:
         if value and value not in seen:
             seen.add(value)
             out.append(value)
-        if len(out) == SAMPLES_PER_SLOT:
+        if len(out) == cap_for(slot_type):
             break
     return tuple(out)
 
