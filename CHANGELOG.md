@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.29.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.29.1a1) (2026-09-28)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.29.0a2...0.29.1a1)
+
+**Merged pull requests:**
+
+- fix\(test\): importlib mode, so the console script imports the wheel [\#276](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/276) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.29.0a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.29.0a2) (2026-09-26)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.29.0a1...0.29.0a2)
@@ -305,10 +313,6 @@
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.13a6...0.13.13a7)
 
-**Merged pull requests:**
-
-- chore: commit the scripts that built the published v5 models, unchanged [\#171](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/171) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
-
 ## [0.13.13a6](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.13a6) (2026-09-13)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.13a5...0.13.13a6)
@@ -363,10 +367,6 @@
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.8a1...0.13.9a1)
 
-**Merged pull requests:**
-
-- fix: discard malformed template's partial expansion in \_entity\_values [\#169](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/169) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
-
 ## [0.13.8a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.8a1) (2026-09-13)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.7a1...0.13.8a1)
@@ -378,10 +378,6 @@
 ## [0.13.6a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.6a1) (2026-09-11)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.5a1...0.13.6a1)
-
-**Merged pull requests:**
-
-- fix: expand filled slot values instead of embedding their template syntax [\#170](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/170) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
 
 ## [0.13.5a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.5a1) (2026-09-11)
 
