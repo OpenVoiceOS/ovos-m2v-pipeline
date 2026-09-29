@@ -15,6 +15,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+import yaml
 
 pytest.importorskip("ovos_spec_tools")
 
@@ -337,7 +338,19 @@ def _sources(tmp_path, refs):
 
 
 def _run(sources, out, extra=()):
+    # A one-skill fixture corpus has no relation to the fleet's label ledger,
+    # so it carries its own: an empty baseline loses nothing and derives a
+    # floor of zero, which the --min-labels below then raises to 1. The
+    # shipped train/labels.yaml stays out of these tests, exactly as it does
+    # in test_corpus_train_gold_leak.py.
+    labels = sources.parent / "labels.yaml"
+    labels.write_text(yaml.safe_dump({
+        "version": 1,
+        "baseline": {"corpus": "fixture", "labels_trained": 0, "labels": []},
+        "removed": [], "added": [],
+    }), encoding="utf-8")
     argv = ["--sources", str(sources), "--out", str(out),
+            "--labels", str(labels),
             "--min-labels", "1", "--min-languages", "1",
             "--min-test-rows", "0", "--min-labels-scored", "0", *extra]
     saved = sys.argv

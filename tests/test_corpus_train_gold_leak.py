@@ -56,10 +56,21 @@ def _run(tmp_path, key, files, monkeypatch, min_test_rows=0,
         "skill_refs": {"refs": {key: rev}},
     }))
 
+    # A one-skill fixture corpus has no relation to the fleet's label
+    # ledger, so it carries its own: an empty baseline loses nothing and
+    # derives a floor of zero. The shipped ledger stays out of these tests.
+    labels = tmp_path / "labels.yaml"
+    labels.write_text(yaml.safe_dump({
+        "version": 1,
+        "baseline": {"corpus": "fixture", "labels_trained": 0, "labels": []},
+        "removed": [], "added": [],
+    }))
+
     out = tmp_path / "out"
     monkeypatch.setattr(sys, "argv", [
         "build_from_skills.py",
         "--sources", str(sources),
+        "--labels", str(labels),
         "--out", str(out),
         "--min-labels", "0",
         "--min-languages", "0",
