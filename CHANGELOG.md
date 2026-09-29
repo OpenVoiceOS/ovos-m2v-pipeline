@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.29.3a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.29.3a1) (2026-09-29)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.29.2a2...0.29.3a1)
+
+**Merged pull requests:**
+
+- fix: the label floor is a ledger of named losses, not a count [\#281](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/281) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.29.2a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.29.2a2) (2026-09-28)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.29.2a1...0.29.2a2)
@@ -320,10 +328,6 @@
 ## [0.13.13a8](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.13a8) (2026-09-14)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.13a7...0.13.13a8)
-
-**Merged pull requests:**
-
-- test: assert LABEL\_ALIASES resolve at pinned refs [\#177](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/177) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
 
 ## [0.13.13a7](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.13a7) (2026-09-13)
 
