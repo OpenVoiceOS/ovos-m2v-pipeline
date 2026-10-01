@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.29.4a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.29.4a1) (2026-10-01)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.29.3a1...0.29.4a1)
+
+**Merged pull requests:**
+
+- fix: fill a template only from its own language's entity values [\#285](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/285) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.29.3a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.29.3a1) (2026-09-29)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.29.2a2...0.29.3a1)
@@ -320,10 +328,6 @@
 ## [0.13.14a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.14a1) (2026-09-14)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.13a8...0.13.14a1)
-
-**Merged pull requests:**
-
-- fix: guarantee every evaluable label some test rows \(re-cut of \#130 on dev\) [\#178](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/178) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
 
 ## [0.13.13a8](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.13a8) (2026-09-14)
 
