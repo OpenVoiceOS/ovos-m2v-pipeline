@@ -445,21 +445,92 @@ def _entity_values(repo: Path, rev: str, path: str) -> List[str]:
     return values
 
 
-def collect_entities(cfg, ws) -> Dict[str, List[str]]:
-    """Entity value-sets attested by the pinned refs, keyed by entity name.
+def entities_for_lang(entities: Dict[str, Dict[str, List[str]]],
+                      lang: str) -> Dict[str, List[str]]:
+    """Values a row of *lang* may be filled from.
 
-    Mirrors ``Model2VecIntentPipeline.entities``: one flat, skill-agnostic
-    dict, exactly what the runtime accumulates from every skill's own
-    ``ENTITY_REGISTER`` calls. Feeds :func:`ovos_m2v_pipeline.slots.expand_entities`
-    so the corpus builder fills ``{slot}`` templates the same way the
-    runtime prototype pipeline does.
+    The language's own values, over the locale-less files that serve as the
+    fallback. A value another language attests is never borrowed: it yields a
+    sentence in neither language, which is worse for a corpus than a row that
+    keeps its placeholder and is dropped.
     """
-    entities: Dict[str, List[str]] = {}
+    merged = dict(entities.get("", {}))
+    merged.update(entities.get(lang, {}))
+    return merged
 
-    def add(name: str, values: List[str]):
+
+def fill_template(utterance: str, lang: str,
+                  entities: Dict[str, Dict[str, List[str]]]) -> List[str]:
+    """The fills of one template, from *lang*'s own values only.
+
+    This is the decision the whole change exists to make: the values handed to
+    `expand_entities` come from `entities_for_lang`, never from the pooled
+    dict. It is a module-level function so a test can reach it; as a closure
+    inside `main` the pooled behaviour could be put back with every test still
+    green.
+
+    `expand_entities` bounds one call at MAX_ENTITY_EXPANSIONS (2000), which
+    suits one live registration but not a corpus row: an entity with hundreds
+    of values would multiply the corpus by that count per row, per locale.
+    `TEMPLATE_FILL_CAP` takes an evenly strided sample instead, so the number
+    of fills per template is bounded and deterministic.
+    """
+    if "{" not in utterance:
+        return [utterance]
+    filled = expand_entities([utterance], entities_for_lang(entities, lang),
+                             record_oversample=True)
+    if len(filled) <= TEMPLATE_FILL_CAP:
+        return filled
+    step = (len(filled) - 1) / (TEMPLATE_FILL_CAP - 1)
+    return [filled[round(i * step)] for i in range(TEMPLATE_FILL_CAP)]
+
+
+def fill_templates_by_language(df, entities: Dict[str, Dict[str, List[str]]]):
+    """*df* with every template filled from its own row's language, exploded.
+
+    One row per fill on the way out. A row whose slot has no value in its own
+    language keeps the placeholder literal and is dropped by the caller, the
+    same treatment as any other unfilled slot.
+    """
+    df = df.assign(utterance=[fill_template(u, l, entities) for l, u
+                              in zip(df["lang"], df["utterance"])])
+    return df.explode("utterance", ignore_index=False)
+
+
+#: The locale directory an `.entity` file sits under. The subtag shape is
+#: checked here so a directory like `locale/vocab` cannot pass as a language.
+_ENTITY_LOCALE_RE = re.compile(r"(?:^|.*/)locale/([a-z]{2,3}(?:-[A-Za-z]{2,4})?)/", re.I)
+
+
+def entity_lang_of(path: str) -> str:
+    """The language a `.entity` path attests, or "" when it sits outside a
+    locale tree."""
+    m = _ENTITY_LOCALE_RE.match(path)
+    return norm_lang(m.group(1)) if m else ""
+
+
+def collect_entities(cfg, ws) -> Dict[str, Dict[str, List[str]]]:
+    """Entity value-sets attested by the pinned refs, per language.
+
+    A running pipeline holds one language's resources at a time, so its flat
+    ``Model2VecIntentPipeline.entities`` never mixes languages. The corpus
+    reads every locale of every skill at once, and pooling those into one dict
+    fills a Portuguese template with an English value -- a sentence no runtime
+    would ever produce and no speaker would say. Values are therefore kept
+    under the language whose locale directory attests them, with entity files
+    outside a locale tree collected under ``""`` as the fallback for a
+    language that registers nothing of its own.
+
+    Feeds :func:`ovos_m2v_pipeline.slots.expand_entities` one language at a
+    time, so the fill still matches what a live pipeline does for that
+    language.
+    """
+    entities: Dict[str, Dict[str, List[str]]] = {}
+
+    def add(lang: str, name: str, values: List[str]):
         if not values:
             return
-        bucket = entities.setdefault(name.lower(), [])
+        bucket = entities.setdefault(lang, {}).setdefault(name.lower(), [])
         seen = set(bucket)
         for v in values:
             if v not in seen and len(bucket) < MAX_ENTITY_EXPANSIONS:
@@ -472,7 +543,8 @@ def collect_entities(cfg, ws) -> Dict[str, List[str]]:
             if path.split("/")[0] in {"test", "tests"}:
                 continue
             if path.endswith(".entity"):
-                add(Path(path).stem, _entity_values(repo, rev, path))
+                add(entity_lang_of(path), Path(path).stem,
+                    _entity_values(repo, rev, path))
     for src in cfg["git_sources"]:
         if src["kind"] != "plugin_intents":
             continue
@@ -481,7 +553,8 @@ def collect_entities(cfg, ws) -> Dict[str, List[str]]:
         for path in git_ls(repo, src["revision"], entity_glob):
             if path.split("/")[0] in {"test", "tests"}:
                 continue
-            add(Path(path).stem, _entity_values(repo, src["revision"], path))
+            add(entity_lang_of(path), Path(path).stem,
+                _entity_values(repo, src["revision"], path))
     return entities
 
 
@@ -1181,17 +1254,9 @@ def main(argv=None):
     entities = collect_entities(cfg, ws)
     n_slot_templates = int(df["utterance"].str.contains("{", regex=False).sum())
 
-    def _fill(u):
-        if "{" not in u:
-            return [u]
-        filled = expand_entities([u], entities, record_oversample=True)
-        if len(filled) <= TEMPLATE_FILL_CAP:
-            return filled
-        step = (len(filled) - 1) / (TEMPLATE_FILL_CAP - 1)
-        return [filled[round(i * step)] for i in range(TEMPLATE_FILL_CAP)]
-
     reset_oversample_stats()
-    df = df.assign(utterance=df["utterance"].map(_fill))
+    langs_before_fill = set(df["lang"].unique())
+    df = fill_templates_by_language(df, entities)
     oversampled = oversample_stats()
     if oversampled:
         worst = sorted(oversampled, key=lambda pair: -pair[1])[:10]
@@ -1199,10 +1264,35 @@ def main(argv=None):
         print(f"WARNING [slots] {len(oversampled)} template fill(s) exceeded "
               f"MAX_ENTITY_EXPANSIONS ({MAX_ENTITY_EXPANSIONS}) and were "
               f"evenly sampled -- worst offenders: {worst_str}")
-    df = df.explode("utterance", ignore_index=False)
     still_literal = df["utterance"].str.contains("{", regex=False, na=False)
     n_unfilled_slot = int(still_literal.sum())
+    # A language keeps only the rows it can fill from its own attested values.
+    # A language whose every row names a slot it has no value for leaves the
+    # corpus entirely; the slots it lacked are named here, because the dataset
+    # card must say which languages the corpus no longer claims and why.
+    lost = {}
+    for lang in sorted(langs_before_fill - set(df.loc[~still_literal, "lang"].unique())):
+        missing = sorted({m for u in df.loc[still_literal & (df["lang"] == lang),
+                                            "utterance"]
+                          for m in re.findall(r"\{([^}]*)\}", str(u))})
+        lost[lang] = missing
     df = df[~still_literal]
+    langs_after_fill = sorted(set(df["lang"].unique()))
+    # Full locale codes, counted here, BEFORE the region collapse and the
+    # thin-language filter below. `docs/labels.md` quotes base languages after
+    # both, so its pair is smaller than this one and the two are not the same
+    # measurement. The row counts are the whole frame, not the templates: the
+    # template count is reported on its own, because one template explodes
+    # into many rows and comparing the two reads as growth.
+    print(f"[entity-scope] locales {len(langs_before_fill)} -> "
+          f"{len(langs_after_fill)} (full locale codes, before the region "
+          f"collapse and the thin-language filter); {n_slot_templates:,} slot "
+          f"templates filled from their own locale's values; the frame holds "
+          f"{len(df):,} rows after the fill, and {n_unfilled_slot:,} rows were "
+          f"dropped with the placeholder still in place")
+    for lang, missing in lost.items():
+        print(f"[entity-scope] dropped {lang}: no own values for "
+              f"{', '.join(missing) or '(no slot named)'}")
 
     # ---- content filters
     f = cfg["filters"]

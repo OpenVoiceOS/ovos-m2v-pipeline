@@ -390,3 +390,67 @@ left, and say where its phrasings went.
 
 ---
 [← Training](training.md) · [Home](../README.md)
+
+### Entity values do not cross languages
+
+A running pipeline holds one language's resources at a time, so the flat
+`entities` dict it accumulates never mixes languages. The corpus reads every
+locale of every skill at once, and pooling those values fills a Catalan
+template from an English or Italian file.
+
+Values are therefore kept under the language whose locale directory attests
+them. A row is filled from its own language, falling back to entity files that
+sit outside a locale tree, and never from another language. A slot with no
+values in the row's language keeps its placeholder and the row is dropped, the
+same as any other unfilled slot.
+
+This costs rows, and the cost is the point: those rows were sentences in no
+language. A corpus that reports a language it can only produce by borrowing
+another language's words overstates its coverage.
+
+At the pins this change takes the corpus from 424,270 rows in 42 languages to
+385,931 rows in 23 languages. No label is lost: 221 before and 221 after.
+
+Most of the cost is not where the language count suggests. Of the 38,339 rows
+that go, 234 are the rows of the 19 languages that leave; the other 38,105,
+which is 99.4%, are rows removed from the 23 languages that stay. Those rows
+were templates a surviving language could only fill from another language's
+values, so they were sentences in no language either. The language count
+reports the smaller half of the cost.
+
+The 19 languages that leave reached the corpus only through borrowed words, and
+each held about twelve rows:
+
+| language | rows in the pooled build | slot it has no own value for |
+| --- | --- | --- |
+| ar | 15 | query, word |
+| bg | 12 | query, word |
+| et | 12 | query |
+| fi | 12 | query, word |
+| fil | 12 | query |
+| he | 12 | query, word |
+| hr | 12 | query, word |
+| id | 12 | query, word |
+| ja | 12 | query, word |
+| ko | 12 | query |
+| lt | 12 | query, word |
+| lv | 12 | query |
+| ms | 12 | query |
+| nb | 12 | query, word |
+| sk | 12 | query, word |
+| sl | 12 | query, word |
+| th | 12 | query, word |
+| vi | 12 | query |
+| zh | 15 | query |
+
+The build prints a ledger on every run, so the dataset card can state the
+language count the rows support. Read its pair with care: the ledger counts
+full locale codes (`pt-PT`, `pt-BR`) at the point of the fill, which is before
+the region collapse and before the thin-language filter, so it reports
+`locales 54 -> 30`. The pair above, `42 -> 23`, counts base languages after
+both stages. The two are different measurements of the same build, not a
+discrepancy, and the ledger line names the stage it belongs to.
+
+The ledger also reports the slot-template count and the frame size separately.
+One template explodes into many rows, so a template count and a post-fill row
+count must not be read as one number growing into the other.

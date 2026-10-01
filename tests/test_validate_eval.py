@@ -5,6 +5,7 @@ shipped file itself, so the test checks the validator's overlap, coverage and
 duplicate rules rather than the contents of any particular corpus build.
 """
 import json
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -57,6 +58,31 @@ def assert_rejected(result, *expected):
         assert fragment in result.stderr, result.stderr
 
 
+def assert_accepted(result):
+    """Zero exit, or the documented pyarrow teardown abort after a clean report.
+
+    The counterpart of `assert_rejected`. The same Python 3.10 abort that
+    forced the negative tests to read the status loosely also hits the positive
+    ones, and there the status cannot simply be read as non-zero. The abort has
+    a signature a real rejection does not: the validator prints its whole
+    report and `OK`, then the interpreter dies in native teardown with exit
+    -SIGABRT and nothing on stderr but "terminate called without an active
+    exception".
+
+    So the tolerance is narrow on purpose. A real failure exits 1, prints no
+    `OK`, and says why on stderr, so it still fails here. Only the abort, with
+    a complete report and that one stderr line, is accepted.
+    """
+    if result.returncode == 0:
+        assert "OK" in result.stdout, result.stdout + result.stderr
+        return
+    assert result.returncode == -signal.SIGABRT, result.stdout + result.stderr
+    assert "OK" in result.stdout, result.stdout + result.stderr
+    assert "Traceback" not in result.stderr, result.stderr
+    assert result.stderr.strip() == "terminate called without an active exception", \
+        result.stderr
+
+
 @pytest.fixture
 def labels():
     return sorted({row["label"] for row in eval_rows()})
@@ -65,8 +91,7 @@ def labels():
 def test_shipped_file_passes_against_a_clean_corpus(tmp_path, labels):
     corpus = write_corpus(tmp_path / "clean", ["nothing like an eval line"], labels)
     result = run(corpus)
-    assert result.returncode == 0, result.stderr
-    assert "OK" in result.stdout
+    assert_accepted(result)
 
 
 def test_one_shared_utterance_fails(tmp_path, labels):
@@ -195,7 +220,7 @@ def test_the_same_label_in_the_corpus_spelling_is_accepted(tmp_path):
     path = write_eval(tmp_path / "eval.jsonl", rows)
     corpus = write_corpus(tmp_path / "corpus", ["unrelated"], [REAL_LABEL])
     result = run(corpus, path)
-    assert result.returncode == 0, result.stdout + result.stderr
+    assert_accepted(result)
 
 
 def test_a_dotted_intent_name_is_a_real_shape(tmp_path):
@@ -208,7 +233,7 @@ def test_a_dotted_intent_name_is_a_real_shape(tmp_path):
     path = write_eval(tmp_path / "eval.jsonl", rows)
     corpus = write_corpus(tmp_path / "corpus", ["unrelated"], [DOTTED_LABEL])
     result = run(corpus, path)
-    assert result.returncode == 0, result.stdout + result.stderr
+    assert_accepted(result)
 
 
 def test_a_hyphenated_label_is_rejected_when_the_corpus_uses_underscores(tmp_path):
