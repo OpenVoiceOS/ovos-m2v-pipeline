@@ -340,9 +340,13 @@ removed:
     the later change and removed only the underscored name #264 left behind, which
     the baseline never carried. The file sat under vocabulary/condition/, and the
     skill registers only intents/*.intent, so the label was never routable at
-    runtime. Its 631 lines, in the 21 umbrella files the builder reads at the pin,
-    moved into each locale''s weather_condition.intent, where en-US already carried
-    them'
+    runtime. Its 610 lines, in the 21 umbrella files the builder
+    reads at the weather pin 64900360, moved into each locale''s
+    weather_condition.intent, where en-US already carried them. Count the lines
+    again with: git ls-tree -r --name-only 64900360 | grep -E "umbrella.*\.intent$"
+    | xargs -I{} git show 64900360:{} | wc -l. A 22nd path at that pin,
+    da-DK/.../do-i-need-an-umbrella-intent, has no dot before intent, so the
+    builder never reads it'
   merged_into: ovos-skill-weather.openvoiceos:weather_condition
 - label: ovos-skill-weather.openvoiceos:do.i.need.an.umbrella
   reason: 'the second spelling of the same orphan file. ovos-skill-weather#264
