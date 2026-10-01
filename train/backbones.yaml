@@ -1,0 +1,854 @@
+# Candidate sentence-encoder backbones distilled into Model2Vec static models.
+#
+# train/distill.py reads this file. Each entry names a Hugging Face model and
+# the revision it is distilled from, so a moved branch cannot silently change a
+# backbone; `distill.py --resolve` fills an empty revision from the Hub and
+# rewrites this file with the sha it resolved.
+#
+# `languages` lists the languages a backbone is trained for. A backbone with
+# `languages: [mul]` is multilingual and is the fallback for any language with
+# no dedicated entry.
+#
+# `selected` names the backbone a language's model is built from. It stays
+# empty until a build measures the candidates against a corpus: an unmeasured
+# preference is a guess, and the multilingual fallback is what a language gets
+# until its own backbone beats it on that language's rows.
+#
+# The candidates come from the Hub, filtered to encoders whose card declares at
+# most three languages, with the domain-specific ones (biomedical, legal, news)
+# and the rerankers dropped, and the small and base sizes preferred over the
+# large. A `license: unknown` entry has no licence on its card: distil it for a
+# measurement if you like, but do not publish a model built from it before
+# somebody establishes the terms.
+
+version: 1
+
+backbones:
+
+  - id: M2V_multilingual_output
+    model: minishlab/M2V_multilingual_output
+    revision: 62144420694cbf4ebe8f3b0fe3c1c49d8a0724b5
+    languages: [mul]
+    distilled: false        # already a Model2Vec model; used as-is
+    license: MIT
+
+  - id: LaBSE
+    model: sentence-transformers/LaBSE
+    revision: 836121a0533e5664b21c7aacc5d22951f2b8b25b
+    languages: [mul]
+    license: Apache-2.0
+
+  - id: multilingual-e5-small
+    model: intfloat/multilingual-e5-small
+    revision: 614241f622f53c4eeff9890bdc4f31cfecc418b3
+    languages: [mul]
+    license: MIT
+
+  - id: paraphrase-multilingual-MiniLM-L12-v2
+    model: sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+    revision: e8f8c211226b894fcb81acc59f3b34ba3efd5f42
+    languages: [mul]
+    license: Apache-2.0
+
+  - id: bge-base-en-v1.5
+    model: BAAI/bge-base-en-v1.5
+    revision: a5beb1e3e68b9ab74eb54cfd186867f64f240e1a
+    languages: [en]
+    license: MIT
+
+  - id: MrBERT-es
+    model: BSC-LT/MrBERT-es
+    revision: 34a7cc86e0d0a2b77e802d07a189db1c0ef2e7d4
+    languages: [es]
+    license: Apache-2.0
+
+  - id: bertinho-gl-small-cased
+    model: dvilares/bertinho-gl-small-cased
+    revision: 2f3b8f4cdb7539e834b21775394c995f684b8583
+    languages: [gl]
+    license: MIT
+
+  - id: BERnaT-base
+    model: HiTZ/BERnaT-base
+    revision: bd1e1629f9622c9f7aaaf6d7c8a375d91238b2b3
+    languages: [eu]
+    license: Apache-2.0
+
+  - id: all-MiniLM-L6-v2
+    model: sentence-transformers/all-MiniLM-L6-v2
+    revision: 1110a243fdf4706b3f48f1d95db1a4f5529b4d41
+    languages: [en]
+    license: apache-2.0
+
+  - id: bge-small-en-v1.5
+    model: BAAI/bge-small-en-v1.5
+    revision: 5c38ec7c405ec4b44b94cc5a9bb96e735b38267a
+    languages: [en]
+    license: mit
+
+  - id: bert-base-uncased
+    model: google-bert/bert-base-uncased
+    revision: 86b5e0934494bd15c9632b12f734a8a67f723594
+    languages: [en]
+    license: apache-2.0
+
+  - id: roberta-base-ca-v2
+    model: projecte-aina/roberta-base-ca-v2
+    revision: 772dfdf344529cf40009372bf14915c4a8aa1152
+    languages: [ca]
+    license: apache-2.0
+
+  - id: roberta-base-ca
+    model: PlanTL-GOB-ES/roberta-base-ca
+    revision: 9eddec657c2fa3ff828845def0096efbba1b0e08
+    languages: [ca]
+    license: apache-2.0
+
+  - id: roberta-base-ca
+    model: BSC-LT/roberta-base-ca
+    revision: 38504df62571a5ee14b1ff9e15af6abb98795fb0
+    languages: [ca]
+    license: apache-2.0
+
+  - id: bert-base-gl-cased
+    model: marcosgg/bert-base-gl-cased
+    revision: 89fde9bede4c9893971da71e0b8556719e938dbc
+    languages: [gl]
+    license: agpl-3.0
+
+  - id: bert-fromscratch-galician-tiny
+    model: fpuentes/bert-fromscratch-galician-tiny
+    revision: ed086663d3e5ac0eb3e8dd3c3991c1442174507d
+    languages: [gl]
+    license: apache-2.0
+
+  - id: bertinho-gl-base-cased
+    model: dvilares/bertinho-gl-base-cased
+    revision: fff68078ef30430ef266e0d21237d395a2afadab
+    languages: [gl]
+    license: unknown
+
+  - id: bert-base-german-cased
+    model: google-bert/bert-base-german-cased
+    revision: 0b061b4f7ce140d10dce6b6bd8a77da8ec80931b
+    languages: [de]
+    license: mit
+
+  - id: bert-base-german-cased
+    model: dbmdz/bert-base-german-cased
+    revision: 43cce138f63f8bd34b42d8a77321e3262fd7bbba
+    languages: [de]
+    license: mit
+
+  - id: e5-base-sts-en-de
+    model: danielheinz/e5-base-sts-en-de
+    revision: a24243f57b37ce45fe5c9e5afd8904c03abe9757
+    languages: [de]
+    license: mit
+
+  - id: bert-base-spanish-wwm-uncased
+    model: dccuchile/bert-base-spanish-wwm-uncased
+    revision: d1c9c4565c9d6731e57ed7f027b802697bad861e
+    languages: [es]
+    license: unknown
+
+  - id: bert-base-spanish-wwm-cased
+    model: dccuchile/bert-base-spanish-wwm-cased
+    revision: c4d86612f51b4f46759c8390d1798c2febe71b93
+    languages: [es]
+    license: unknown
+
+  - id: robertuito-base-uncased
+    model: pysentimiento/robertuito-base-uncased
+    revision: 20cb399e4b93f270c0cd6b6f533bcb0ada3cb658
+    languages: [es]
+    license: unknown
+
+  - id: bert-base-portuguese-cased
+    model: neuralmind/bert-base-portuguese-cased
+    revision: 94d69c95f98f7d5b2a8700c420230ae10def0baa
+    languages: [pt]
+    license: mit
+
+  - id: serafim-335m-portuguese-pt-sentence-encoder-ir
+    model: PORTULAN/serafim-335m-portuguese-pt-sentence-encoder-ir
+    revision: 222eaea5c8df6b61d8032ffffaa9bc9febd35a2e
+    languages: [pt]
+    license: mit
+
+  - id: bert-large-portuguese-cased
+    model: neuralmind/bert-large-portuguese-cased
+    revision: aa302f6ea73b759f7df9cad58bd272127b67ec28
+    languages: [pt]
+    license: mit
+
+  - id: bert-base-italian-uncased
+    model: dbmdz/bert-base-italian-uncased
+    revision: 55058d75cf3bc75a67a412584491b774cb99d68a
+    languages: [it]
+    license: mit
+
+  - id: bert-base-italian-cased
+    model: dbmdz/bert-base-italian-cased
+    revision: 843e404d71f4c63972443e3463456f59024db278
+    languages: [it]
+    license: mit
+
+  - id: sentence-bert-base-italian-uncased
+    model: nickprock/sentence-bert-base-italian-uncased
+    revision: 9e4aa481edb56a1fbb2adfc6c129fae392b942cb
+    languages: [it]
+    license: mit
+
+  - id: robbert-v2-dutch-base
+    model: pdelobelle/robbert-v2-dutch-base
+    revision: 271b8bf12b7e429434ce953efb432e8373e84453
+    languages: [nl]
+    license: mit
+
+  - id: e5-small-trm-nl
+    model: clips/e5-small-trm-nl
+    revision: 0243664a6c5e12eef854b091eb283e51833c3e9f
+    languages: [nl]
+    license: mit
+
+  - id: robbert-2023-dutch-base
+    model: DTAI-KULeuven/robbert-2023-dutch-base
+    revision: 1164b2df6d3ceb1735900c839da8de9bad1a99f9
+    languages: [nl]
+    license: mit
+
+  - id: camembert-base
+    model: almanach/camembert-base
+    revision: a75967561c78f2aa81cc41045378d3b4ee25af9e
+    languages: [fr]
+    license: mit
+
+  - id: flaubert_base_cased
+    model: flaubert/flaubert_base_cased
+    revision: f681df336b523e136915ae97bc8bd0ef4933ae36
+    languages: [fr]
+    license: mit
+
+  - id: flaubert_base_uncased
+    model: flaubert/flaubert_base_uncased
+    revision: 5b5cf0a16b62b6bc97d41646aafea90664a2ed48
+    languages: [fr]
+    license: mit
+
+  - id: bert-base-swedish-cased
+    model: KB/bert-base-swedish-cased
+    revision: 00d1af0f01320f04124b45e67d09ba3b5f705f89
+    languages: [sv]
+    license: unknown
+
+  - id: bert-base-swedish-cased
+    model: KBLab/bert-base-swedish-cased
+    revision: ce7c3424687f042f1320e0528293d492c82918c4
+    languages: [sv]
+    license: cc0-1.0
+
+  - id: sentence-bert-swedish-cased
+    model: KBLab/sentence-bert-swedish-cased
+    revision: 6b5e83cd29c03729cfdc33d13b1423399b0efb5c
+    languages: [sv]
+    license: apache-2.0
+
+  - id: MiniLM-L6-danish-encoder
+    model: KennethTM/MiniLM-L6-danish-encoder
+    revision: c6aeb4b5c972ddaffefa5392d40fe300050079e9
+    languages: [da]
+    license: mit
+
+  - id: DanskBERT
+    model: vesteinn/DanskBERT
+    revision: 7e282ae5001313762aa0a1f2f6e8f027960ab0db
+    languages: [da]
+    license: cc-by-4.0
+
+  - id: danish-bert-botxo
+    model: Maltehb/danish-bert-botxo
+    revision: aeffe01ee981726b623f33ae778187328222ec97
+    languages: [da]
+    license: cc-by-4.0
+
+  - id: bert-base-greek-uncased-v1
+    model: nlpaueb/bert-base-greek-uncased-v1
+    revision: ec2b8f88dd215b5246f2f850413d5bff90d7540d
+    languages: [el]
+    license: unknown
+
+  - id: logion-bert-base
+    model: princeton-logion/logion-bert-base
+    revision: bc7544498f2f7582b20bb87a8254735f451c7250
+    languages: [el]
+    license: mit
+
+  - id: roberta-small-greek
+    model: ClassCat/roberta-small-greek
+    revision: f311409a1f248c3b18a6b73b9de744fc35bedfe1
+    languages: [el]
+    license: cc-by-sa-4.0
+
+  - id: rubert-tiny2
+    model: cointegrated/rubert-tiny2
+    revision: e8ed3b0c8bbf4fb6984c3de043bf7d2f4e5969ae
+    languages: [ru]
+    license: mit
+
+  - id: rubert-base-cased
+    model: DeepPavlov/rubert-base-cased
+    revision: 4036cab694767a299f2b9e6492909664d9414229
+    languages: [ru]
+    license: unknown
+
+  - id: rubert-tiny
+    model: cointegrated/rubert-tiny
+    revision: 5441c5ea8026d4f6d7505ec004845409f1259fb1
+    languages: [ru]
+    license: mit
+
+  - id: berteus-base-cased
+    model: ixa-ehu/berteus-base-cased
+    revision: fbe2b0c395ab3e3579342932bdd1758b68815cca
+    languages: [eu]
+    license: unknown
+
+  - id: roberta-eus-euscrawl-base-cased
+    model: ixa-ehu/roberta-eus-euscrawl-base-cased
+    revision: 41f92c95224f18977000e212ae16074f54c4cc63
+    languages: [eu]
+    license: cc-by-nc-4.0
+
+  - id: roberta-small-basque
+    model: ClassCat/roberta-small-basque
+    revision: b9da71ab553c597e8028fc455f3f0fca6f7f72dc
+    languages: [eu]
+    license: cc-by-sa-4.0
+
+  - id: herbert-base-cased
+    model: allegro/herbert-base-cased
+    revision: 50e33e0567be0c0b313832314c586e3df0dc2297
+    languages: [pl]
+    license: cc-by-4.0
+
+  - id: mmlw-roberta-base
+    model: sdadas/mmlw-roberta-base
+    revision: ba17139a1b0d4c422d253402556bbcfa5f14db8e
+    languages: [pl]
+    license: apache-2.0
+
+  - id: st-polish-paraphrase-from-mpnet
+    model: sdadas/st-polish-paraphrase-from-mpnet
+    revision: a95278b3ff89bcd4887875d01191079cba9d2c36
+    languages: [pl]
+    license: lgpl
+
+  - id: robeczech-base
+    model: ufal/robeczech-base
+    revision: 98c2170e7b81703dce391ed4c43ac31460a80b1c
+    languages: [cs]
+    license: cc-by-nc-sa-4.0
+
+  - id: retromae-small-cs
+    model: Seznam/retromae-small-cs
+    revision: c9696feffb314a7f104b4be71e46dc197c193232
+    languages: [cs]
+    license: cc-by-4.0
+
+  - id: simcse-retromae-small-cs
+    model: Seznam/simcse-retromae-small-cs
+    revision: b25f35913acfb12f203d1d23a59e48577a7012bf
+    languages: [cs]
+    license: cc-by-4.0
+
+  - id: bert-base-finnish-cased-v1
+    model: TurkuNLP/bert-base-finnish-cased-v1
+    revision: 87b4eaac147499b3e54d2af200244b502501712c
+    languages: [fi]
+    license: unknown
+
+  - id: bert-base-finnish-uncased-v1
+    model: TurkuNLP/bert-base-finnish-uncased-v1
+    revision: 69e3fe8c84be855b1b33fc7df8ca179f499d9d4d
+    languages: [fi]
+    license: unknown
+
+  - id: sbert-cased-finnish-paraphrase
+    model: TurkuNLP/sbert-cased-finnish-paraphrase
+    revision: 57b69e98e2049d087c527685e690def8a9265605
+    languages: [fi]
+    license: unknown
+
+  - id: norbert3-small
+    model: ltg/norbert3-small
+    revision: f84759ddd3e628afcabb561253d80bbb845e3c8b
+    languages: [nb]
+    license: apache-2.0
+
+  - id: norbert3-base
+    model: ltg/norbert3-base
+    revision: f010b43e98726acd84dd537603f6c5ee61f8bcd3
+    languages: [nb]
+    license: apache-2.0
+
+  - id: norsbert4-base
+    model: Fremtind/norsbert4-base
+    revision: 08031f828571e7fdb5c226195a269e65d9753980
+    languages: [nb]
+    license: apache-2.0
+
+  - id: bert-base-turkish-cased-mean-nli-stsb-tr
+    model: emrecan/bert-base-turkish-cased-mean-nli-stsb-tr
+    revision: 7e10e2fbd7627fd0228eb2dbdc9e9da264442bbe
+    languages: [tr]
+    license: apache-2.0
+
+  - id: modernbert-tr-embed
+    model: ytu-ce-cosmos/modernbert-tr-embed
+    revision: 855820e0079102805908d60d32cd9fd59c970b80
+    languages: [tr]
+    license: apache-2.0
+
+  - id: TabiBERT
+    model: boun-tabilab/TabiBERT
+    revision: 36d24bfae8d67f7b1f7d0827fc43076e4a1c3e9f
+    languages: [tr]
+    license: apache-2.0
+
+  - id: ukr-roberta-base
+    model: youscan/ukr-roberta-base
+    revision: 8149bde480a6df9014aa934c3f8af30858dea5a6
+    languages: [uk]
+    license: apache-2.0
+
+  - id: distilbert-base-uk-cased
+    model: Geotrend/distilbert-base-uk-cased
+    revision: b17a359742dfb0a416957316207c60faa911c662
+    languages: [uk]
+    license: apache-2.0
+
+  - id: xlm-roberta-base-uk
+    model: ukr-models/xlm-roberta-base-uk
+    revision: e68ebff4c43f1a9db1027f728508a984b34dd224
+    languages: [uk]
+    license: mit
+
+  - id: bert-base-romanian-cased-v1
+    model: dumitrescustefan/bert-base-romanian-cased-v1
+    revision: 37fb0ffb4bc4f7c4cde429626775685fb18f234f
+    languages: [ro]
+    license: mit
+
+  - id: bert-base-romanian-uncased-v1
+    model: dumitrescustefan/bert-base-romanian-uncased-v1
+    revision: 4a0896ec9e71095a0e62960d08c07438b9774e48
+    languages: [ro]
+    license: mit
+
+  - id: cupidon-small-ro
+    model: BlackKakapo/cupidon-small-ro
+    revision: dabbbc7ff351f6b1f4060ecbfae5860eb2f9376a
+    languages: [ro]
+    license: apache-2.0
+
+  - id: ModernBERT-base-hu_v3
+    model: karsar/ModernBERT-base-hu_v3
+    revision: 3d7b852653a61c222d5cb22a865f7095b8591349
+    languages: [hu]
+    license: apache-2.0
+
+  - id: ModernBERT-base-hu
+    model: karsar/ModernBERT-base-hu
+    revision: f3655c7064288a54dcda23d75a5208de139afad1
+    languages: [hu]
+    license: apache-2.0
+
+  - id: hubert-base-cc-sentence-transformer
+    model: danieleff/hubert-base-cc-sentence-transformer
+    revision: dc9d6167b752667e8f1f28d83a93f4c832e47a0e
+    languages: [hu]
+    license: unknown
+
+  - id: bert-base-bg
+    model: rmihaylov/bert-base-bg
+    revision: 985c9aa785a4573f7d7915f49c0a3a6ff911a110
+    languages: [bg]
+    license: mit
+
+  - id: roberta-base-nli-stsb-theseus-bg
+    model: rmihaylov/roberta-base-nli-stsb-theseus-bg
+    revision: d60f80adfa444291a568d854c814918483d8fd8c
+    languages: [bg]
+    license: mit
+
+  - id: roberta-base-nli-stsb-bg
+    model: rmihaylov/roberta-base-nli-stsb-bg
+    revision: 632772f3791fa750a719810d8785dcc565f6f731
+    languages: [bg]
+    license: mit
+
+  - id: alephbert-base
+    model: onlplab/alephbert-base
+    revision: 1745fb3ff5137e41e9eb4d6246e0758f63b93e46
+    languages: [he]
+    license: apache-2.0
+
+  - id: sentence-transformers-alephbert
+    model: imvladikon/sentence-transformers-alephbert
+    revision: 547db5a2028766922251e5e2be6a973674ee0c07
+    languages: [he]
+    license: unknown
+
+  - id: dictabert-joint
+    model: dicta-il/dictabert-joint
+    revision: c892da403a2a34f6dbccdf74337f64f3507cdfb4
+    languages: [he]
+    license: cc-by-4.0
+
+  - id: bert-fa-base-uncased
+    model: HooshvareLab/bert-fa-base-uncased
+    revision: a04aa40c97bcdde570ae11986a534542c2995a62
+    languages: [fa]
+    license: apache-2.0
+
+  - id: bert-fa-zwnj-base
+    model: HooshvareLab/bert-fa-zwnj-base
+    revision: 3880fac085e1a338e9564907cba0adeb9e14bc72
+    languages: [fa]
+    license: apache-2.0
+
+  - id: roberta-fa-zwnj-base
+    model: HooshvareLab/roberta-fa-zwnj-base
+    revision: 94c154f693ad41718aa259085aaf11c7684309a6
+    languages: [fa]
+    license: apache-2.0
+
+  - id: bert-base-arabertv02
+    model: aubmindlab/bert-base-arabertv02
+    revision: 016fb9d6768f522a59c6e0d2d5d5d43a4e1bff60
+    languages: [ar]
+    license: unknown
+
+  - id: bert-base-arabertv2
+    model: aubmindlab/bert-base-arabertv2
+    revision: 97522efce17efa33036ac619802d5cec238dcad9
+    languages: [ar]
+    license: unknown
+
+  - id: MARBERTv2
+    model: UBC-NLP/MARBERTv2
+    revision: fe88db9db8ccdb0c4e1627495f405c44a5f89066
+    languages: [ar]
+    license: unknown
+
+  - id: hinglish-minilm
+    model: anuragwagh0/hinglish-minilm
+    revision: 31506f4455a308462edbe3717d7db486c942197d
+    languages: [hi]
+    license: unknown
+
+  - id: hindi-sentence-similarity-sbert
+    model: l3cube-pune/hindi-sentence-similarity-sbert
+    revision: 1ac1c75727339338dfd67de7346eb2fda0798267
+    languages: [hi]
+    license: cc-by-4.0
+
+  - id: hindi-bert
+    model: monsoon-nlp/hindi-bert
+    revision: c54eb831ba59dccff82d0bc7add9fd182606a9c7
+    languages: [hi]
+    license: unknown
+
+  - id: bert-base-japanese
+    model: tohoku-nlp/bert-base-japanese
+    revision: 32fc2539e890ac278af0e56efb9aa6570f777345
+    languages: [ja]
+    license: cc-by-sa-4.0
+
+  - id: ruri-v3-30m
+    model: cl-nagoya/ruri-v3-30m
+    revision: 24899e5de370b56d179604a007c0d727bf144504
+    languages: [ja]
+    license: apache-2.0
+
+  - id: modernbert-ja-130m
+    model: sbintuitions/modernbert-ja-130m
+    revision: 28c180b16463ba6f3fa79b48756fbf21586fe23e
+    languages: [ja]
+    license: mit
+
+  - id: albert-kor-base
+    model: kykim/albert-kor-base
+    revision: 04e79bcdfe860f251165a93dc685f9544bc597c0
+    languages: [ko]
+    license: unknown
+
+  - id: bert-kor-base
+    model: kykim/bert-kor-base
+    revision: 1779cc0982ada0216dd6de0dd4e86fb78201926d
+    languages: [ko]
+    license: unknown
+
+  - id: ko-sroberta-multitask
+    model: jhgan/ko-sroberta-multitask
+    revision: 8fca7c9c98c26599be0e14b9916b11a756a26f19
+    languages: [ko]
+    license: unknown
+
+  - id: bge-small-zh-v1.5
+    model: BAAI/bge-small-zh-v1.5
+    revision: 7999e1d3359715c523056ef9478215996d62a620
+    languages: [zh]
+    license: mit
+
+  - id: text2vec-base-chinese
+    model: shibing624/text2vec-base-chinese
+    revision: 183bb99aa7af74355fb58d16edf8c13ae7c5433e
+    languages: [zh]
+    license: apache-2.0
+
+  - id: bge-base-zh-v1.5
+    model: BAAI/bge-base-zh-v1.5
+    revision: f03589ceff5aac7111bd60cfc7d497ca17ecac65
+    languages: [zh]
+    license: mit
+
+  - id: sup-SimCSE-VietNamese-phobert-base
+    model: VoVanPhuc/sup-SimCSE-VietNamese-phobert-base
+    revision: 608779b86741a8acd8c8d38132974ff04086b138
+    languages: [vi]
+    license: unknown
+
+  - id: phobert-base
+    model: vinai/phobert-base
+    revision: 01daacda68afe13d83023d16ec647239e344a1e6
+    languages: [vi]
+    license: mit
+
+  - id: phobert-base-v2
+    model: vinai/phobert-base-v2
+    revision: 86cd7fd4c148980922ac11a2cf5e257f2ba639e1
+    languages: [vi]
+    license: agpl-3.0
+
+  - id: indobert-base-p1
+    model: indobenchmark/indobert-base-p1
+    revision: c2cd0b51ddce6580eb35263b39b0a1e5fb0a39e2
+    languages: [id]
+    license: mit
+
+  - id: indobert-base-uncased
+    model: indolem/indobert-base-uncased
+    revision: 7ccb3cd0f5b08ffbaa465aade22328e8600e23eb
+    languages: [id]
+    license: mit
+
+  - id: bert-base-indonesian-1.5G
+    model: cahya/bert-base-indonesian-1.5G
+    revision: a4400ab68607dea3f7f1522f9fed74909980bd77
+    languages: [id]
+    license: mit
+
+  - id: wangchanberta-base-att-spm-uncased
+    model: airesearch/wangchanberta-base-att-spm-uncased
+    revision: b81d38df6b4755dbedec0bfea863c9956cbb963e
+    languages: [th]
+    license: unknown
+
+  - id: modernbert-base-thai-cc100
+    model: KoichiYasuoka/modernbert-base-thai-cc100
+    revision: b8c5283e54c45d35fa891f893fe2fba7bbec514c
+    languages: [th]
+    license: apache-2.0
+
+  - id: bert-base-thai
+    model: monsoon-nlp/bert-base-thai
+    revision: bab9ecc3a504a8d87ca783113f88b90f0104aba9
+    languages: [th]
+    license: unknown
+
+  - id: SIGMA-BERT-base
+    model: LHRS-UM-FERI/SIGMA-BERT-base
+    revision: b95e539f53174dedb76e28555494e00f25dd2a29
+    languages: [sl]
+    license: cc-by-sa-4.0
+
+  - id: sloberta
+    model: EMBEDDIA/sloberta
+    revision: 49db152a3bea54016773be3cce126a9b5ece88da
+    languages: [sl]
+    license: cc-by-sa-4.0
+
+  - id: slovlo-v1
+    model: rokn/slovlo-v1
+    revision: 12d284c9ddeaea186d5f1a369428cf33151e5f38
+    languages: [sl]
+    license: mit
+
+  - id: e5-sk-small
+    model: slovak-nlp/e5-sk-small
+    revision: 46b768ac6dd3b36d977d924f3ba8a087cd362a5a
+    languages: [sk]
+    license: mit
+
+  - id: slovakbert-sts-stsb
+    model: kinit/slovakbert-sts-stsb
+    revision: 3d7ad61cdee743bdaf58f09a0e0345d583578fd4
+    languages: [sk]
+    license: cc-by-4.0
+
+  - id: slovakbert
+    model: gerulata/slovakbert
+    revision: 629d4e16f546fad0054b5143fe13ccbea03259e2
+    languages: [sk]
+    license: mit
+
+  - id: hplt_bert_base_2_0_hrv-Latn
+    model: HPLT/hplt_bert_base_2_0_hrv-Latn
+    revision: 9ca3054a27894398cf4d6c889e73c2f5197d75aa
+    custom_code: true
+    languages: [hr]
+    license: apache-2.0
+
+  - id: xlm-r-bertic
+    model: classla/xlm-r-bertic
+    revision: 843fcf710d809141806ee8de6161b912cb9b46e4
+    languages: [hr]
+    license: cc-by-sa-4.0
+
+  - id: SRoBERTa-F
+    model: Andrija/SRoBERTa-F
+    revision: 75e99c47e05870f5d933c6c445826e51a8058c53
+    languages: [hr]
+    license: apache-2.0
+
+  - id: hplt_bert_base_2_0_est-Latn
+    model: HPLT/hplt_bert_base_2_0_est-Latn
+    revision: 6bfcff0de21cb59ee66a6749c9bda9e8acbef5b9
+    custom_code: true
+    languages: [et]
+    license: apache-2.0
+
+  - id: hplt_bert_base_et
+    model: HPLT/hplt_bert_base_et
+    revision: e832d0dd2023aae78a6d6c8c29dc3ffaa0e763aa
+    custom_code: true
+    languages: [et]
+    license: apache-2.0
+
+  - id: EstBERT
+    model: tartuNLP/EstBERT
+    revision: 77837f08078ce7185cdd5fe19c0802c294e4e01a
+    languages: [et]
+    license: cc-by-4.0
+
+  - id: hplt_bert_base_2_0_lvs-Latn
+    model: HPLT/hplt_bert_base_2_0_lvs-Latn
+    revision: 972504a0f05994509a84209109fde4757cfb7bba
+    custom_code: true
+    languages: [lv]
+    license: apache-2.0
+
+  - id: lv-deberta-base
+    model: AiLab-IMCS-UL/lv-deberta-base
+    revision: f9e11c497494363392955987b849efa709832463
+    languages: [lv]
+    license: apache-2.0
+
+  - id: lv-mbert-base
+    model: AiLab-IMCS-UL/lv-mbert-base
+    revision: cb15b94adf7ce18ecc48569b848552afa5783b1a
+    languages: [lv]
+    license: apache-2.0
+
+  - id: bert-base-lt-cased
+    model: Geotrend/bert-base-lt-cased
+    revision: ee5596019e4f0304788ab0f0fb3bfcda726b7a51
+    languages: [lt]
+    license: apache-2.0
+
+  - id: distilbert-base-lt-cased
+    model: Geotrend/distilbert-base-lt-cased
+    revision: 120fdff0f4996dba5125cdb3aff88c4dd1558931
+    languages: [lt]
+    license: apache-2.0
+
+  - id: hplt_bert_base_lt
+    model: HPLT/hplt_bert_base_lt
+    revision: e6f80bde05745bc90322c63dc7160b680d742979
+    custom_code: true
+    languages: [lt]
+    license: apache-2.0
+
+  - id: IceBERT
+    model: mideind/IceBERT
+    revision: 24c145af7b7d092ecb082897db2e16107301d657
+    languages: [is]
+    license: cc-by-4.0
+
+  - id: XLMR-MaCoCu-is
+    model: MaCoCu/XLMR-MaCoCu-is
+    revision: 7a56493eccd6e204a76189b3d99b59038d46b090
+    languages: [is]
+    license: cc0-1.0
+
+  - id: isl-sbert-s
+    model: Sigurdur/isl-sbert-s
+    revision: 59e866698ba361ab0b8747ea0d43c1bbebafdc4a
+    languages: [is]
+    license: unknown
+
+  - id: hplt_bert_base_2_0_gle-Latn
+    model: HPLT/hplt_bert_base_2_0_gle-Latn
+    revision: da226230116f7d2fde431f2d8a1ab0803d1fac77
+    custom_code: true
+    languages: [ga]
+    license: apache-2.0
+
+  - id: hplt_bert_base_ga
+    model: HPLT/hplt_bert_base_ga
+    revision: eb319ef5d9cbf94271225d28270da5d738d2071c
+    custom_code: true
+    languages: [ga]
+    license: apache-2.0
+
+  - id: BERTreach
+    model: jimregan/BERTreach
+    revision: b09e2ab7b3c2482599c62d9076d8b7383854a4a1
+    languages: [ga]
+    license: apache-2.0
+
+  - id: hplt_bert_base_cy
+    model: HPLT/hplt_bert_base_cy
+    revision: a0e4c1b6810fbc591e15710c7a16d96fe2225363
+    custom_code: true
+    languages: [cy]
+    license: apache-2.0
+
+  - id: hplt_bert_base_2_0_cym-Latn
+    model: HPLT/hplt_bert_base_2_0_cym-Latn
+    revision: b53189be714a95f72bda3befa431c4e61f240593
+    custom_code: true
+    languages: [cy]
+    license: apache-2.0
+
+  - id: mbert_cym-latn
+    model: DGurgurov/mbert_cym-latn
+    revision: 8061ab2b2eec1a419eeb93db5c8da02089f4f1b3
+    languages: [cy]
+    license: unknown
+
+  - id: albertina-100m-portuguese-ptpt-encoder
+    model: PORTULAN/albertina-100m-portuguese-ptpt-encoder
+    revision: d15e086005cdab26d746d9113984cc654439df2b
+    languages: [pt-PT]
+    license: mit
+
+  - id: albertina-100m-portuguese-ptbr-encoder
+    model: PORTULAN/albertina-100m-portuguese-ptbr-encoder
+    revision: d2a39d3d82408cc2a2618beb57a4fe908ee44b27
+    languages: [pt-BR]
+    license: mit
+
+selected: {}
