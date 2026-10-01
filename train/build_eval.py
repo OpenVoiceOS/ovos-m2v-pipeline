@@ -98,7 +98,12 @@ def read_gold(repo: Path, rev: str, repo_name: str, stats: collections.Counter,
                 stats["gold_needs_manual"] += 1
                 _count(census, repo_name, lang, "needs_manual")
                 continue
-            utterance = (d.get("utterance") or "").strip()
+            raw = d.get("utterance") or ""
+            if not isinstance(raw, str):
+                stats["gold_utterance_not_a_string"] += 1
+                _count(census, repo_name, lang, "utterance_not_a_string")
+                continue
+            utterance = raw.strip()
             intent = d.get("intent_label") or d.get("expected_intent")
             if not utterance:
                 stats["gold_without_utterance"] += 1
