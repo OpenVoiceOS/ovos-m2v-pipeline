@@ -492,7 +492,7 @@ def fill_templates_by_language(df, entities: Dict[str, Dict[str, List[str]]]):
     language keeps the placeholder literal and is dropped by the caller, the
     same treatment as any other unfilled slot.
     """
-    df = df.assign(utterance=[fill_template(u, l, entities) for l, u
+    df = df.assign(utterance=[fill_template(u, lang, entities) for lang, u
                               in zip(df["lang"], df["utterance"])])
     return df.explode("utterance", ignore_index=False)
 
