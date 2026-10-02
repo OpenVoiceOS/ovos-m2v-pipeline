@@ -979,7 +979,17 @@ def write_dataset_card(out: Path, report: dict) -> None:
         "a shortage of rows: every expansion of one template stays on one "
         "side of the split, so a label attested by a single template goes "
         "into train whole. `manifest.json` lists them by name under "
-        "`labels_without_test_rows`.",
+        "`labels_without_test_rows`. A phrasing or a translation can grow any "
+        "of them a test row.",
+        "",
+        f"{report['labels_limited_by_unfilled_slots']['labels']} further "
+        "labels have no test rows for a different reason: every surviving "
+        "phrasing of theirs, in some language, names a slot the pinned refs "
+        "register no entity values for, so the fill step drops the row before "
+        "the split ever sees it. A phrasing cannot fix this; only a new "
+        "entity file for that slot and language can. `manifest.json` names "
+        "the slot, the language and the reason for each under "
+        "`labels_limited_by_unfilled_slots`.",
         "",
         "No utterance appears on both sides of the split; the match is "
         "exact-string after lowercasing, not semantic or accent-insensitive.",
@@ -1266,6 +1276,18 @@ def main(argv=None):
               f"evenly sampled -- worst offenders: {worst_str}")
     still_literal = df["utterance"].str.contains("{", regex=False, na=False)
     n_unfilled_slot = int(still_literal.sum())
+    # Per label, the slot names and languages that dropped a row here. This is
+    # what tells apart a label the split leaves thin (it wants a phrasing or a
+    # translation) from one whose every surviving phrasing in some language
+    # named a slot the pinned refs register no values for (it wants an entity
+    # file; no upstream contribution can move it). Keyed on the pre-resolution
+    # label here, translated to the canonical label once `resolution` exists.
+    unfilled_slots_by_label = collections.defaultdict(lambda: collections.defaultdict(set))
+    for label, lang, utterance in zip(df.loc[still_literal, "label"],
+                                      df.loc[still_literal, "lang"],
+                                      df.loc[still_literal, "utterance"]):
+        for slot in re.findall(r"\{([^}]*)\}", str(utterance)):
+            unfilled_slots_by_label[label][lang].add(slot)
     # A language keeps only the rows it can fill from its own attested values.
     # A language whose every row names a slot it has no value for leaves the
     # corpus entirely; the slots it lacked are named here, because the dataset
@@ -1332,6 +1354,18 @@ def main(argv=None):
     n_unresolved = int(sum(v["rows"] for v in unresolved.values()))
     df = df[df["label"].isin(resolution)]
     df["label"] = df["label"].map(resolution).astype(object)
+
+    # Carry the unfilled-slot record from the pre-resolution label to the
+    # canonical one a merge folds it into; a label resolve_label dropped
+    # entirely took its unfilled-slot rows with it.
+    resolved_unfilled_slots = collections.defaultdict(lambda: collections.defaultdict(set))
+    for label, langs in unfilled_slots_by_label.items():
+        canonical = resolution.get(label)
+        if canonical is None:
+            continue
+        for lang, slots in langs.items():
+            resolved_unfilled_slots[canonical][lang] |= slots
+    unfilled_slots_by_label = resolved_unfilled_slots
 
     # ---- an unknown-registry drop is a coverage gap, not a hygiene detail:
     # warn loudly per skill, with the row count, instead of only recording it
@@ -1509,9 +1543,37 @@ def main(argv=None):
     p.write_text(json.dumps(manifest_labels, indent=2, ensure_ascii=False), encoding="utf-8")
     written[p.name] = sha256_file(p)
 
+    # A label with no test rows is thin for one of two reasons, and the fix is
+    # different for each: `labels_without_test_rows` keeps the labels a
+    # phrasing or a translation could still grow; `labels_limited_by_unfilled_slots`
+    # names the ones where a slot's missing entity file dropped the rows that
+    # would have reached test, which only a new entity file can restore.
+    missing_test_rows = set(train["label"]) - set(test["label"])
+    limited_by_slots = {label: unfilled_slots_by_label[label]
+                        for label in missing_test_rows
+                        if label in unfilled_slots_by_label}
+    thin = sorted(missing_test_rows - set(limited_by_slots))
+
+    def _unfilled_slot_reason(langs_to_slots: dict) -> str:
+        return "; ".join(
+            f"{lang}: every phrasing ends in "
+            f"{', '.join(f'{{{slot}}}' for slot in sorted(slots))}, which the "
+            f"pinned refs register no values for"
+            for lang, slots in sorted(langs_to_slots.items()))
+
+    report.setdefault("labels_limited_by_unfilled_slots",
+                      {"labels": len(limited_by_slots),
+                       "detail": {
+                           label: {
+                               "slots": sorted({slot for slots in
+                                               limited_by_slots[label].values()
+                                               for slot in slots}),
+                               "languages": sorted(limited_by_slots[label]),
+                               "reason": _unfilled_slot_reason(limited_by_slots[label]),
+                           } for label in sorted(limited_by_slots)
+                       }})
     report.setdefault("labels_without_test_rows",
-                      {"labels": len(set(train["label"]) - set(test["label"])),
-                       "names": sorted(set(train["label"]) - set(test["label"]))})
+                      {"labels": len(thin), "names": thin})
 
     write_dataset_card(out, report)
     written["README.md"] = sha256_file(out / "README.md")

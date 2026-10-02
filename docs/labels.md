@@ -291,7 +291,12 @@ rows. A label with two or more groups also stays under the floor when the
 groups it can give up hold too few rows. The manifest lists every label under
 its floor in `labels_below_test_floor`, with its floor, its test rows and the
 row count of each group. A label with no test rows is also listed in
-`labels_without_test_rows`.
+`labels_without_test_rows`, unless the slot fill step is why it has none: a
+label whose every surviving phrasing in some language names a slot the pinned
+refs register no entity values for is listed in
+`labels_limited_by_unfilled_slots` instead, with the slot, the language and
+the reason. The first set wants a phrasing or a translation; the second wants
+an entity file, and no upstream contribution can move it.
 
 ## Renames, merges, and the unification wave
 
