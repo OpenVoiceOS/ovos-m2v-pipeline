@@ -71,11 +71,16 @@ def export_store(
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    embeddings = store.embeddings  # triggers _consolidate()
-    internal_labels = store._labels.astype(str) if len(embeddings) else np.array([], dtype=str)
+    # One locked read of everything exported, so a registration landing
+    # between the calls cannot pair these embeddings with another fold's
+    # labels (or with the None _consolidate() leaves while it copies).
+    with store._lock:
+        embeddings = store.embeddings  # triggers _consolidate()
+        internal_labels = store._labels.astype(str) if len(embeddings) else np.array([], dtype=str)
+        labels = sorted(str(l) for l in store.unique_labels)
+        langs_by_label = store._langs_by_label
     np.savez(out_dir / "prototypes.npz", embeddings=embeddings, labels=internal_labels)
 
-    labels = sorted(str(l) for l in store.unique_labels)
     dim = int(embeddings.shape[1]) if embeddings.ndim == 2 and len(embeddings) else 0
     manifest = {
         "format_version": MANIFEST_FORMAT_VERSION,
@@ -90,7 +95,7 @@ def export_store(
         "labels": labels,
         "languages": {
             label: sorted(langs)
-            for label, langs in sorted(store._langs_by_label.items())
+            for label, langs in sorted(langs_by_label.items())
         },
         "cache_keys": dict(sorted((cache_keys or {}).items())),
     }
