@@ -11,9 +11,15 @@ Each test holds a real ``_consolidate()`` open inside that window (a
 pending chunk whose copy blocks until released), runs one reader from
 another thread, then releases the fold. The reader must either wait for
 the lock or read a consistent store; it must never raise.
+
+The release waits for an event, never a timer: either the reader is
+blocked on the store's lock or it has already finished. A sleep could
+expire before the reader thread ran at all, and the test would then pass
+without exercising the interleaving it exists for.
 """
 import tempfile
 import threading
+import time
 import unittest
 from types import SimpleNamespace
 
@@ -50,6 +56,44 @@ class _BlockingChunk:
         return self._rows if dtype is None else self._rows.astype(dtype)
 
 
+class _WatchedLock:
+    """The store's ``RLock``, recording each thread that found it held.
+
+    A thread in ``contenders`` is parked on the lock (or was): that is the
+    proof that it reached the lock while another thread held it.
+    """
+
+    def __init__(self):
+        self._lock = threading.RLock()
+        self.contenders = set()
+
+    def acquire(self, blocking=True, timeout=-1):
+        if self._lock.acquire(blocking=False):
+            return True
+        if not blocking:
+            return False
+        self.contenders.add(threading.get_ident())
+        return self._lock.acquire(timeout=timeout)
+
+    def release(self):
+        self._lock.release()
+
+    def __enter__(self):
+        self.acquire()
+        return self
+
+    def __exit__(self, *exc):
+        self.release()
+
+
+def _wait_until(predicate, message):
+    deadline = time.monotonic() + TIMEOUT
+    while not predicate():
+        if time.monotonic() > deadline:
+            raise AssertionError(message)
+        time.sleep(0.001)
+
+
 class _Model:
     """Declares no ``dim``, so ``add()`` probes the store for it."""
 
@@ -59,6 +103,7 @@ class _Model:
 
 def _store_with_blocking_fold():
     store = PrototypeIntentStore()
+    store._lock = _WatchedLock()
     store.add(_Model(), "skill:first", ["one", "two"])
     store.embeddings  # fold "skill:first" so the store has consolidated rows
     chunk = _BlockingChunk(np.ones((3, DIM), dtype=np.float32))
@@ -85,9 +130,12 @@ class TestReadDuringConsolidate(unittest.TestCase):
 
         t = threading.Thread(target=_read)
         t.start()
-        # Without the lock the reader finishes (or fails) right here; with
-        # it the reader is parked on the lock until the fold is released.
-        t.join(0.2)
+        # Without the lock the reader finishes (or fails) inside the
+        # window; with it the reader is parked on the lock until the fold
+        # is released. Either way, release only once one of them happened.
+        _wait_until(
+            lambda: t.ident in store._lock.contenders or not t.is_alive(),
+            "reader neither reached the lock nor finished")
         chunk.release.set()
         t.join(TIMEOUT)
         folder.join(TIMEOUT)
@@ -135,13 +183,18 @@ class TestReadDuringConsolidate(unittest.TestCase):
                 emb = super().embeddings
                 if threading.current_thread() is not folder and not folder.ident:
                     # another thread registers right after the export's
-                    # fold; holding the lock, the export keeps it waiting,
-                    # so this wait times out and the export goes on
+                    # fold. Holding the lock, the export keeps it parked
+                    # in _add_anchors; without the lock it gets through and
+                    # into its own fold. Go on once either has happened.
                     folder.start()
-                    chunk.entered.wait(0.5)
+                    _wait_until(
+                        lambda: folder.ident in self._lock.contenders
+                        or chunk.entered.is_set(),
+                        "registration neither reached the lock nor folded")
                 return emb
 
         store = _Store()
+        store._lock = _WatchedLock()
         store.add(_Model(), "skill:first", ["one", "two"])
         with tempfile.TemporaryDirectory() as tmp:
             try:
