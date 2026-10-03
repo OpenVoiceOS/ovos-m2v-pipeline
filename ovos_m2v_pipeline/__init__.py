@@ -508,7 +508,12 @@ class PrototypeIntentStore:
         return np.unique(self.labels)
 
     def __len__(self) -> int:
-        return len(self._labels) + sum(len(l) for _, l in self._pending)
+        # Under the lock: _consolidate() sets _labels to None while it
+        # copies the pending chunks in, and replaces _pending, so an
+        # unlocked read from another thread (the ready log, a bus handler)
+        # can see the store half-way through a fold.
+        with self._lock:
+            return len(self._labels) + sum(len(l) for _, l in self._pending)
 
     # ------------------------------------------------------------------
     # Mutation
@@ -651,10 +656,11 @@ class PrototypeIntentStore:
             if not isinstance(expected_dim, int):
                 expected_dim = None
             if expected_dim is None:
-                if len(self._labels):
-                    expected_dim = self._embeddings.shape[1]
-                elif self._pending:
-                    expected_dim = self._pending[-1][0].shape[1]
+                with self._lock:
+                    if len(self._labels):
+                        expected_dim = self._embeddings.shape[1]
+                    elif self._pending:
+                        expected_dim = self._pending[-1][0].shape[1]
             cached = self.cache.load(label, cache_key, lang=lang, expected_dim=expected_dim)
             if cached is not None:
                 embeddings, _labels = cached
