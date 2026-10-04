@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.29.5a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.29.5a1) (2026-10-04)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.29.4a1...0.29.5a1)
+
+**Merged pull requests:**
+
+- fix: read\_gold rejects a non-string gold utterance and the guard order is tested [\#288](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/288) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.29.4a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.29.4a1) (2026-10-01)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.29.3a1...0.29.4a1)
