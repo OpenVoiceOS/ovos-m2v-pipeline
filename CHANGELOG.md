@@ -393,10 +393,6 @@
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.12a1...0.13.13a1)
 
-**Merged pull requests:**
-
-- fix: route the renamed SpeedtestIntent model label to speedtest\_intent [\#189](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/189) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
-
 ## [0.13.12a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.12a1) (2026-09-13)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.11a1...0.13.12a1)
