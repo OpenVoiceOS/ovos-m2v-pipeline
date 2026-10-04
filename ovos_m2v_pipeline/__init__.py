@@ -1223,12 +1223,8 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                     Path(get_xdg_data_save_path()) / "m2v_prototypes")
                 cache = PrototypeCache(Path(cache_dir))
 
-            self.prototype_store: Optional[PrototypeIntentStore] = PrototypeIntentStore(
-                strategy=self._prototype_strategy,
-                top_k=self._prototype_top_k,
-                tau=self._prototype_tau,
-                cache=cache,
-            )
+            self.prototype_store: Optional[PrototypeIntentStore] = \
+                self._build_prototype_store(cache)
 
             #: label -> cache key recorded by a loaded prebuilt artifact (see
             #: ``prebuilt_prototypes`` below); a live registration whose own
@@ -1336,6 +1332,20 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
 
         if preload:
             self._ensure_model(background_ok=False)
+
+    def _build_prototype_store(self, cache: Optional[PrototypeCache]) -> PrototypeIntentStore:
+        """The prototype-mode store, built once at construction."""
+        return PrototypeIntentStore(
+            strategy=self._prototype_strategy,
+            top_k=self._prototype_top_k,
+            tau=self._prototype_tau,
+            cache=cache,
+        )
+
+    def _shared_model_mode(self) -> str:
+        """The ``load_shared_model`` mode: ``"classifier"`` for the
+        embedding plus its head, ``"prototype"`` for the bare embedding."""
+        return self._mode
 
     def _cached_snapshot_if_current(self, repo_id: str) -> Optional[str]:
         """Return the cached snapshot for ``repo_id`` if it is confirmed
@@ -1489,7 +1499,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             # revision or a transient hub failure must hit the same
             # failure-accounting path as a `from_pretrained` failure below.
             model_path = self._resolve_model_revision(self._model_path)
-            model = load_shared_model(model_path, self._mode)
+            model = load_shared_model(model_path, self._shared_model_mode())
             # `_ensure_model` checks `self.model is not None` before it
             # ever looks at `_model_load_thread`, so the thread handle
             # must not be cleared until `self.model` is visible under the
@@ -2964,3 +2974,213 @@ class Model2VecPrototypePipeline(Model2VecIntentPipeline):
             )
         config["mode"] = "prototype"
         super().__init__(bus, config)
+
+
+from ovos_m2v_pipeline.hierarchical_store import (  # noqa: E402
+    HierarchicalPrototypeIntentStore,
+)
+from ovos_m2v_pipeline.hierarchical_classifier import (  # noqa: E402
+    HierarchicalIntentClassifier,
+)
+from ovos_m2v_pipeline.domain_classifier import (  # noqa: E402
+    DomainIntentClassifier,
+)
+
+
+class Model2VecHierarchicalPrototypePipeline(Model2VecPrototypePipeline):
+    """Two-stage (hierarchical) domain-routed prototype pipeline.
+
+    Same behaviour and bus surface as :class:`Model2VecPrototypePipeline`,
+    except that the store is a :class:`HierarchicalPrototypeIntentStore`.
+    Each registered intent joins the domain named by its ``skill_id``. At
+    inference time a top-level router picks the single best domain by
+    per-domain fingerprint similarity, then only that domain's sub-store
+    resolves the intent. A query that matches no domain above
+    ``domain_threshold`` is rejected before any sub-store runs. The
+    embedding model is the process-wide one from ``load_shared_model``.
+
+    Configuration is read from
+    ``intents.ovos_m2v_hierarchical_prototype_pipeline``, so this pipeline
+    can coexist with the flat prototype plugin in the same OVOS instance.
+    It accepts every key the flat plugin does, except that
+    ``prototype_strategy`` is the router strategy and defaults to
+    ``mean_centroid``. It also accepts:
+
+    ``intent_strategy`` : str
+        ``PrototypeStrategy`` for the per-domain sub-stores. Defaults to
+        ``max_over_all``.
+    ``intent_top_k`` : int
+        ``top_k`` for per-domain sub-stores. Defaults to ``prototype_top_k``.
+    ``intent_tau`` : float
+        ``tau`` for per-domain sub-stores. Defaults to ``prototype_tau``.
+    ``domain_threshold`` : float, optional
+        Minimum router fingerprint score required to route a query.
+        Below it the query is rejected. Defaults to ``0.0`` (no gate).
+
+    Example ``mycroft.conf``::
+
+        "intents": {
+            "ovos-m2v-hierarchical-prototype-pipeline": {
+                "model": "OpenVoiceOS/ovos-m2v-intents-multilingual",
+                "intent_strategy":   "softmax_weighted",
+                "intent_tau":         0.1,
+                "domain_threshold":   0.2
+            }
+        }
+    """
+
+    def __init__(
+        self,
+        bus: Optional[Union[MessageBusClient, FakeBus]] = None,
+        config: Optional[Dict] = None,
+    ) -> None:
+        if config is None:
+            config = (
+                Configuration().get("intents", {})
+                .get("ovos_m2v_hierarchical_prototype_pipeline") or {}
+            )
+        config = {"prototype_strategy": PrototypeStrategy.MEAN_CENTROID.value,
+                  **config}
+        super().__init__(bus, config)
+
+    def _build_prototype_store(self, cache: Optional[PrototypeCache]) -> HierarchicalPrototypeIntentStore:
+        return HierarchicalPrototypeIntentStore(
+            intent_strategy=PrototypeStrategy(
+                self.config.get("intent_strategy",
+                                PrototypeStrategy.MAX_OVER_ALL.value)
+            ),
+            intent_top_k=self.config.get("intent_top_k", self._prototype_top_k),
+            intent_tau=self.config.get("intent_tau", self._prototype_tau),
+            domain_strategy=self._prototype_strategy,
+            domain_tau=self._prototype_tau,
+            domain_threshold=float(self.config.get("domain_threshold", 0.0)),
+            cache=cache,
+        )
+
+
+class _Model2VecBundlePipeline(Model2VecIntentPipeline):
+    """Classifier-mode pipeline whose head is a trained bundle of
+    scikit-learn classifiers on top of the shared embedding model.
+
+    The bundle is loaded from ``model_path``. The embedding named by
+    ``model`` comes from ``load_shared_model`` in its bare form, so this
+    plugin, the ``-low`` prototype stage and any other plugin that names
+    the same model hold one ``StaticModel``. Registration handling, the
+    ``-low`` tier and the confidence defaults are those of classifier mode.
+    """
+
+    #: bundle class with a ``load(path)`` classmethod and a
+    #: ``predict_proba(embedding) -> {label: score}`` method
+    _bundle_cls: type = HierarchicalIntentClassifier
+    #: the ``intents`` section this plugin reads when no config is given
+    _config_key: str = ""
+
+    def __init__(
+        self,
+        bus: Optional[Union[MessageBusClient, FakeBus]] = None,
+        config: Optional[Dict] = None,
+    ) -> None:
+        if config is None:
+            config = Configuration().get("intents", {}).get(self._config_key) or {}
+        config = dict(config)
+        config["mode"] = "classifier"
+        bundle_path = config.get("model_path")
+        if not bundle_path:
+            raise FileNotFoundError(
+                f"'model_path' ({self._bundle_cls.__name__} bundle) not set "
+                f"in configuration for {self._config_key}"
+            )
+        self.classifier = self._bundle_cls.load(bundle_path)
+        super().__init__(bus, config)
+        LOG.info(
+            f"Loaded {type(self).__name__} with "
+            f"{len(self.classifier.intent_classifiers)} domains, "
+            f"{len(self.classifier)} intents, bundle='{bundle_path}'"
+        )
+
+    def _shared_model_mode(self) -> str:
+        return "prototype"
+
+    def _match_classifier(self, utterance: str,
+                          message: Optional[Message] = None) -> Iterable[Tuple[str, str, float]]:
+        emb = self.model.encode([utterance], use_multiprocessing=False)[0]
+        special = self._allowed_special_labels(message)
+        for label, score in sorted(self.classifier.predict_proba(emb).items(),
+                                   key=lambda x: (-x[1], x[0])):
+            LOG.debug(f"Match candidate: {label} - score: {score:.4f}")
+            if label not in self.intents and label not in special:
+                continue
+            skill_id, label = self._apply_special_label_map(label)
+            yield skill_id, label, float(score)
+
+
+class Model2VecHierarchicalIntentPipeline(_Model2VecBundlePipeline):
+    """Two-stage (hierarchical) **trained** classifier pipeline.
+
+    Counterpart to :class:`Model2VecHierarchicalPrototypePipeline` for the
+    supervised family. Loads a :class:`HierarchicalIntentClassifier`
+    bundle, a domain classifier plus one intent classifier per domain, and
+    routes the embedding through both stages at inference time.
+
+    Configuration is read from
+    ``intents.ovos_m2v_hierarchical_intent_pipeline``:
+
+    ``model_path`` : str
+        Directory holding the saved bundle (``manifest.json`` plus the
+        ``domain/`` and ``intent/`` subfolders).
+    ``model`` : str
+        The embedding model the bundle was trained on.
+    ``domain_threshold`` : float, optional
+        Overrides the saved bundle's domain rejection gate.
+
+    Example ``mycroft.conf``::
+
+        "intents": {
+            "ovos-m2v-hierarchical-intent-pipeline": {
+                "model": "OpenVoiceOS/ovos-m2v-intents-multilingual",
+                "model_path": "/path/to/bundle",
+                "domain_threshold": 0.2
+            }
+        }
+    """
+
+    _bundle_cls = HierarchicalIntentClassifier
+    _config_key = "ovos_m2v_hierarchical_intent_pipeline"
+
+    def __init__(
+        self,
+        bus: Optional[Union[MessageBusClient, FakeBus]] = None,
+        config: Optional[Dict] = None,
+    ) -> None:
+        super().__init__(bus, config)
+        if "domain_threshold" in self.config:
+            self.classifier.domain_threshold = float(self.config["domain_threshold"])
+
+
+class Model2VecDomainIntentPipeline(_Model2VecBundlePipeline):
+    """Domain (parallel-argmax) **trained** classifier pipeline.
+
+    One trained classifier per domain (skill_id), with no top-level router.
+    At inference time every per-domain classifier scores the query and a
+    single global argmax over their softmax outputs picks the winner.
+
+    Configuration is read from ``intents.ovos_m2v_domain_intent_pipeline``:
+
+    ``model_path`` : str
+        Directory holding the saved :class:`DomainIntentClassifier` bundle
+        (``manifest.json`` plus one ``intent/<domain>/`` subfolder per domain).
+    ``model`` : str
+        The embedding model the bundle was trained on.
+
+    Example ``mycroft.conf``::
+
+        "intents": {
+            "ovos-m2v-domain-intent-pipeline": {
+                "model": "OpenVoiceOS/ovos-m2v-intents-multilingual",
+                "model_path": "/path/to/bundle"
+            }
+        }
+    """
+
+    _bundle_cls = DomainIntentClassifier
+    _config_key = "ovos_m2v_domain_intent_pipeline"

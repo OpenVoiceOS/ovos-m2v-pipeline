@@ -171,6 +171,32 @@ per label in that language's own idiom — a translation of the English lines
 inherits English phrasing and tests less than it appears to — then run the
 validator against a corpus built for that language.
 
+## Hierarchical and domain trained classifiers
+
+`train/train_hierarchical.py` trains the two-stage counterpart of `train.py`:
+one domain classifier that predicts the `skill_id` from the sentence
+embedding, plus one intent classifier per domain. `train/train_domain.py`
+trains one intent classifier per domain with no router; at match time every
+head scores the query and the global argmax wins. Both read the
+`train.parquet` that `build_dataset.py` writes and fit scikit-learn
+`LogisticRegression` heads on the frozen embeddings of `--base-model`.
+
+```bash
+python train/train_hierarchical.py --dataset train/dataset --lang en-US \
+    --output m2v_hier_intents --base-model OpenVoiceOS/ovos-m2v-intents-multilingual
+
+python train/train_domain.py --dataset train/dataset --lang en-US \
+    --output m2v_domain_intents --base-model OpenVoiceOS/ovos-m2v-intents-multilingual
+```
+
+The hierarchical bundle holds `manifest.json`, `domain/classifier.joblib` and
+`intent/<domain>/classifier.joblib`; the domain bundle has no `domain/`
+folder. Point `ovos-m2v-hierarchical-intent-pipeline` or
+`ovos-m2v-domain-intent-pipeline` at it with `model_path`, and set `model` to
+the same `--base-model` (see [Hierarchical Trained
+Classifier](hierarchical_classifier.md) and [Domain Trained
+Classifier](domain_classifier.md)).
+
 ## Distilling a new base model
 
 If you want to start from a Sentence Transformer with no Model2Vec distillate
