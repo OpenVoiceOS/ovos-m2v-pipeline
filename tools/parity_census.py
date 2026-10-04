@@ -58,6 +58,12 @@ file with one repository name per line. Either way every `ovos-skill-*` name
 in the listing with no clone is printed as `NOT CLONED`, and every clone that
 the listing does not carry as `NOT IN FLEET`.
 
+The identity of a clone is its `origin` remote, not its directory name. A
+clone outside the organisation whose name the listing carries is listed as
+`FORK` and does not stand in for the organisation's repository, which stays
+`NOT CLONED`. A clone outside the organisation whose name the listing does not
+carry hides nothing, and stays `NOT IN FLEET`.
+
 An archived repository is not a gap: cloning it does not fix anything, so
 `--org` excludes it from the listing before the comparison runs. The report
 names how many it excluded, so the count is auditable.
@@ -102,6 +108,31 @@ def files_at(repo: Path, rev: str) -> list[str]:
 
 def read_at(repo: Path, rev: str, path: str) -> str:
     return git(repo, "show", f"{rev}:{path}")
+
+
+def clone_origin(repo: Path) -> tuple[str, str]:
+    """``(owner, name)`` the clone's ``origin`` remote points at.
+
+    The directory name is not the identity of a clone. A clone of a fork
+    carries the directory name of the repository it was forked from, so the
+    listing comparison must read the remote. A clone with no ``origin``
+    yields an empty owner and the directory name: the census cannot tell
+    whose repository it holds.
+    """
+    try:
+        url = git(repo, "remote", "get-url", "origin").strip()
+    except RuntimeError:
+        return "", repo.name
+    if not url:
+        return "", repo.name
+    text = url.removesuffix(".git")
+    if "://" in text:
+        text = text.split("://", 1)[1]
+    text = text.rpartition("@")[2].replace(":", "/", 1)
+    parts = [part for part in text.split("/") if part]
+    if len(parts) < 2:
+        return "", repo.name
+    return parts[-2], parts[-1]
 
 
 # ------------------------------------------------------------- locales ----
@@ -274,12 +305,20 @@ def _split_archived(raw: str) -> tuple[list[str], int]:
 
 
 def fleet_from_file(path: Path) -> list[str]:
-    """One repository name per line; blank lines and ``#`` comments skipped."""
+    """One repository name per line; blank lines and ``#`` comments skipped.
+
+    A name that is not an ``ovos-skill-*`` repository is dropped, as it is
+    for ``--org``: the census measures the skill fleet, and a listing that
+    carries the plugins too must not report every one of them as a gap.
+    """
     names = []
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
-        if line and not line.startswith("#"):
-            names.append(line.rsplit("/", 1)[-1])
+        if not line or line.startswith("#"):
+            continue
+        name = line.rsplit("/", 1)[-1]
+        if name.startswith("ovos-skill-"):
+            names.append(name)
     return sorted(names)
 
 
@@ -367,7 +406,17 @@ def main(argv=None):
         "skills": results,
     }
     if fleet is not None:
-        report["fleet"] = fleet_diff(fleet, [r.name for r in repos])
+        forks, measured = [], []
+        for repo in repos:
+            owner, name = clone_origin(repo)
+            foreign = (args.org and owner
+                       and owner.lower() != args.org.lower())
+            if foreign and {repo.name, name} & set(fleet):
+                forks.append({"skill": repo.name, "origin": f"{owner}/{name}"})
+                continue
+            measured.append(name)
+        report["fleet"] = fleet_diff(fleet, measured)
+        report["fleet"]["forks"] = forks
         report["fleet"]["source"] = f"org {args.org}" if args.org else args.fleet
         report["fleet"]["archived_excluded"] = archived_excluded
     if args.as_json:
@@ -387,6 +436,9 @@ def main(argv=None):
             if diff["archived_excluded"] is not None:
                 print(f"fleet: {diff['archived_excluded']} archived "
                       f"repositories excluded from the listing")
+            for fork in diff["forks"]:
+                print(f"  FORK {fork['skill']}: origin is {fork['origin']}, "
+                      f"outside org {args.org}")
             for name in diff["not_cloned"]:
                 print(f"  NOT CLONED {name}")
             for name in diff["not_in_fleet"]:
