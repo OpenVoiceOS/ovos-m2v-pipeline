@@ -9,6 +9,8 @@ import numpy as np
 from typing import Any, List, Optional, Union, Dict, Iterable, Tuple, Set
 
 from model2vec.inference import StaticModelPipeline
+from model2vec.inference.mlp import Activation, Layer, MLPHead
+from safetensors.numpy import load_file
 from ovos_bus_client.client import MessageBusClient
 from ovos_bus_client.message import Message
 from ovos_bus_client.session import DEFAULT_SESSION_ID, SessionManager
@@ -134,10 +136,10 @@ def load_shared_model(model_path: str, mode: str) -> Any:
     ``"classifier"`` returns the ``StaticModelPipeline`` (embedding plus
     head); ``"prototype"`` returns the bare ``StaticModel``. Both answers
     for one path hold the same embedding object: when the prototype path
-    loaded first, the classifier's pipeline is re-pointed at that
-    embedding and the copy it loaded is dropped; when the classifier
-    loaded first, the prototype answer is its ``.model``. A load that
-    fails caches nothing, so the caller's retry accounting stays as it is.
+    loaded first, the classifier reads only its head from disk and wraps
+    the embedding already in memory; when the classifier loaded first,
+    the prototype answer is its ``.model``. A load that fails caches
+    nothing, so the caller's retry accounting stays as it is.
     """
     global _SHARED_MODEL_LOADS
     with _SHARED_MODELS_LOCK:
@@ -149,19 +151,50 @@ def load_shared_model(model_path: str, mode: str) -> Any:
             embedding = StaticModel.from_pretrained(model_path)
             _SHARED_MODELS[model_path] = {"pipeline": None, "embedding": embedding}
             _SHARED_MODEL_LOADS += 1
+            LOG.info(f"Loaded embedding model '{model_path}' "
+                     f"({_SHARED_MODEL_LOADS} in memory)")
             return embedding
         if entry is not None and entry["pipeline"] is not None:
             return entry["pipeline"]
-        pipeline = StaticModelPipeline.from_pretrained(model_path)
         if entry is not None:
-            # the embedding is already in memory: share it, drop the copy
-            pipeline.model = entry["embedding"]
+            pipeline = _classifier_on(entry["embedding"], model_path)
             entry["pipeline"] = pipeline
+            LOG.info(f"Loaded classifier head of '{model_path}' onto the "
+                     f"embedding in memory")
         else:
+            pipeline = StaticModelPipeline.from_pretrained(model_path)
             _SHARED_MODELS[model_path] = {"pipeline": pipeline,
                                           "embedding": pipeline.model}
             _SHARED_MODEL_LOADS += 1
+            LOG.info(f"Loaded classifier model '{model_path}' "
+                     f"({_SHARED_MODEL_LOADS} in memory)")
         return pipeline
+
+
+def _classifier_on(embedding: Any, model_path: str) -> StaticModelPipeline:
+    """Read the classifier head of ``model_path`` and put it on ``embedding``.
+
+    ``StaticModelPipeline.from_pretrained`` always loads a second embedding
+    with the tokenizer, which doubles peak memory. The head layout is the
+    one model2vec's own ``_load_pipeline`` reads: ``head.safetensors`` plus
+    ``head_config`` in ``config.json``. A legacy ``pipeline.skops`` head, or
+    a path that is not a local directory, has no head-only reader: it loads
+    whole and its own embedding is dropped for the shared one.
+    """
+    head_path = Path(model_path) / "head.safetensors"
+    if not head_path.is_file():
+        pipeline = StaticModelPipeline.from_pretrained(model_path)
+        pipeline.model = embedding
+        return pipeline
+    head_config = embedding.config.get("head_config", {})
+    tensors = load_file(head_path)
+    layers = [Layer(weight=tensors[f"head.{i}.weight"], bias=tensors[f"head.{i}.bias"])
+              for i in range(head_config.get("n_layers", 0))]
+    classes = head_config.get("classes")
+    head = MLPHead(layers=layers,
+                   activation=Activation(head_config.get("activation", Activation.IDENTITY.value)),
+                   classes=np.asarray(classes) if classes is not None else None)
+    return StaticModelPipeline(embedding, head)
 
 
 def shared_model_stats() -> Dict[str, int]:
@@ -2925,8 +2958,13 @@ class Model2VecPrototypePipeline(Model2VecIntentPipeline):
 
     Identical to ``Model2VecIntentPipeline`` with ``mode`` forced to
     ``"prototype"``.  Configuration is read from
-    ``intents.ovos_m2v_prototype_pipeline`` so it can coexist with the
-    classifier plugin in the same OVOS instance.
+    ``intents.ovos-m2v-prototype-pipeline``, the section
+    ``OVOSPipelineFactory`` passes, and falls back to
+    ``intents.ovos_m2v_prototype_pipeline`` when that section is empty, so
+    it can coexist with the classifier plugin in the same OVOS instance.
+    A section with neither ``model`` nor ``models`` takes ``model``,
+    ``models`` and ``revision`` from the classifier plugin's section, so
+    both plugins run on the one trained model already in memory.
 
     Example ``mycroft.conf``::
 
@@ -2935,7 +2973,6 @@ class Model2VecPrototypePipeline(Model2VecIntentPipeline):
                 "model": "OpenVoiceOS/ovos-m2v-intents-multilingual"
             },
             "ovos-m2v-prototype-pipeline": {
-                "model": "minishlab/M2V_multilingual_output",
                 "prototype_k": 5
             }
         }
@@ -2958,9 +2995,15 @@ class Model2VecPrototypePipeline(Model2VecIntentPipeline):
         bus: Optional[Union[MessageBusClient, FakeBus]] = None,
         config: Optional[Dict] = None,
     ) -> None:
-        if config is None:
-            config = (
-                Configuration().get("intents", {}).get("ovos_m2v_prototype_pipeline") or {}
-            )
+        # OVOSPipelineFactory passes ``intents.ovos-m2v-prototype-pipeline``,
+        # or an empty dict when that section is absent
+        intents = Configuration().get("intents", {})
+        config = dict(config or intents.get("ovos_m2v_prototype_pipeline") or {})
+        if "model" not in config and "models" not in config:
+            # one model in memory: embed with the classifier plugin's model
+            classifier = intents.get("ovos-m2v-pipeline") or intents.get("ovos_m2v_pipeline") or {}
+            for key in ("model", "models", "revision"):
+                if key in classifier:
+                    config.setdefault(key, classifier[key])
         config["mode"] = "prototype"
         super().__init__(bus, config)

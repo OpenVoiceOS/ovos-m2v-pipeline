@@ -4,6 +4,13 @@ Every key lives under `mycroft.conf["intents"]["ovos-m2v-pipeline"]` (classifier
 plugin) or `mycroft.conf["intents"]["ovos-m2v-prototype-pipeline"]` (standalone
 prototype plugin). The table lists every key the code reads.
 
+The `model` key of the classifier section is the one key both plugins read. A
+prototype section that sets neither `model` nor `models` takes `model`,
+`models` and `revision` from the classifier section. Both plugins then share
+one model in memory: the prototype plugin embeds with the trained
+classifier's own embedding, and the classifier head is the only extra
+weight. Set `model` in the prototype section only to run a second model.
+
 ## Both modes
 
 | Key | Type | Default | Meaning |
