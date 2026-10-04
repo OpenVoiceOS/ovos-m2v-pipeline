@@ -85,23 +85,26 @@ PINNED_REGISTRATIONS = {
         "fuster_lifespan", "fuster_quotes", "who",
     },
     "ovos-skill-mark1-ctrl.openvoiceos": {
-        "blink", "brightness", "crazy_eyes", "custom_eye_color",
-        "eye_color", "listen", "look_down", "look_left", "look_left_right",
-        "look_right", "look_up", "look_up_down", "narrow_eyes", "reset",
-        "smile", "spin", "think",
+        "blink", "brightness", "crazy_eyes", "custom_eye_color", "eye_color",
+        "listen", "look_down", "look_left", "look_left_right", "look_right",
+        "look_up", "look_up_down", "narrow_eyes", "reset", "smile", "spin",
+        "think",
     },
     "ovos-skill-volume.openvoiceos": {
         "change_volume", "current_volume", "increase_volume", "less_volume",
-        "volume.max.boost", "volume.mute", "volume.mute.toggle",
-        "volume.reset", "volume.unmute", "volume_level",
+        "volume_level", "volume_max_boost", "volume_mute",
+        "volume_mute_toggle", "volume_reset", "volume_unmute",
     },
     "ovos-skill-weather.openvoiceos": {
-        "do-i-need-an-umbrella", "do.i.need.an.umbrella", "humidity",
-        "is_hot_or_cold", "is_wind", "next_rain", "sunrise", "sunset",
-        "temperature", "weather", "weather_condition",
+        "humidity", "is_hot_or_cold", "is_wind", "next_rain", "sunrise",
+        "sunset", "temperature", "weather", "weather_condition",
     },
-    "ovos-skill-wolfie.openvoiceos": {"search_wolfie"},
-    "ovos-skill-wordnet.openvoiceos": {"search_wordnet"},
+    "ovos-skill-wolfie.openvoiceos": {
+        "search_wolfie",
+    },
+    "ovos-skill-wordnet.openvoiceos": {
+        "search_wordnet",
+    },
     "skill-ovos-wallpapers.openvoiceos": {
         "make_wallpaper", "next_picture", "picture_about", "picture_random",
         "previous_picture", "wallpaper_about", "wallpaper_random",
@@ -112,23 +115,23 @@ PINNED_REGISTRATIONS = {
 #: read at. A re-pin in `train/sources.yaml` must update both tables.
 PINNED_REFS = {
     "ovos-skill-alerts.openvoiceos":
-        ("ovos/skills/ovos-skill-alerts", "9f6f7ec7d8cc6059ec024bdddae8b85968b48342"),
+        ("ovos/skills/ovos-skill-alerts", "be27adbd70feec395e9e12d33e631e101fb51919"),
     "ovos-skill-confucius-quotes.openvoiceos":
-        ("ovos/skills/ovos-skill-confucius-quotes", "eb0dd4cdfffa99b7e369378a4b3150a92f1e73d2"),
+        ("ovos/skills/ovos-skill-confucius-quotes", "b009ce3a57d46cd81924c435043054e977dfe7f7"),
     "ovos-skill-fuster-quotes.openvoiceos":
-        ("ovos/skills/ovos-skill-fuster-quotes", "adcd72cbc2e883f434a81cafe818a76dde829d22"),
+        ("ovos/skills/ovos-skill-fuster-quotes", "745fc429a161f3da94c84a8b98539a185d639721"),
     "ovos-skill-mark1-ctrl.openvoiceos":
-        ("ovos/skills/ovos-skill-mark1-ctrl", "3d3e5abe2f9bef4e9a8a9a042abda4827b40fd57"),
+        ("ovos/skills/ovos-skill-mark1-ctrl", "781b9aa4e526138189818a81667d4a48da61c6da"),
     "ovos-skill-volume.openvoiceos":
-        ("ovos/skills/ovos-skill-volume", "94a3c3ac7841edffb15546abe50f16b404561092"),
+        ("ovos/skills/ovos-skill-volume", "0a9887656765a44c62a4a2af2ebba64f6bfcb834"),
     "ovos-skill-weather.openvoiceos":
-        ("ovos/skills/ovos-skill-weather", "64900360ba0eb1a59cbdad638ec3780c63e20b41"),
+        ("ovos/skills/ovos-skill-weather", "fb87032b6bd9fcea2856e510cfae5a31d98635aa"),
     "ovos-skill-wolfie.openvoiceos":
-        ("ovos/skills/ovos-skill-wolfie", "bca7e6e6754626823990cc13093f9de8ba1b8e47"),
+        ("ovos/skills/ovos-skill-wolfie", "306c524d7125c672f8085b76c746025df8980a43"),
     "ovos-skill-wordnet.openvoiceos":
-        ("ovos/skills/ovos-skill-wordnet", "6efb78c2250c3ab0c4b754fa75be99d5ad260c6e"),
+        ("ovos/skills/ovos-skill-wordnet", "1846a4248c75ab582205fe5d1a73730e9f5e3b39"),
     "skill-ovos-wallpapers.openvoiceos":
-        ("ovos/skills/ovos-skill-wallpapers", "209a55c372eeb06b600e18b4076f8579029aea73"),
+        ("ovos/skills/ovos-skill-wallpapers", "39a8955cd78d55cab680161f9e9816fb56a7dfbc"),
 }
 
 SOURCES = Path(__file__).resolve().parents[1] / "train" / "sources.yaml"
