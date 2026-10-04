@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.29.7a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.29.7a2) (2026-10-04)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.29.7a1...0.29.7a2)
+
+**Merged pull requests:**
+
+- chore\(train\): bump the source pins and skill refs to their current heads [\#272](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/272) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.29.7a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.29.7a1) (2026-10-04)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.29.6a1...0.29.7a1)
@@ -388,8 +396,6 @@
 **Merged pull requests:**
 
 - fix: route the renamed SpeedtestIntent model label to speedtest\_intent [\#189](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/189) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
-- fix: route the renamed TellMeMoreIntent model label to tell\_me\_more\_intent [\#188](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/188) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
-- fix: route the renamed ConfuciusQuote model label to confucius\_quote [\#187](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/187) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
 
 ## [0.13.12a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.12a1) (2026-09-13)
 
