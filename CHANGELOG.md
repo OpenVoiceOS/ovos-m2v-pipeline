@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.29.7a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.29.7a2) (2026-10-04)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.29.7a1...0.29.7a2)
+
+**Merged pull requests:**
+
+- chore\(train\): bump the source pins and skill refs to their current heads [\#272](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/272) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
+## [0.29.7a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.29.7a1) (2026-10-04)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.29.6a1...0.29.7a1)
+
+**Merged pull requests:**
+
+- docs\(labels\): the umbrella entry names its pin and a count that gives 631 [\#286](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/286) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
+## [0.29.6a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.29.6a1) (2026-10-04)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.29.5a1...0.29.6a1)
+
+**Merged pull requests:**
+
+- fix: the parity census reads a clone's origin remote and filters the fleet listing [\#289](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/289) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
+## [0.29.5a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.29.5a1) (2026-10-04)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.29.4a1...0.29.5a1)
+
+**Merged pull requests:**
+
+- fix: read\_gold rejects a non-string gold utterance and the guard order is tested [\#288](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/288) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.29.4a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.29.4a1) (2026-10-01)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.29.3a1...0.29.4a1)
@@ -361,27 +393,13 @@
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.12a1...0.13.13a1)
 
-**Merged pull requests:**
-
-- fix: route the renamed SpeedtestIntent model label to speedtest\_intent [\#189](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/189) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
-- fix: route the renamed TellMeMoreIntent model label to tell\_me\_more\_intent [\#188](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/188) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
-- fix: route the renamed ConfuciusQuote model label to confucius\_quote [\#187](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/187) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
-
 ## [0.13.12a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.12a1) (2026-09-13)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.11a1...0.13.12a1)
 
-**Merged pull requests:**
-
-- fix: route a renamed intent's old model label to its new name [\#184](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/184) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
-
 ## [0.13.11a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.11a1) (2026-09-13)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.10a1...0.13.11a1)
-
-**Merged pull requests:**
-
-- fix: a cached snapshot missing files of its revision is not current [\#182](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/182) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
 
 ## [0.13.10a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.10a1) (2026-09-13)
 

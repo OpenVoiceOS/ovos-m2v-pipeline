@@ -58,6 +58,26 @@ artifact is one export restricted to that skill's labels, loaded alongside the d
 Both read the same corpus, so a comparison between them measures the two shapes rather than
 two datasets.
 
+The classifier and the prototype artifact are published as a pair and describe the
+same intents, so their label sets have to agree. `train/build_artifacts.py` runs both
+producers against one corpus into a staging directory, compares the two label sets,
+and publishes only when they match. When they differ it writes nothing and names the
+labels responsible:
+
+```bash
+python train/build_artifacts.py --dataset train/dataset --out train/artifacts
+```
+
+Both sides are built on one backbone, `minishlab/M2V_multilingual_output`,
+because a classifier and a prototype artifact published as a pair are only a
+pair when they share an embedding space. `--classifier-base` and
+`--prototype-base` override it one side at a time. Each published side carries
+`build.json` with the sha256 of the dataset manifest and the backbone each
+side used, so a reader of one half can tell what it was built from.
+
+A run that does not publish leaves nothing behind: the staging directory is
+dropped on a producer failure, on a drift refusal, and on any other exit.
+
 `--allow-ambiguous` keeps rows whose `(utterance, lang)` carries more than one
 label; by default they are dropped and the label pairs are reported.
 

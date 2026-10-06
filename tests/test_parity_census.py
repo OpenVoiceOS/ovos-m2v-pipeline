@@ -10,6 +10,7 @@ Three properties matter more than the numbers it prints:
 * Layer B is policy. No clause requires a locale to mirror `en-US`
   (locale-parity.md §1), so its rows must never raise the exit status.
 """
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -270,3 +271,76 @@ def test_org_and_fleet_together_are_refused(tmp_path):
         census.main(["--workspace", str(tmp_path / "ws"), "--org", "x",
                      "--fleet", str(tmp_path / "none.txt")])
     assert "not both" in str(raised.value)
+
+
+def test_a_clone_of_a_fork_does_not_stand_in_for_the_org_repository(tmp_path,
+                                                                    capsys,
+                                                                    monkeypatch):
+    """The identity of a clone is its remote. A fork checked out under the
+    organisation's directory name must not hide the missing clone."""
+    root = tmp_path / "ws" / "ovos" / "skills"
+    root.mkdir(parents=True)
+    repo = _skill(root, {"locale/en-US/one.dialog": "hello\n"})
+    subprocess.run(["git", "-C", str(repo), "remote", "add", "origin",
+                    "https://github.com/someone/ovos-skill-fake.git"], check=True)
+
+    class FakeGh:
+        returncode = 0
+        stdout = "ovos-skill-fake\tfalse\n"
+        stderr = ""
+
+    real_run = subprocess.run
+    monkeypatch.setattr(census.subprocess, "run",
+                        lambda cmd, **kw: FakeGh() if cmd[:2] == ["gh", "api"]
+                        else real_run(cmd, **kw))
+    census.main(["--workspace", str(tmp_path / "ws"), "--org", "OpenVoiceOS",
+                 "--json"])
+    report = json.loads(capsys.readouterr().out)
+    assert report["fleet"]["not_cloned"] == ["ovos-skill-fake"]
+    assert report["fleet"]["not_in_fleet"] == []
+    assert report["fleet"]["forks"] == [
+        {"skill": "ovos-skill-fake", "origin": "someone/ovos-skill-fake"}]
+
+
+def test_a_fleet_listing_drops_a_name_that_is_not_a_skill(tmp_path, capsys):
+    """``--fleet`` applies the ``ovos-skill-*`` filter ``--org`` applies, so a
+    listing that carries the plugins does not report them as gaps."""
+    root = tmp_path / "ws" / "ovos" / "skills"
+    root.mkdir(parents=True)
+    _skill(root, {"locale/en-US/one.dialog": "hello\n"})
+    listing = tmp_path / "fleet.txt"
+    listing.write_text("ovos-skill-fake\novos-tts-plugin-mimic\n"
+                       "OpenVoiceOS/ovos-core\n", encoding="utf-8")
+    census.main(["--workspace", str(tmp_path / "ws"), "--fleet", str(listing),
+                 "--json"])
+    report = json.loads(capsys.readouterr().out)
+    assert report["fleet"]["named"] == 1
+    assert report["fleet"]["not_cloned"] == []
+
+
+def test_an_out_of_org_clone_the_listing_does_not_carry_is_not_a_fork(
+        tmp_path, capsys, monkeypatch):
+    """A clone outside the org with a name the listing does not carry hides
+    nothing. It stays ``NOT IN FLEET`` and is not relabelled ``FORK``."""
+    root = tmp_path / "ws" / "ovos" / "skills"
+    root.mkdir(parents=True)
+    repo = _skill(root, {"locale/en-US/one.dialog": "hello\n"})
+    subprocess.run(["git", "-C", str(repo), "remote", "add", "origin",
+                    "https://github.com/VoiceGamez/ovos-skill-fake.git"],
+                   check=True)
+
+    class FakeGh:
+        returncode = 0
+        stdout = "ovos-skill-other\tfalse\n"
+        stderr = ""
+
+    real_run = subprocess.run
+    monkeypatch.setattr(census.subprocess, "run",
+                        lambda cmd, **kw: FakeGh() if cmd[:2] == ["gh", "api"]
+                        else real_run(cmd, **kw))
+    census.main(["--workspace", str(tmp_path / "ws"), "--org", "OpenVoiceOS",
+                 "--json"])
+    report = json.loads(capsys.readouterr().out)
+    assert report["fleet"]["forks"] == []
+    assert report["fleet"]["not_in_fleet"] == ["ovos-skill-fake"]
+    assert report["fleet"]["not_cloned"] == ["ovos-skill-other"]

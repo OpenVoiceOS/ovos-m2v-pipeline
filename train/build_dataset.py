@@ -68,7 +68,9 @@ LABEL_ALIASES = {
     "ovos-skill-ddg.openvoiceos:common_query": "common_query:common_query",
     "ovos-skill-confucius-quotes.openvoiceos:common_query": "ovos-skill-confucius-quotes.openvoiceos:who",
     "ovos-skill-fuster-quotes.openvoiceos:common_query": "ovos-skill-fuster-quotes.openvoiceos:who",
-    "ovos-skill-volume.openvoiceos:volume.mute.intent.toggle": "ovos-skill-volume.openvoiceos:volume.mute.toggle",
+    # ovos-skill-volume registers volume_mute_toggle, after its underscore
+    # rename. The key is the spelling the corpus still attests.
+    "ovos-skill-volume.openvoiceos:volume.mute.intent.toggle": "ovos-skill-volume.openvoiceos:volume_mute_toggle",
     "ovos-common-query-pipeline-plugin:search_fakewiki": "common_query:search_fakewiki",
     "ovos-ocp-pipeline-plugin:play": "ocp:play",
     "ovos-persona:ask": "persona:ask",
