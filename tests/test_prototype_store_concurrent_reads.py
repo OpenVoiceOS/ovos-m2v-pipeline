@@ -42,15 +42,18 @@ class _BlockingChunk:
     """
 
     def __init__(self, rows: np.ndarray):
+        """Hold *rows* back until ``release`` is set."""
         self._rows = rows
         self.shape = rows.shape
         self.entered = threading.Event()
         self.release = threading.Event()
 
     def __len__(self):
+        """The row count, which ``_consolidate()`` reads to size the new array."""
         return len(self._rows)
 
     def __array__(self, dtype=None, copy=None):
+        """Signal ``entered``, then block until ``release`` (or the timeout)."""
         self.entered.set()
         self.release.wait(TIMEOUT)
         return self._rows if dtype is None else self._rows.astype(dtype)
@@ -64,10 +67,12 @@ class _WatchedLock:
     """
 
     def __init__(self):
+        """Wrap a fresh ``RLock`` with no contenders recorded."""
         self._lock = threading.RLock()
         self.contenders = set()
 
     def acquire(self, blocking=True, timeout=-1):
+        """Take the lock, recording the caller if it had to wait for it."""
         if self._lock.acquire(blocking=False):
             return True
         if not blocking:
@@ -76,17 +81,21 @@ class _WatchedLock:
         return self._lock.acquire(timeout=timeout)
 
     def release(self):
+        """Release the wrapped lock."""
         self._lock.release()
 
     def __enter__(self):
+        """Acquire the lock, as ``with store._lock:`` does."""
         self.acquire()
         return self
 
     def __exit__(self, *exc):
+        """Release the lock on leaving the block."""
         self.release()
 
 
 def _wait_until(predicate, message):
+    """Poll *predicate* until it holds; fail with *message* after TIMEOUT."""
     deadline = time.monotonic() + TIMEOUT
     while not predicate():
         if time.monotonic() > deadline:
@@ -98,10 +107,16 @@ class _Model:
     """Declares no ``dim``, so ``add()`` probes the store for it."""
 
     def encode(self, sentences, **kwargs):
+        """One row of ones per sentence, DIM wide."""
         return np.ones((len(sentences), DIM), dtype=np.float32)
 
 
 def _store_with_blocking_fold():
+    """A store with two consolidated rows and a pending chunk that blocks.
+
+    Returns the store, its lock replaced by a ``_WatchedLock``, and the
+    ``_BlockingChunk`` the next fold will stop on.
+    """
     store = PrototypeIntentStore()
     store._lock = _WatchedLock()
     store.add(_Model(), "skill:first", ["one", "two"])
@@ -123,6 +138,7 @@ class TestReadDuringConsolidate(unittest.TestCase):
         outcome = {}
 
         def _read():
+            """Run the reader, keeping its value or the exception it raised."""
             try:
                 outcome["value"] = reader()
             except Exception as exc:  # recorded, asserted on below
@@ -145,6 +161,7 @@ class TestReadDuringConsolidate(unittest.TestCase):
         return outcome["value"]
 
     def test_len_waits_for_the_fold(self):
+        """``len(store)`` during a fold waits and counts all five rows."""
         store, chunk = _store_with_blocking_fold()
         self.assertEqual(self._run_during_fold(store, chunk, lambda: len(store)), 5)
 
@@ -157,6 +174,7 @@ class TestReadDuringConsolidate(unittest.TestCase):
             lambda: Model2VecIntentPipeline._handle_ready_prototype(pipeline, None))
 
     def test_add_dimension_probe_waits_for_the_fold(self):
+        """``add()`` probing the store for its dimension waits for the fold."""
         store, chunk = _store_with_blocking_fold()
         with tempfile.TemporaryDirectory() as tmp:
             store.cache = PrototypeCache(tmp)
@@ -172,6 +190,7 @@ class TestReadDuringConsolidate(unittest.TestCase):
         chunk = _BlockingChunk(np.ones((3, DIM), dtype=np.float32))
 
         def _register_and_fold():
+            """Register a blocking chunk and fold it, from another thread."""
             store._add_anchors("skill:second", chunk)
             store.embeddings
 
@@ -180,6 +199,7 @@ class TestReadDuringConsolidate(unittest.TestCase):
         class _Store(PrototypeIntentStore):
             @property
             def embeddings(self):
+                """Fold, then start the competing registration once."""
                 emb = super().embeddings
                 if threading.current_thread() is not folder and not folder.ident:
                     # another thread registers right after the export's

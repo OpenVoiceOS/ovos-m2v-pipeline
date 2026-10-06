@@ -508,10 +508,13 @@ class PrototypeIntentStore:
         return np.unique(self.labels)
 
     def __len__(self) -> int:
-        # Under the lock: _consolidate() sets _labels to None while it
-        # copies the pending chunks in, and replaces _pending, so an
-        # unlocked read from another thread (the ready log, a bus handler)
-        # can see the store half-way through a fold.
+        """The number of prototypes, consolidated and pending.
+
+        Read under the lock: ``_consolidate()`` sets ``_labels`` to None
+        while it copies the pending chunks in, and replaces ``_pending``,
+        so an unlocked read from another thread (the ready log, a bus
+        handler) can see the store half-way through a fold.
+        """
         with self._lock:
             return len(self._labels) + sum(len(l) for _, l in self._pending)
 
