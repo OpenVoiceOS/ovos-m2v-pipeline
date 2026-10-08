@@ -38,6 +38,8 @@ dependencies = [
     # one of them, so the plugin cannot load any model at all. The ceiling
     # belongs upstream in model2vec; it is held here until that lands.
     "tokenizers<1.0.0",
+    # the classifier head is read on its own when the embedding is shared
+    "safetensors",
     "scikit-learn",
     "skops",
 ]
