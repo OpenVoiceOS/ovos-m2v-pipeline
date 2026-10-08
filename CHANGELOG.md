@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.30.2a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.30.2a1) (2026-10-08)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.30.1a1...0.30.2a1)
+
+**Merged pull requests:**
+
+- fix: build the prototypes with the classifier's own embedding [\#298](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/298) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.30.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.30.1a1) (2026-10-08)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.30.0a1...0.30.1a1)
