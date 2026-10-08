@@ -439,6 +439,46 @@ def count_rows_with_an_unfilled_slot(rows) -> int:
     return sum(1 for row in rows if re.search(r"\{[^}]+\}", row["utterance"]))
 
 
+#: A typed slot as the resource writes it: `{number:offset}`
+#: (OVOS-INTENT-1 5.6).
+TYPED_SLOT = re.compile(r"\{\s*([A-Za-z_][\w-]*)\s*:\s*([A-Za-z_][\w-]*)\s*\}")
+
+
+def typed_slot_placeholders(rows):
+    """Rows whose own typed slot survived into the utterance, with a sample.
+
+    A typed slot is `{number:offset}` in the resource, and `expand` strips
+    the type, so an unfilled one reaches a finished row as `{offset}` -- the
+    same shape an UNTYPED slot leaves behind legitimately (INTENT-1 5.4).
+    That is why `train_rows_with_an_unfilled_slot` cannot be read as this
+    number: 43,502 en-US rows of v6.1 carry a brace on purpose, and a typed
+    placeholder would sit inside that figure unseen.
+
+    So the type is read back from the row's own template, which keeps the
+    colon form, and only a brace the template wrote as typed counts. The
+    read is this module's own regex and NOT `declared_slot_types`, on
+    purpose: the filler asks that function which slots are typed, and a gate
+    that asks the same question cannot catch the answer coming back empty --
+    which is exactly the failure that puts a placeholder in a row. A literal
+    `{number:offset}` in an utterance counts too: it means the type prefix
+    was never stripped.
+    """
+    cache = {}
+    hits = []
+    for row in rows:
+        template = row.get("template", "")
+        if template not in cache:
+            cache[template] = {name.lower() for _, name
+                               in TYPED_SLOT.findall(template)}
+        typed = cache[template]
+        for name in re.findall(r"\{([^}]+)\}", row["utterance"]):
+            bare = name.split(":")[-1].strip().lower()
+            if ":" in name or bare in typed:
+                hits.append(f'{row["lang"]} {row["label"]}: {row["utterance"]}')
+                break
+    return hits
+
+
 def count_ambiguous_rows(rows) -> int:
     """Rows whose locale and utterance carry a label another row disagrees on.
 
@@ -758,6 +798,7 @@ def main() -> int:
         # Name by name, not count against count: the ledger reads the finished
         # label set and says which of its losses were written down.
         ledger_report = check_label_ledger(ledger, labels_trained)
+        typed_placeholders = typed_slot_placeholders(train)
 
         # The floor is known only now: which listed changes took effect is a
         # property of the built corpus, not of the ledger file. An override is
@@ -804,6 +845,13 @@ def main() -> int:
             # number and carries a different name.
             "train_rows_with_an_unfilled_slot":
                 count_rows_with_an_unfilled_slot(train),
+            # A typed slot is never a legitimate leftover: the runtime binds
+            # it by asking a parser, so a row carrying the placeholder teaches
+            # a surface no runtime produces. Counted apart from the brace
+            # count above, which an untyped slot fills legitimately.
+            "train_rows_with_a_typed_slot_placeholder": len(typed_placeholders),
+            "train_rows_with_a_typed_slot_placeholder_detail":
+                sorted(typed_placeholders)[:20],
             "train_rows_ambiguous_same_utterance_different_label":
                 count_ambiguous_rows(train),
             "templates_dropped_for_a_bare_alternation": len(dropped_templates),
@@ -879,6 +927,14 @@ def main() -> int:
             short.append(
                 f"the gold side scores only {report['labels_scored']} labels, "
                 f"floor {args.min_labels_scored}")
+        if report["train_rows_with_a_typed_slot_placeholder"]:
+            short.append(
+                f"{report['train_rows_with_a_typed_slot_placeholder']} training "
+                f"rows still carry a typed slot as a placeholder, for example "
+                f"{sorted(typed_placeholders)[0]}: the runtime binds a typed "
+                f"slot by asking a parser, so the brace is a surface it never "
+                f"produces, and the unfilled-slot count cannot show this "
+                f"because an untyped slot fills that count legitimately")
         if report["train_gold_overlap_after_fix"] != 0:
             short.append(
                 f"{report['train_gold_overlap_after_fix']} training rows still "

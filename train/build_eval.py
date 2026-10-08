@@ -40,6 +40,16 @@ from census_gold_labels import census_paths  # noqa: E402
 #: Gold lives beside the end-to-end suite that reads it.
 GOLD = re.compile(r"(?:^|.*/)golden_utterances(?:_([A-Za-z-]+))?\.jsonl$")
 
+#: Template syntax in a gold utterance. A gold row is a sentence somebody
+#: says, so every one of these is a template that reached a gold file by
+#: mistake: a slot (`{offset}`), a typed slot (`{number:offset}`), a group or
+#: an alternation. The train side fills a typed slot from the parser for its
+#: type and leaves an untyped one literal, which INTENT-1 5.4 allows there.
+#: The gold side can do neither: filling it would invent a phrasing nobody
+#: wrote, and keeping it would score a brace. So the row is refused, counted
+#: in the census and named in the manifest, which is how the two sides agree.
+TEMPLATE_SYNTAX = re.compile(r"\{[^}]*\}|[()\[\]|]")
+
 
 def git(repo: Path, *args: str) -> str:
     return subprocess.run(["git", "-C", str(repo), *args],
@@ -65,7 +75,7 @@ def normalize_lang(tag: str) -> str:
 
 
 def read_gold(repo: Path, rev: str, repo_name: str, stats: collections.Counter,
-              census: dict = None):
+              census: dict = None, dropped_syntax: list = None):
     """Gold rows a skill ships at *rev*, labelled by the shared label
     function. *census* (per skill per locale) records rows in, rows out and
     why a row was dropped."""
@@ -75,6 +85,8 @@ def read_gold(repo: Path, rev: str, repo_name: str, stats: collections.Counter,
         stats["skill_id_assumed_from_repo_name"] += 1
     rows = []
     seen = set()
+    if dropped_syntax is None:
+        dropped_syntax = []
     gold_files = 0
     for path in tree(repo, rev):
         m = GOLD.match(path or "")
@@ -116,6 +128,11 @@ def read_gold(repo: Path, rev: str, repo_name: str, stats: collections.Counter,
                 stats["gold_asserts_a_dialog_not_an_intent"] += 1
                 _count(census, repo_name, lang, "no_intent")
                 continue
+            if TEMPLATE_SYNTAX.search(utterance):
+                stats["gold_with_template_syntax"] += 1
+                _count(census, repo_name, lang, "template_syntax")
+                dropped_syntax.append(f"{repo_name} {lang}: {utterance}")
+                continue
             label = skill_labels.label(skill_id, str(intent))
             key = (lang, label, utterance.lower())
             if key in seen:
@@ -147,17 +164,20 @@ def build(sources: Path, workspace: Path = None):
     refs = cfg["skill_refs"]["refs"]
     stats: collections.Counter = collections.Counter()
     census: dict = {}
+    dropped_syntax: list = []
     rows = []
     for key, rev in sorted(refs.items()):
         repo, repo_name = ws / key, key.rsplit("/", 1)[-1]
         if not repo.is_dir():
             stats["skill_missing_clone"] += 1
             continue
-        rows.extend(read_gold(repo, rev, repo_name, stats, census))
-    return rows, census, stats, refs
+        rows.extend(read_gold(repo, rev, repo_name, stats, census,
+                              dropped_syntax))
+    return rows, census, stats, refs, dropped_syntax
 
 
-def write(out: Path, rows, census, stats, refs, sources: Path) -> dict:
+def write(out: Path, rows, census, stats, refs, sources: Path,
+          dropped_syntax=None) -> dict:
     out.mkdir(parents=True, exist_ok=True)
     by_lang = collections.defaultdict(list)
     for row in rows:
@@ -170,8 +190,16 @@ def write(out: Path, rows, census, stats, refs, sources: Path) -> dict:
     with (out / "test.jsonl").open("w", encoding="utf-8") as fh:
         for row in rows:
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+    surviving = [row["utterance"] for row in rows
+                 if TEMPLATE_SYNTAX.search(row["utterance"])]
     manifest = {
         "test_rows": len(rows),
+        # Read off the finished eval side, not counted as the reader goes.
+        # This number must be zero: a gold row is a sentence somebody says.
+        "test_rows_with_template_syntax": len(surviving),
+        "gold_rows_refused_for_template_syntax": len(dropped_syntax or []),
+        "gold_rows_refused_for_template_syntax_detail":
+            sorted(dropped_syntax or [])[:20],
         "languages_test": len(by_lang),
         "labels_scored": len({r["label"] for r in rows}),
         "skills_with_gold": sorted({r["source"].split(":", 1)[1] for r in rows}),
@@ -198,13 +226,20 @@ def main(argv=None) -> int:
     ap.add_argument("--min-test-rows", type=int, default=1)
     args = ap.parse_args(argv)
 
-    rows, census, stats, refs = build(Path(args.sources), args.workspace)
+    rows, census, stats, refs, dropped_syntax = build(
+        Path(args.sources), args.workspace)
     if len(rows) < args.min_test_rows:
         print(f"[eval] {len(rows)} rows, floor {args.min_test_rows}", file=sys.stderr)
         return 1
     out = Path(args.out)
-    manifest = write(out, rows, census, stats, refs, Path(args.sources))
+    manifest = write(out, rows, census, stats, refs, Path(args.sources),
+                     dropped_syntax)
     print(json.dumps({k: v for k, v in manifest.items() if k != "skill_refs"}, indent=2))
+    if manifest["test_rows_with_template_syntax"]:
+        print(f"[eval] {manifest['test_rows_with_template_syntax']} eval rows "
+              f"carry template syntax: a gold row is a sentence somebody "
+              f"says, and a brace in one scores a brace", file=sys.stderr)
+        return 1
     if args.train:
         train, test, missing = census_paths(Path(args.train), out / "test.jsonl")
         if missing:
