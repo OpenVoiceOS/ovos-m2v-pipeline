@@ -68,12 +68,23 @@ labels responsible:
 python train/build_artifacts.py --dataset train/dataset --out train/artifacts
 ```
 
-Both sides are built on one backbone, `minishlab/M2V_multilingual_output`,
-because a classifier and a prototype artifact published as a pair are only a
-pair when they share an embedding space. `--classifier-base` and
-`--prototype-base` override it one side at a time. Each published side carries
-`build.json` with the sha256 of the dataset manifest and the backbone each
-side used, so a reader of one half can tell what it was built from.
+The classifier trains on `minishlab/M2V_multilingual_output` by default, and
+`--classifier-base` overrides it. The prototypes are not built on that
+backbone. A trainable fit tunes the embedding, so the published classifier
+embeds a sentence differently from the backbone it started from. The runtime
+keeps one model in memory, the classifier, and both pipelines embed with it.
+The driver therefore exports the prototypes with the classifier's own
+embedding, read from the staged classifier output, so the two sides always
+share one embedding space.
+
+The prototype manifest records the classifier's model id, and the runtime
+ignores an artifact whose model id differs from the model it loads. Pass
+`--model-id` with the id the runtime loads the classifier under, for example
+the Hub repo it is published to. Without it, the id is the published
+`classifier/` directory. Each published side carries `build.json` with the
+sha256 of the dataset manifest, the backbone, the model id and the sha256 of
+the classifier's `model.safetensors`, so a reader of one half can tell what it
+was built from.
 
 A run that does not publish leaves nothing behind: the staging directory is
 dropped on a producer failure, on a drift refusal, and on any other exit.

@@ -23,16 +23,11 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 
-#: The one backbone both sides are built on by default. The classifier and
-#: the prototypes are compared label by label and published as a pair, so a
-#: pair built on two different embedding spaces is a pair in name only. The
-#: three entry points here used to default to three different models:
-#: `--classifier-base` to potion-base-32M, `--prototype-base` to
-#: M2V_multilingual_output, and the exporter's own `--model` to
-#: OpenVoiceOS/ovos-m2v-intents-multilingual. The corpus is multilingual, so
-#: the multilingual backbone is the one default. The exporter's own default
-#: is left alone: it is that package's public interface, not this driver's,
-#: and the driver names the model on every call.
+#: The backbone the classifier trains on. The prototypes are not built on it:
+#: a trainable fit tunes the embedding, so the classifier publishes a model
+#: whose vectors are no longer the backbone's. The runtime keeps that one
+#: model in memory for both pipelines, so the prototypes are exported with
+#: the classifier's own embedding, read from the classifier output.
 DEFAULT_BACKBONE = "minishlab/M2V_multilingual_output"
 
 
@@ -75,6 +70,14 @@ def prototype_labels(artifact_dir: Path) -> set:
     return set(json.loads((artifact_dir / "manifest.json").read_text())["labels"])
 
 
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def describe_drift(classifier: set, prototype: set) -> str:
     only_classifier = sorted(classifier - prototype)
     only_prototype = sorted(prototype - classifier)
@@ -101,9 +104,11 @@ def main(argv=None) -> int:
     ap.add_argument("--classifier-base", default=DEFAULT_BACKBONE,
                     help="the backbone the classifier trains on "
                          f"(default {DEFAULT_BACKBONE})")
-    ap.add_argument("--prototype-base", default=DEFAULT_BACKBONE,
-                    help="the backbone the prototypes are built with "
-                         f"(default {DEFAULT_BACKBONE})")
+    ap.add_argument("--model-id", default=None,
+                    help="the id the runtime loads the classifier under (its "
+                         "'model' setting), recorded in the prototype "
+                         "manifest and hashed into its cache keys "
+                         "(default: the published classifier directory)")
     ap.add_argument("--lang", default=None,
                     help="build one locale only, e.g. en-US")
     ap.add_argument("--prototype-k", type=int, default=None,
@@ -120,9 +125,11 @@ def main(argv=None) -> int:
                  "--dataset", args.dataset,
                  "--base-model", args.classifier_base,
                  "--out", str(staging / "classifier")]
+    model_id = args.model_id or str(out.resolve() / "classifier")
     export_cmd = [sys.executable, "-m", "ovos_m2v_pipeline.cli", "export",
                   "--from-dataset", args.dataset,
-                  "--model", args.prototype_base,
+                  "--model", str(staging / "classifier"),
+                  "--model-id", model_id,
                   "--out", str(staging / "prototypes")]
     if args.lang:
         train_cmd += ["--lang", args.lang]
@@ -154,6 +161,8 @@ def main(argv=None) -> int:
         try:
             classifier = classifier_labels(staging / "classifier")
             prototype = prototype_labels(staging / "prototypes")
+            classifier_sha256 = file_sha256(
+                staging / "classifier" / "model.safetensors")
         except (OSError, KeyError, json.JSONDecodeError) as err:
             # A producer that exits 0 and writes no labels.json, or writes one
             # this driver cannot read, used to raise straight out of main()
@@ -161,7 +170,8 @@ def main(argv=None) -> int:
             # same non-publishing exit as a refusal and it ends the same way.
             return abandon(
                 f"error: a producer exited 0 but its labels could not be "
-                f"read ({type(err).__name__}: {err}); nothing published", 1)
+                f"read or its weights hashed ({type(err).__name__}: {err}); "
+                "nothing published", 1)
 
         if classifier != prototype:
             return abandon(
@@ -174,12 +184,14 @@ def main(argv=None) -> int:
         # were built together. The dataset manifest's sha256 is that
         # identity: it names the corpus both producers read.
         build_id = dataset_identity(Path(args.dataset))
+        # The classifier's weights hash and its model id tie the prototypes
+        # to the one embedding they were built with: a runtime holding a
+        # different model refuses the artifact on its model id.
         stamp = {"dataset_manifest_sha256": build_id,
                  "sides": ["classifier", "prototypes"],
-                 # which backbone each side was built on, so a reader of one
-                 # published pair can tell without re-running anything
-                 "backbones": {"classifier": args.classifier_base,
-                               "prototypes": args.prototype_base}}
+                 "backbone": args.classifier_base,
+                 "model_id": model_id,
+                 "classifier_sha256": classifier_sha256}
         for side in ("classifier", "prototypes"):
             stamp_path = staging / side / "build.json"
             stamp_path.write_text(json.dumps(stamp, indent=2, sort_keys=True)

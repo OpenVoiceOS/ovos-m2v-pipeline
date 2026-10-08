@@ -41,7 +41,7 @@ def _discover_intent_files(lang_dir: Path) -> List[Path]:
 
 def _build_from_skill_dir(
     skill_dir: Path, skill_id: str, model_id: str, lang: Optional[str],
-    k: Optional[int], strategy: str,
+    k: Optional[int], strategy: str, model_path: Optional[str] = None,
 ) -> "tuple":
     """Encode a skill's ``locale/<lang>/*.intent`` templates into a store.
 
@@ -64,7 +64,7 @@ def _build_from_skill_dir(
     from ovos_m2v_pipeline.cache import compute_cache_key
     from ovos_m2v_pipeline.strategies import PrototypeStrategy
 
-    model = StaticModel.from_pretrained(model_id)
+    model = StaticModel.from_pretrained(model_path or model_id)
     model2vec_version = getattr(model2vec, "__version__", "")
     store = PrototypeIntentStore(strategy=PrototypeStrategy(strategy))
 
@@ -140,7 +140,7 @@ def _build_from_cache(cache_dir: Path, model_id: str, model2vec_version: str,
 
 def _build_from_dataset(
     dataset: Path, model_id: str, lang: Optional[str],
-    k: Optional[int], strategy: str,
+    k: Optional[int], strategy: str, model_path: Optional[str] = None,
 ) -> "tuple":
     """Encode the built training corpus into a store, one label per language.
 
@@ -168,7 +168,7 @@ def _build_from_dataset(
     if rows.empty:
         raise ValueError(f"no rows in {train_path} for lang {lang!r}")
 
-    model = StaticModel.from_pretrained(model_id)
+    model = StaticModel.from_pretrained(model_path or model_id)
     model2vec_version = getattr(model2vec, "__version__", "")
     store = PrototypeIntentStore(strategy=PrototypeStrategy(strategy))
 
@@ -192,20 +192,21 @@ def _build_from_dataset(
 def _cmd_export(args: argparse.Namespace) -> int:
     from ovos_m2v_pipeline.version import __version__ as plugin_version
 
+    model_id = args.model_id or args.model
     if args.skill_dir:
         store, model_id, model2vec_version, cache_keys = _build_from_skill_dir(
-            Path(args.skill_dir), args.skill_id, args.model, args.lang,
-            args.prototype_k, args.prototype_strategy,
+            Path(args.skill_dir), args.skill_id, model_id, args.lang,
+            args.prototype_k, args.prototype_strategy, model_path=args.model,
         )
     elif args.from_dataset:
         store, model_id, model2vec_version, cache_keys = _build_from_dataset(
-            Path(args.from_dataset), args.model, args.lang,
-            args.prototype_k, args.prototype_strategy,
+            Path(args.from_dataset), model_id, args.lang,
+            args.prototype_k, args.prototype_strategy, model_path=args.model,
         )
     elif args.from_cache:
         import model2vec
         store, model_id, model2vec_version, cache_keys = _build_from_cache(
-            Path(args.from_cache), args.model,
+            Path(args.from_cache), model_id,
             getattr(model2vec, "__version__", ""), args.prototype_strategy,
         )
     else:
@@ -247,6 +248,11 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("--model", default="OpenVoiceOS/ovos-m2v-intents-multilingual",
                          help="Model2Vec repo id or local path the "
                               "centroids are built with")
+    export.add_argument("--model-id", default=None,
+                         help="model id recorded in the manifest and hashed "
+                              "into each cache key, when the model is read "
+                              "from a path the runtime does not load it "
+                              "under (default: --model)")
     export.add_argument("--skill-dir",
                          help="path to a skill's repo (containing a "
                               "'locale/<lang>/*.intent' tree)")
