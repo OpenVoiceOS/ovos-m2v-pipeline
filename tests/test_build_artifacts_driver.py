@@ -5,6 +5,7 @@ their label sets agree, so the tests drive it with stub producers: what is
 under test is the invariant and the refusal, not the fitting or the encoding.
 """
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -25,6 +26,7 @@ from pathlib import Path
 out = Path(sys.argv[sys.argv.index("--out") + 1])
 out.mkdir(parents=True, exist_ok=True)
 (out / "labels.json").write_text(json.dumps({{"valid_labels": {classifier_labels!r}}}))
+(out / "model.safetensors").write_bytes(b"weights")
 ''', encoding="utf-8")
     (root / "ovos_m2v_pipeline" / "__init__.py").write_text("", encoding="utf-8")
     (root / "ovos_m2v_pipeline" / "cli.py").write_text(f'''
@@ -249,23 +251,22 @@ def test_a_manifest_that_is_not_json_takes_the_empty_identity(tmp_path):
     assert stamp["dataset_manifest_sha256"] == ""
 
 
-def test_both_sides_default_to_one_backbone_and_say_which(tmp_path):
-    """The classifier and the prototypes are published as a pair, so a pair
-    built on two embedding spaces is a pair in name only."""
+def test_both_sides_name_the_backbone_and_the_classifier(tmp_path):
+    """A reader of one published half can tell what it was built from."""
+    import hashlib
     labels = ["a.skill:one"]
     root = _stub_tree(tmp_path, labels, labels)
     out = tmp_path / "artifacts"
     assert _run(root, out, _dataset_with_manifest(tmp_path)).returncode == 0
     stamp = json.loads((out / "classifier" / "build.json").read_text())
-    backbones = stamp["backbones"]
-    assert backbones["classifier"] == backbones["prototypes"], (
-        "the two sides defaulted to two different backbones")
-    assert backbones["classifier"], "build.json must name the backbone"
+    assert stamp["backbone"] == "minishlab/M2V_multilingual_output"
+    assert stamp["model_id"] == str(out.resolve() / "classifier")
+    assert stamp["classifier_sha256"] == hashlib.sha256(b"weights").hexdigest()
     assert json.loads((out / "prototypes" / "build.json").read_text()) == stamp
 
 
-def test_an_overridden_backbone_is_recorded_as_given(tmp_path):
-    """The control: the stamp reports what ran, it does not echo the default."""
+def test_overrides_are_recorded_as_given(tmp_path):
+    """The control: the stamp reports what ran, it does not echo a default."""
     labels = ["a.skill:one"]
     root = _stub_tree(tmp_path, labels, labels)
     out = tmp_path / "artifacts"
@@ -273,12 +274,43 @@ def test_an_overridden_backbone_is_recorded_as_given(tmp_path):
         [sys.executable, str(root / "train" / "build_artifacts.py"),
          "--dataset", str(_dataset_with_manifest(tmp_path)),
          "--out", str(out),
-         "--classifier-base", "some/other-backbone"],
+         "--classifier-base", "some/other-backbone",
+         "--model-id", "some/published-classifier"],
         capture_output=True, text=True, cwd=str(root))
     assert result.returncode == 0, result.stderr
     stamp = json.loads((out / "classifier" / "build.json").read_text())
-    assert stamp["backbones"]["classifier"] == "some/other-backbone"
-    assert stamp["backbones"]["prototypes"] != "some/other-backbone"
+    assert stamp["backbone"] == "some/other-backbone"
+    assert stamp["model_id"] == "some/published-classifier"
+
+
+def test_the_exporter_reads_the_staged_classifier(tmp_path):
+    """The exporter is handed the classifier the same run trained, never a
+    separate backbone, and records the id the runtime loads it under."""
+    labels = ["a.skill:one"]
+    root = _stub_tree(tmp_path, labels, labels)
+    cli = root / "ovos_m2v_pipeline" / "cli.py"
+    cli.write_text(cli.read_text() + '''
+(out / "argv.json").write_text(json.dumps(sys.argv[1:]))
+''', encoding="utf-8")
+    out = tmp_path / "artifacts"
+    assert _run(root, out, _dataset_with_manifest(tmp_path)).returncode == 0
+    argv = json.loads((out / "prototypes" / "argv.json").read_text())
+    assert argv[argv.index("--model") + 1] == str(
+        tmp_path / "artifacts.staging" / "classifier")
+    assert argv[argv.index("--model-id") + 1] == str(out.resolve() / "classifier")
+
+
+def test_a_classifier_without_weights_publishes_nothing(tmp_path):
+    root = _stub_tree(tmp_path, ["a.skill:one"], ["a.skill:one"])
+    train = root / "train" / "train.py"
+    train.write_text(train.read_text().replace(
+        '(out / "model.safetensors").write_bytes(b"weights")\n', ""),
+        encoding="utf-8")
+    out = tmp_path / "artifacts"
+    result = _run(root, out, _dataset_with_manifest(tmp_path))
+    assert result.returncode == 1
+    assert not out.exists()
+    assert not (tmp_path / "artifacts.staging").exists()
 
 
 def test_a_failed_publish_keeps_the_previous_artifact(tmp_path, monkeypatch):
@@ -328,3 +360,124 @@ def test_a_successful_publish_replaces_the_previous_artifact(tmp_path):
     assert not (out / "sentinel.txt").exists()
     assert (out / "classifier" / "labels.json").is_file()
     assert not (tmp_path / "artifacts.previous").exists()
+
+
+# --- the prototypes live in the classifier's own embedding space ----------
+
+
+_TUNED_TRAIN = '''
+import json, sys
+from pathlib import Path
+
+import numpy as np
+from model2vec import StaticModel
+from model2vec.inference.model import (Activation, Layer, MLPHead,
+                                       StaticModelPipeline)
+
+args = sys.argv[1:]
+base = StaticModel.from_pretrained(args[args.index("--base-model") + 1])
+out = Path(args[args.index("--out") + 1])
+# what a trainable fit does to the backbone: the published embedding is no
+# longer the one it started from
+shift = np.random.default_rng(1).normal(size=base.embedding.shape)
+tuned = StaticModel(vectors=(base.embedding + shift).astype(np.float32),
+                    tokenizer=base.tokenizer, normalize=False)
+labels = ["music.skill:play", "time.skill:current"]
+head = MLPHead([Layer(np.ones((2, tuned.dim), np.float32),
+                      np.zeros(2, np.float32))],
+               Activation.SOFTMAX, np.array(labels))
+StaticModelPipeline(tuned, head).save_pretrained(str(out))
+(out / "labels.json").write_text(json.dumps({"valid_labels": labels}))
+'''
+
+_SENTENCES = {"music.skill:play": "play some music",
+              "time.skill:current": "what time is it"}
+
+
+def _tiny_backbone(path):
+    """A word-level StaticModel built offline, standing in for the hub one."""
+    import numpy as np
+    from model2vec import StaticModel
+    from tokenizers import Tokenizer, models, pre_tokenizers
+
+    words = ["[UNK]", "[PAD]", "play", "some", "music", "what", "time",
+             "is", "it"]
+    tokenizer = Tokenizer(models.WordLevel(
+        {w: i for i, w in enumerate(words)}, unk_token="[UNK]"))
+    tokenizer.pre_tokenizer = pre_tokenizers.Whitespace()
+    vectors = np.random.default_rng(0).normal(size=(len(words), 8))
+    StaticModel(vectors=vectors.astype(np.float32), tokenizer=tokenizer,
+                normalize=False).save_pretrained(str(path))
+    return path
+
+
+def _tiny_corpus(path):
+    import pandas as pd
+
+    path.mkdir(parents=True)
+    rows = pd.DataFrame(
+        [{"lang": "en-US", "label": label, "utterance": sentence,
+          "source": "test", "family": "test"}
+         for label, sentence in _SENTENCES.items()])
+    rows.to_parquet(path / "train.parquet")
+    rows.to_parquet(path / "test.parquet")
+    (path / "manifest.json").write_text(json.dumps({"rows_final": 2}),
+                                        encoding="utf-8")
+    return path
+
+
+def _unit(vector):
+    import numpy as np
+    vector = np.asarray(vector, dtype=np.float32)
+    return vector / np.linalg.norm(vector)
+
+
+def test_the_prototypes_are_built_with_the_classifiers_embedding(tmp_path):
+    """The runtime keeps one model in memory, the classifier, and embeds
+    every query with it. Prototypes built on the base backbone sit in another
+    embedding space as soon as the fit tunes the embedding, and their
+    artifact names a model the runtime never loads."""
+    import hashlib
+
+    import numpy as np
+    from model2vec import StaticModel
+
+    base = _tiny_backbone(tmp_path / "base")
+    root = tmp_path / "tree"
+    (root / "train").mkdir(parents=True)
+    driver = DRIVER.read_text(encoding="utf-8")
+    default = 'DEFAULT_BACKBONE = "minishlab/M2V_multilingual_output"'
+    assert default in driver
+    (root / "train" / "build_artifacts.py").write_text(
+        driver.replace(default, f"DEFAULT_BACKBONE = {str(base)!r}"),
+        encoding="utf-8")
+    (root / "train" / "train.py").write_text(_TUNED_TRAIN, encoding="utf-8")
+
+    out = tmp_path / "artifacts"
+    result = subprocess.run(
+        [sys.executable, str(root / "train" / "build_artifacts.py"),
+         "--dataset", str(_tiny_corpus(tmp_path / "dataset")),
+         "--out", str(out)],
+        capture_output=True, text=True, cwd=str(root),
+        env={**os.environ, "HF_HUB_OFFLINE": "1",
+             "PYTHONPATH": str(Path(__file__).resolve().parents[1])})
+    assert result.returncode == 0, result.stderr
+
+    classifier = StaticModel.from_pretrained(str(out / "classifier"))
+    backbone = StaticModel.from_pretrained(str(base))
+    stored = np.load(out / "prototypes" / "prototypes.npz")
+    by_label = dict(zip((str(l).split("\0")[0] for l in stored["labels"]),
+                        stored["embeddings"]))
+    for label, sentence in _SENTENCES.items():
+        expected = _unit(classifier.encode([sentence])[0])
+        # the control: the fit really did move this sentence's vector
+        assert not np.allclose(expected, _unit(backbone.encode([sentence])[0]),
+                               atol=1e-3)
+        np.testing.assert_allclose(by_label[label], expected, atol=1e-5)
+
+    manifest = json.loads((out / "prototypes" / "manifest.json").read_text())
+    assert manifest["model_id"] == str(out.resolve() / "classifier")
+    stamp = json.loads((out / "prototypes" / "build.json").read_text())
+    weights = (out / "classifier" / "model.safetensors").read_bytes()
+    assert stamp["classifier_sha256"] == hashlib.sha256(weights).hexdigest()
+    assert json.loads((out / "classifier" / "build.json").read_text()) == stamp
