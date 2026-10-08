@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.31.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.31.0a1) (2026-10-08)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.30.2a1...0.31.0a1)
+
+**Merged pull requests:**
+
+- feat\(census\): a gap a pull request or a pushed branch fills is in flight [\#273](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/273) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.30.2a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.30.2a1) (2026-10-08)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.30.1a1...0.30.2a1)
@@ -352,10 +360,6 @@
 ## [0.14.0a3](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.14.0a3) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.14.0a2...0.14.0a3)
-
-**Merged pull requests:**
-
-- chore\(train\): move skill\_refs pins to the dev heads of 2026-09-13 [\#194](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/194) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
 
 ## [0.14.0a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.14.0a2) (2026-09-17)
 
