@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.30.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.30.1a1) (2026-10-08)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.30.0a1...0.30.1a1)
+
+**Merged pull requests:**
+
+- fix: both plugins share one model when loaded through the factory [\#291](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/291) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
+## [0.30.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.30.0a1) (2026-10-04)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.29.7a2...0.30.0a1)
+
 ## [0.29.7a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.29.7a2) (2026-10-04)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.29.7a1...0.29.7a2)
