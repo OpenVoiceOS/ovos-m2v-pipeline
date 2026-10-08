@@ -174,4 +174,5 @@ def test_manifest_records_the_pinned_revisions(built):
     assert report["ambiguous_residual_groups"] == 0
     assert set(report["outputs"]) == {"train.parquet", "train.jsonl",
                                       "test.parquet", "test.jsonl",
-                                      "labels.json", "README.md"}
+                                      "labels.json", "README.md",
+                                      "exclusions.json"}

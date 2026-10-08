@@ -61,6 +61,32 @@ def test_push_dataset_dry_run_uploads_nothing(mock_api_cls, tmp_path, capsys):
 
 
 @patch("huggingface_hub.HfApi")
+def test_push_dataset_uploads_the_exclusions_manifest(mock_api_cls, tmp_path):
+    """exclusions.json ships with the dataset: it's the record of which
+    languages the build excluded and why, and belongs with the corpus that
+    exclusion applies to, not just on disk locally."""
+    out = _dataset_dir(tmp_path)
+    mock_api = MagicMock()
+    mock_api_cls.return_value = mock_api
+
+    build_dataset.push_dataset(out, "OpenVoiceOS/fake-dataset", dry_run=False)
+
+    uploaded = {c.kwargs["path_in_repo"] for c in mock_api.upload_file.call_args_list}
+    assert "exclusions.json" in uploaded
+
+
+@patch("huggingface_hub.HfApi")
+def test_push_dataset_dry_run_lists_exclusions_manifest_without_hfapi(
+        mock_api_cls, tmp_path, capsys):
+    out = _dataset_dir(tmp_path)
+
+    build_dataset.push_dataset(out, "OpenVoiceOS/fake-dataset", dry_run=True)
+
+    mock_api_cls.assert_not_called()
+    assert "exclusions.json" in capsys.readouterr().out
+
+
+@patch("huggingface_hub.HfApi")
 def test_push_dataset_missing_file_refuses_to_push(mock_api_cls, tmp_path):
     out = tmp_path / "dataset"
     out.mkdir()
