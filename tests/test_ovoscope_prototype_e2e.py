@@ -247,6 +247,47 @@ class TestPrototypeMatch(_PrototypeE2EBase):
         self._expect_no_match("glorpfest")
 
 
+class TestPrototypeBlacklistE2E(_PrototypeE2EBase):
+    """OVOS-INTENT-2 §4.3 suppression through a MiniCroft: a skill registers
+    one intent in two languages over ``ovos.intent.register.template``, each
+    with its own ``blacklist``, and an en-US utterance is routed on the bus."""
+
+    DISPATCH = ("skill_b:music", "skill_b:music.intent")
+
+    def _register_template(self, lang: str, blacklist: list[str]):
+        from ovos_spec_tools import SpecMessage
+        self.mc.bus.emit(Message(
+            SpecMessage.INTENT_REGISTER_TEMPLATE.value,
+            data={"skill_id": "skill_b", "intent_name": "music", "lang": lang,
+                  "samples": ["play some music", "start the music"],
+                  "blacklist": blacklist},
+            context={"skill_id": "skill_b"},
+        ))
+
+    def setUp(self):
+        super().setUp()
+        self.pipeline.excluded_keywords = {}
+        self._register_template("en-US", ["music video"])
+        # the es-ES registration arrives last, as a skill loading its
+        # secondary language sends it
+        self._register_template("es-ES", ["videoclip"])
+
+    def test_clean_utterance_dispatches(self):
+        msg = self._send_and_capture("play some music", expected_types=list(self.DISPATCH))
+        self.assertIsNotNone(msg, "expected the music intent to dispatch")
+        self.assertIn(msg.msg_type, self.DISPATCH)
+
+    def test_blacklisted_phrase_rejects_the_intent(self):
+        # "music" alone embeds onto the intent at cosine 1.0; only the en-US
+        # phrase "music video" can stop it
+        self._expect_no_match("play the music video, please")
+
+    def test_another_language_phrase_does_not_apply(self):
+        msg = self._send_and_capture("play some music videoclip",
+                                     expected_types=list(self.DISPATCH))
+        self.assertIsNotNone(msg, "an es-ES phrase must not suppress en-US input")
+
+
 class TestPrototypeSpecialLabelGating(_PrototypeE2EBase):
     """Prototype mode must apply the same session.pipeline gating as
     classifier mode for ocp/stop/common_query special labels."""

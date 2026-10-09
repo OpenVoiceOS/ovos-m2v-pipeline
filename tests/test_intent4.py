@@ -625,7 +625,7 @@ class TestIntent4Blacklist(unittest.TestCase):
         p = _make_prototype_pipeline()
         self._register(p, samples=["play music"], blacklist=["trailer"])
         self.assertEqual(p.excluded_keywords["music.skill:play_music"],
-                         ["trailer"])
+                         {"en-US": ["trailer"]})
 
     def test_blacklist_suppresses_match(self):
         p = _make_prototype_pipeline()
@@ -666,6 +666,202 @@ class TestIntent4Blacklist(unittest.TestCase):
                   "lang": "en-US"},
             context={"skill_id": "music.skill"}))
         self.assertNotIn("music.skill:play_music", p.excluded_keywords)
+
+
+class TestBlacklistSuppression(unittest.TestCase):
+    """OVOS-INTENT-2 §4.3: "If any phrase from the set occurs in the user's
+    utterance, that intent is suppressed — a hard, score-independent
+    rejection, not a confidence penalty. A `.blacklist` does not affect any
+    other intent."
+
+    Every case runs in both modes and at every confidence tier.
+    """
+
+    MUSIC = "music.skill:play_music"
+    VIDEO = "video.skill:play_video"
+
+    def _register(self, p, label, lang, blacklist=None):
+        skill_id, intent_name = label.split(":")
+        data = {"skill_id": skill_id, "intent_name": intent_name,
+                "lang": lang, "samples": ["play music"]}
+        if blacklist is not None:
+            data["blacklist"] = blacklist
+        p._handle_intent4_register_template(
+            Message(SpecMessage.INTENT_REGISTER_TEMPLATE.value,
+                    data=data, context={"skill_id": skill_id}))
+
+    def _pipelines(self):
+        """A prototype and a classifier pipeline, each scoring MUSIC and VIDEO
+        above every tier threshold for any utterance. The classifier answers
+        its own low tier; the default low tier is a prototype pipeline, which
+        the prototype mode covers."""
+        proto = _make_prototype_pipeline()
+        classifier = _make_classifier_pipeline({"low_tier": "classifier"})
+        classifier.model.classes_ = np.array([self.MUSIC, self.VIDEO])
+        classifier.model.predict_proba.return_value = np.array([[0.95, 0.05]])
+        for p in (proto, classifier):
+            self._register(p, self.MUSIC, "en-US", ["trailer", "music video"])
+            self._register(p, self.MUSIC, "es-ES", ["avance"])
+            self._register(p, self.VIDEO, "en-US")
+            self._register(p, self.VIDEO, "es-ES")
+        # every query embeds onto the stored prototypes: cosine 1.0
+        proto.model.encode.side_effect = None
+        proto.model.encode.return_value = np.array([[1.0, 0.0, 0.0, 0.0]],
+                                                   dtype=np.float32)
+        return {"prototype": proto, "classifier": classifier}
+
+    def _tiers(self, p, utterance, lang):
+        """The label each tier answers with, or None."""
+        msg = Message("recognizer_loop:utterance",
+                      {"utterances": [utterance], "lang": lang})
+        out = {}
+        for tier in ("high", "medium", "low"):
+            match = getattr(p, f"match_{tier}")([utterance], lang, msg)
+            out[tier] = match.match_type if match else None
+        return out
+
+    def _candidates(self, p, utterance, lang):
+        return [label for _, label, _, _ in p._match(utterance, None, lang)]
+
+    def test_phrase_suppresses_the_intent_at_every_tier(self):
+        for mode, p in self._pipelines().items():
+            with self.subTest(mode=mode):
+                self.assertEqual(self._tiers(p, "play some music", "en-US"),
+                                 {t: self.MUSIC for t in ("high", "medium", "low")})
+                self.assertNotIn(self.MUSIC,
+                                 self._candidates(p, "play the trailer", "en-US"))
+                tiers = self._tiers(p, "play the trailer", "en-US")
+                self.assertNotIn(self.MUSIC, tiers.values(), tiers)
+
+    def test_multi_word_phrase_is_a_contiguous_token_run(self):
+        for mode, p in self._pipelines().items():
+            with self.subTest(mode=mode):
+                self.assertNotIn(self.MUSIC, self._candidates(
+                    p, "show me that music video", "en-US"))
+                # the same words, not adjacent, do not form the phrase
+                self.assertIn(self.MUSIC, self._candidates(
+                    p, "play music from the video", "en-US"))
+
+    def test_punctuation_does_not_hide_a_phrase(self):
+        for mode, p in self._pipelines().items():
+            with self.subTest(mode=mode):
+                for utterance in ("play the trailer.", "play the trailer, please",
+                                  "Play the TRAILER!", "a music-video please"):
+                    self.assertNotIn(self.MUSIC,
+                                     self._candidates(p, utterance, "en-US"),
+                                     utterance)
+
+    def test_a_phrase_inside_a_word_does_not_occur(self):
+        for mode, p in self._pipelines().items():
+            with self.subTest(mode=mode):
+                self._register(p, self.MUSIC, "en-US", ["art"])
+                self.assertNotIn(self.MUSIC,
+                                 self._candidates(p, "play some art", "en-US"))
+                self.assertEqual(self._tiers(p, "start the music", "en-US"),
+                                 {t: self.MUSIC for t in ("high", "medium", "low")})
+
+    def test_other_intents_are_unaffected(self):
+        for mode, p in self._pipelines().items():
+            with self.subTest(mode=mode):
+                self.assertIn(self.VIDEO,
+                              self._candidates(p, "play the trailer", "en-US"))
+                self.assertEqual(p._excluded_labels("play the trailer", "en-US"),
+                                 [self.MUSIC])
+
+    def test_each_language_keeps_its_own_phrases(self):
+        """A later es-ES registration must not replace the en-US phrases."""
+        for mode, p in self._pipelines().items():
+            with self.subTest(mode=mode):
+                self.assertNotIn(self.MUSIC,
+                                 self._candidates(p, "play the trailer", "en-US"))
+                self.assertNotIn(self.MUSIC,
+                                 self._candidates(p, "pon el avance", "es-ES"))
+
+    def test_a_phrase_does_not_cross_languages(self):
+        for mode, p in self._pipelines().items():
+            with self.subTest(mode=mode):
+                self.assertIn(self.MUSIC,
+                              self._candidates(p, "pon el trailer", "es-ES"))
+                self.assertIn(self.MUSIC,
+                              self._candidates(p, "play the avance", "en-US"))
+
+    def test_a_dialect_uses_its_closest_registration(self):
+        for mode, p in self._pipelines().items():
+            with self.subTest(mode=mode):
+                self.assertNotIn(self.MUSIC,
+                                 self._candidates(p, "play the trailer", "en-GB"))
+                self.assertNotIn(self.MUSIC,
+                                 self._candidates(p, "pon el avance", "es-MX"))
+
+    def test_a_language_without_phrases_borrows_none(self):
+        """pt-PT registers no blacklist, so pt-BR resolves to pt-PT, which
+        suppresses nothing, never to another language's phrases."""
+        for mode, p in self._pipelines().items():
+            with self.subTest(mode=mode):
+                self._register(p, self.MUSIC, "pt-PT")
+                self.assertIn(self.MUSIC,
+                              self._candidates(p, "toca o trailer", "pt-BR"))
+
+    def test_re_registering_a_language_replaces_its_phrases(self):
+        for mode, p in self._pipelines().items():
+            with self.subTest(mode=mode):
+                self._register(p, self.MUSIC, "en-US")
+                self.assertIn(self.MUSIC,
+                              self._candidates(p, "play the trailer", "en-US"))
+                self.assertNotIn(self.MUSIC,
+                                 self._candidates(p, "pon el avance", "es-ES"))
+
+
+class TestBlacklistConcurrentRegistration(unittest.TestCase):
+    """Bus handlers run on a thread pool, so skills register intents while
+    utterances are matched. Matching must never fail because a registration
+    changed the blacklist store under it."""
+
+    def _register(self, p, skill_id, intent_name, lang="en-US", blacklist=None):
+        data = {"skill_id": skill_id, "intent_name": intent_name,
+                "lang": lang, "samples": ["play music"]}
+        if blacklist is not None:
+            data["blacklist"] = blacklist
+        p._handle_intent4_register_template(
+            Message(SpecMessage.INTENT_REGISTER_TEMPLATE.value,
+                    data=data, context={"skill_id": skill_id}))
+
+    def test_matching_while_skills_register(self):
+        import threading
+        p = _make_prototype_pipeline()
+        self._register(p, "music.skill", "play_music", blacklist=["trailer"])
+        for k in range(300):
+            self._register(p, f"s{k}.skill", f"i{k}")
+        errors = []
+        suppressed = []
+        done = threading.Event()
+
+        def match():
+            while not done.is_set():
+                try:
+                    suppressed.append(
+                        p._excluded_labels("play the trailer now", "en-US"))
+                except RuntimeError as exc:
+                    errors.append(exc)
+
+        matcher = threading.Thread(target=match)
+        matcher.start()
+        try:
+            langs = iter(["es-ES", "pt-PT", "fr-FR", "de-DE", "it-IT",
+                          "nl-NL", "ca-ES", "gl-ES", "pl-PL", "sv-SE"])
+            for k in range(300, 900):
+                self._register(p, f"s{k}.skill", f"i{k}")
+                if k % 100 == 0:
+                    # a new language of the blacklisted intent itself
+                    self._register(p, "music.skill", "play_music",
+                                   lang=next(langs), blacklist=["avance"])
+        finally:
+            done.set()
+            matcher.join()
+        self.assertEqual(errors, [])
+        self.assertTrue(suppressed)
+        self.assertEqual(p._excluded_labels("play the trailer now", "en-US"),
+                         ["music.skill:play_music"])
 
 
 class TestPadatiousContextGating(unittest.TestCase):

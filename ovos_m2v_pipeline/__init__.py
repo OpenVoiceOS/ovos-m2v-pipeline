@@ -3,6 +3,7 @@ import json
 import re
 import threading
 import time
+import unicodedata
 from pathlib import Path
 
 import numpy as np
@@ -1044,6 +1045,23 @@ def _parse_intent_file(path: str, ctx: str = "") -> List[str]:
         return []
 
 
+def _word_sequence(text: str) -> str:
+    """*text* as lowercase word tokens joined by single spaces.
+
+    Every Unicode punctuation or symbol character, the apostrophe and the
+    hyphen included, ends a word: ``don't`` gives ``don t`` and
+    ``music-video`` gives ``music video``. OVOS-INTENT-1 §2 places this
+    normalization upstream; applying it here keeps raw ASR text comparable.
+
+    A blacklist phrase and an utterance both pass through here, so a phrase
+    occurs in an utterance exactly when ``f" {phrase} "`` is a substring of
+    ``f" {utterance} "``: a contiguous run of whole tokens (OVOS-INTENT-2 §4.3).
+    """
+    text = "".join(" " if unicodedata.category(c)[0] in "PS" else c
+                   for c in text.lower())
+    return " ".join(text.split())
+
+
 def _raw_intent_lines(path: str) -> List[str]:
     """Return the raw, pre-expansion non-comment lines of a Padatious
     ``.intent`` file, for prototype-cache key hashing (see
@@ -1174,11 +1192,13 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         #: holds bare-string keys or ``{"key", "scope"}`` mappings and is
         #: evaluated at match time via ``gate_satisfied``.
         self._context_gates: Dict[str, Tuple[list, list]] = {}
-        #: Per-label suppression phrases (OVOS-INTENT-4 §6.1 ``blacklist``),
-        #: keyed by intent label. A candidate is dropped at match time when the
-        #: utterance contains one of its label's blacklisted phrases. Named and
-        #: matched consistently with the padacioso engine's ``excluded_keywords``.
-        self.excluded_keywords: Dict[str, List[str]] = {}
+        #: Suppression phrases (OVOS-INTENT-2 §4.3, delivered as the
+        #: OVOS-INTENT-4 §6.1 ``blacklist``), keyed by intent label, then by
+        #: the registration's language (``None`` when it named none). Each
+        #: phrase is stored in ``_word_sequence`` form. A registration with no
+        #: phrases still records its language, so an utterance in that
+        #: language never borrows a sibling dialect's phrases.
+        self.excluded_keywords: Dict[str, Dict[Optional[str], List[str]]] = {}
         #: Declared slot names per registered label (OVOS-CONTEXT-1 §7),
         #: parsed from the label's original template samples before entity
         #: expansion rewrites ``{slot}`` placeholders into concrete values.
@@ -2174,9 +2194,12 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             self._intent4_warn(topic, message, "missing lang")
             return
 
-        blacklist = message.data.get("blacklist")
-        if blacklist:  # §6.1 suppression phrases: drop matches containing these
-            self.excluded_keywords[label] = list(blacklist)
+        # OVOS-INTENT-2 §4.3 suppression phrases, scoped to this intent and
+        # this language; re-registering the pair replaces them (§8.1)
+        phrases = [_word_sequence(p) for p in message.data.get("blacklist") or []
+                   if isinstance(p, str)]
+        self.excluded_keywords.setdefault(label, {})[
+            standardize_lang(reg_lang) if reg_lang else None] = [p for p in phrases if p]
 
         # Classifier mode is frozen: only gate the (already trained) label.
         if self.prototype_store is None:
@@ -2607,25 +2630,32 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                         f"'{label}': {target!r}; using as-is")
         return label.split(":")[0], label
 
-    def _excluded_labels(self, utterance: str) -> List[str]:
-        """Labels whose §6.1 ``blacklist`` phrases occur in *utterance*.
+    def _excluded_labels(self, utterance: str, lang: Optional[str] = None) -> List[str]:
+        """Labels suppressed by a blacklist phrase occurring in *utterance*.
 
-        Uses the same word-boundary convention as the padacioso engine's
-        ``_filter``: single-word phrases must match a whole token, multi-word
-        phrases match on a ``\\b``-delimited substring.
+        OVOS-INTENT-2 §4.3: a phrase occurs when its words appear in the
+        utterance as a contiguous sequence of whole words, compared in
+        ``_word_sequence`` form. A label's phrases come from the registration
+        language closest to *lang*, chosen as the prototype store chooses a
+        label's partition, plus any registration that named no language.
+        With no *lang*, the phrases of every language apply.
         """
-        if not self.excluded_keywords:
-            return []
+        words = f" {_word_sequence(utterance)} "
         excluded: List[str] = []
-        q_lower = utterance.lower()
-        query_words = set(q_lower.split())
-        for label, phrases in self.excluded_keywords.items():
-            def _kw_hit(kw: str, _qw=query_words, _ql=q_lower) -> bool:
-                kw = kw.lower()
-                if " " not in kw:
-                    return kw in _qw
-                return bool(re.search(r"\b" + re.escape(kw) + r"\b", _ql))
-            if any(_kw_hit(p) for p in phrases):
+        # bus handlers register on other threads while this runs: read copies
+        for label, by_lang in list(self.excluded_keywords.items()):
+            by_lang = dict(by_lang)
+            if not any(by_lang.values()):
+                continue
+            phrases = list(by_lang.get(None, []))
+            tagged = sorted(t for t in by_lang if t is not None)
+            if lang is None:
+                phrases += [p for t in tagged for p in by_lang[t]]
+            elif tagged:
+                closest = closest_lang(lang, tagged)
+                if closest is not None:
+                    phrases += by_lang[closest]
+            if any(f" {p} " in words for p in phrases):
                 excluded.append(label)
         return excluded
 
@@ -2709,7 +2739,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         # match, they do not scope the fill.
         intent_context = (SessionManager.get(message).intent_context or {}) \
             if (self._context_gates or self._intent_slots) else {}
-        excluded = self._excluded_labels(utterance)
+        excluded = self._excluded_labels(utterance, lang)
         blacklisted_intents, blacklisted_skills = self._session_blacklists(message)
         disabled = self._session_disabled(message)
         for skill_id, label, score in candidates:
@@ -2732,7 +2762,8 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                     LOG.debug(f"discarding '{label}': CONTEXT-1 gate not satisfied")
                     continue
             if label in excluded:
-                LOG.debug(f"discarding match: {label} - utterance hits §6.1 blacklist")
+                LOG.debug(f"discarding match: {label} - utterance hits its "
+                          f"OVOS-INTENT-2 §4.3 blacklist")
                 continue
             if label in blacklisted_intents or skill_id in blacklisted_skills:
                 LOG.debug(f"discarding match: {label} - blacklisted in session")
