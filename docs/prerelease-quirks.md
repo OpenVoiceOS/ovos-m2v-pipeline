@@ -3,6 +3,12 @@
 Behavior changes since the last stable release, newest first. This file is
 reset at each stable release.
 
+## 0.33.0a1
+
+In 0.33.0a1 and earlier, an intent's `.blacklist` phrases are kept for one language only. A skill registers each intent once per language, and the last registration replaces the phrases of the earlier ones. A registration with no phrases keeps the previous language's phrases. On a device that loads English and a secondary language, English input that contains a phrase from the English `.blacklist` still matches the intent at every tier, in both the classifier and the prototype pipeline. Phrases from the other language suppress the intent in English input instead. A phrase next to punctuation, such as `trailer.` or `music-video`, also does not occur.
+
+Fixed in the release after 0.33.0a1: phrases are kept per intent and per registration language, and the utterance language selects them by the same closest-language rule that selects prototypes. Utterance and phrase are compared as lowercase word sequences. Every punctuation or symbol character, the apostrophe and the hyphen included, divides two words, so `don't` compares as `don t` and `music-video` as `music video`. A phrase occurs only as a contiguous run of whole words (OVOS-INTENT-2 §4.3).
+
 ## 0.9.1a1
 
 In 0.9.1a1, when the `revision` config key is set, a failure to download the pinned snapshot (an unknown revision, or the Hub unreachable) escapes the deferred model loader before its retry path. The loader thread handle is never released, the failure counter stays at zero and no retry is armed, so every later load attempt reports the model as unavailable and intent matching stays dead until the process restarts. No log line reports the cause.
