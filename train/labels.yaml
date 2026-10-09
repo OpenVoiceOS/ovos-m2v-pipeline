@@ -1,0 +1,400 @@
+# The label ledger.
+#
+# The corpus must never quietly shrink, and a bare floor cannot tell a label
+# that left on purpose from a label whose resource was deleted by mistake. It
+# reports one number, and the only repair it offers is to lower itself, which
+# deletes the signal it exists to raise. So the floor is a list.
+#
+# `baseline` is the label set of the last published corpus, v6.1, read from
+# the published dataset. `removed` names every label the pins in
+# sources.yaml drop against that set, with the reason it left and the label
+# its phrasings went to. `added` names every label they add. The builder
+# derives --min-labels as 232 minus the removals plus the additions, and
+# refuses a loss that is not listed here. No floor is typed by hand.
+#
+# The ledger may lead the pins: an entry is written the day the change is
+# read in a skill, and the pin that carries it into the corpus moves later.
+# A listed removal that has not happened yet is reported, not refused.
+#
+# Measured 2026-09-28 against every skill_ref at its current head: 232
+# baseline labels, 20 removed, 14 added, 226 trained.
+version: 1
+baseline:
+  corpus: v6.1
+  labels_trained: 232
+  labels:
+  - ovos-skill-alerts.openvoiceos:add_list_subitems
+  - ovos-skill-alerts.openvoiceos:calendar_list
+  - ovos-skill-alerts.openvoiceos:cancel_alert
+  - ovos-skill-alerts.openvoiceos:change_media_properties
+  - ovos-skill-alerts.openvoiceos:change_priority
+  - ovos-skill-alerts.openvoiceos:change_repeat
+  - ovos-skill-alerts.openvoiceos:change_until
+  - ovos-skill-alerts.openvoiceos:create_alarm
+  - ovos-skill-alerts.openvoiceos:create_alarm_alt
+  - ovos-skill-alerts.openvoiceos:create_event
+  - ovos-skill-alerts.openvoiceos:create_list
+  - ovos-skill-alerts.openvoiceos:create_reminder
+  - ovos-skill-alerts.openvoiceos:create_reminder_recurring
+  - ovos-skill-alerts.openvoiceos:create_timer
+  - ovos-skill-alerts.openvoiceos:dav_sync
+  - ovos-skill-alerts.openvoiceos:delete_list
+  - ovos-skill-alerts.openvoiceos:delete_list_entries
+  - ovos-skill-alerts.openvoiceos:list_alerts
+  - ovos-skill-alerts.openvoiceos:missed_alerts
+  - ovos-skill-alerts.openvoiceos:query_list_entries
+  - ovos-skill-alerts.openvoiceos:query_list_names
+  - ovos-skill-alerts.openvoiceos:reschedule_alert
+  - ovos-skill-alerts.openvoiceos:timer_status
+  - ovos-skill-application-launcher.openvoiceos:close
+  - ovos-skill-application-launcher.openvoiceos:launch
+  - ovos-skill-audio-recording.openvoiceos:start_recording
+  - ovos-skill-boot-finished.openvoiceos:are_you_ready
+  - ovos-skill-boot-finished.openvoiceos:disable_ready_notification
+  - ovos-skill-boot-finished.openvoiceos:enable_ready_notification
+  - ovos-skill-camera.openvoiceos:have_camera
+  - ovos-skill-camera.openvoiceos:picture_location
+  - ovos-skill-camera.openvoiceos:take_picture
+  - ovos-skill-cmd.openvoiceos:RunScriptCommandIntent
+  - ovos-skill-cmd.openvoiceos:list_scripts
+  - ovos-skill-color-picker.krisgesling:request-color
+  - ovos-skill-color-picker.krisgesling:request-color-by-hex
+  - ovos-skill-color-picker.krisgesling:request-color-by-name
+  - ovos-skill-color-picker.krisgesling:request-color-by-rgb
+  - ovos-skill-confucius-quotes.openvoiceos:confucius_lifespan
+  - ovos-skill-confucius-quotes.openvoiceos:confucius_quote
+  - ovos-skill-confucius-quotes.openvoiceos:who
+  - ovos-skill-count.openvoiceos:count_to_n
+  - ovos-skill-date-time.openvoiceos:current_date
+  - ovos-skill-date-time.openvoiceos:date_future_weekend
+  - ovos-skill-date-time.openvoiceos:date_last_weekend
+  - ovos-skill-date-time.openvoiceos:is_leap_year
+  - ovos-skill-date-time.openvoiceos:next_leap_year
+  - ovos-skill-date-time.openvoiceos:time_until
+  - ovos-skill-date-time.openvoiceos:weekday_for_date
+  - ovos-skill-date-time.openvoiceos:weekday_matches_date
+  - ovos-skill-date-time.openvoiceos:what_day_is_it
+  - ovos-skill-date-time.openvoiceos:what_month_is_it
+  - ovos-skill-date-time.openvoiceos:what_time_is_it
+  - ovos-skill-date-time.openvoiceos:what_time_will_it_be
+  - ovos-skill-date-time.openvoiceos:what_weekday_is_it
+  - ovos-skill-date-time.openvoiceos:what_year_is_it
+  - ovos-skill-days-in-history.openvoiceos:births_in_history
+  - ovos-skill-days-in-history.openvoiceos:deaths_in_history
+  - ovos-skill-days-in-history.openvoiceos:tell_me_more_intent
+  - ovos-skill-days-in-history.openvoiceos:today_in_history
+  - ovos-skill-ddg.openvoiceos:search_duck
+  - ovos-skill-diagnostics.openvoiceos:query_core_version
+  - ovos-skill-diagnostics.openvoiceos:query_cpu_usage
+  - ovos-skill-diagnostics.openvoiceos:query_disk_space
+  - ovos-skill-diagnostics.openvoiceos:query_extra_langs
+  - ovos-skill-diagnostics.openvoiceos:query_gpu
+  - ovos-skill-diagnostics.openvoiceos:query_kernel_version
+  - ovos-skill-diagnostics.openvoiceos:query_langs
+  - ovos-skill-diagnostics.openvoiceos:query_memory_usage
+  - ovos-skill-diagnostics.openvoiceos:query_ovos_location
+  - ovos-skill-diagnostics.openvoiceos:query_primary_lang
+  - ovos-skill-diagnostics.openvoiceos:query_uptime
+  - ovos-skill-diagnostics.openvoiceos:query_user_lang
+  - ovos-skill-diagnostics.openvoiceos:query_user_location
+  - ovos-skill-dictation.openvoiceos:start_dictation
+  - ovos-skill-dictation.openvoiceos:stop_dictation
+  - ovos-skill-fuster-quotes.openvoiceos:fuster_lifespan
+  - ovos-skill-fuster-quotes.openvoiceos:fuster_quotes
+  - ovos-skill-fuster-quotes.openvoiceos:who
+  - ovos-skill-ggwave.openvoiceos:disable_ggwave
+  - ovos-skill-ggwave.openvoiceos:enable_ggwave
+  - ovos-skill-hello-world.openvoiceos:HowAreYou
+  - ovos-skill-hello-world.openvoiceos:greetings
+  - ovos-skill-hello-world.openvoiceos:hello_world_intent
+  - ovos-skill-hello-world.openvoiceos:how_are_you
+  - ovos-skill-hello-world.openvoiceos:thank_you_intent
+  - ovos-skill-icanhazdadjokes.openvoiceos:joke
+  - ovos-skill-icanhazdadjokes.openvoiceos:search_joke
+  - ovos-skill-ip.openvoiceos:ip
+  - ovos-skill-ip.openvoiceos:last_ip_digits
+  - ovos-skill-ip.openvoiceos:public_ip
+  - ovos-skill-ip.openvoiceos:what_ssid
+  - ovos-skill-ip.openvoiceos:wifi_signal
+  - ovos-skill-iss-location.openvoiceos:number_iss
+  - ovos-skill-iss-location.openvoiceos:when_iss
+  - ovos-skill-iss-location.openvoiceos:where_iss
+  - ovos-skill-iss-location.openvoiceos:who_iss
+  - ovos-skill-laugh.openvoiceos:Laugh
+  - ovos-skill-laugh.openvoiceos:RandomLaugh
+  - ovos-skill-laugh.openvoiceos:haunted
+  - ovos-skill-mark1-ctrl.openvoiceos:blink
+  - ovos-skill-mark1-ctrl.openvoiceos:brightness
+  - ovos-skill-mark1-ctrl.openvoiceos:crazy_eyes
+  - ovos-skill-mark1-ctrl.openvoiceos:custom_eye_color
+  - ovos-skill-mark1-ctrl.openvoiceos:eye_color
+  - ovos-skill-mark1-ctrl.openvoiceos:listen
+  - ovos-skill-mark1-ctrl.openvoiceos:look_down
+  - ovos-skill-mark1-ctrl.openvoiceos:look_left
+  - ovos-skill-mark1-ctrl.openvoiceos:look_left_right
+  - ovos-skill-mark1-ctrl.openvoiceos:look_right
+  - ovos-skill-mark1-ctrl.openvoiceos:look_up
+  - ovos-skill-mark1-ctrl.openvoiceos:look_up_down
+  - ovos-skill-mark1-ctrl.openvoiceos:narrow_eyes
+  - ovos-skill-mark1-ctrl.openvoiceos:reset
+  - ovos-skill-mark1-ctrl.openvoiceos:smile
+  - ovos-skill-mark1-ctrl.openvoiceos:spin
+  - ovos-skill-mark1-ctrl.openvoiceos:think
+  - ovos-skill-moviemaster.openvoiceos:genre_tv_search
+  - ovos-skill-moviemaster.openvoiceos:movie_cast
+  - ovos-skill-moviemaster.openvoiceos:movie_description
+  - ovos-skill-moviemaster.openvoiceos:movie_genre_search
+  - ovos-skill-moviemaster.openvoiceos:movie_genres
+  - ovos-skill-moviemaster.openvoiceos:movie_popular
+  - ovos-skill-moviemaster.openvoiceos:movie_recommendations
+  - ovos-skill-moviemaster.openvoiceos:movie_runtime
+  - ovos-skill-moviemaster.openvoiceos:movie_top
+  - ovos-skill-moviemaster.openvoiceos:movie_year
+  - ovos-skill-naptime.openvoiceos:WakeUp
+  - ovos-skill-naptime.openvoiceos:naptime
+  - ovos-skill-news.openvoiceos:global_news
+  - ovos-skill-news.openvoiceos:news
+  - ovos-skill-number-facts.openvoiceos:date_trivia
+  - ovos-skill-number-facts.openvoiceos:math_trivia
+  - ovos-skill-number-facts.openvoiceos:number_trivia
+  - ovos-skill-number-facts.openvoiceos:year_trivia
+  - ovos-skill-parrot.openvoiceos:did_you_hear_me
+  - ovos-skill-parrot.openvoiceos:repeat_stt
+  - ovos-skill-parrot.openvoiceos:repeat_tts
+  - ovos-skill-parrot.openvoiceos:speak
+  - ovos-skill-parrot.openvoiceos:start_parrot
+  - ovos-skill-parrot.openvoiceos:stop_parrot
+  - ovos-skill-personal.openvoiceos:WhatAreYou
+  - ovos-skill-personal.openvoiceos:WhenWereYouBorn
+  - ovos-skill-personal.openvoiceos:WhoMadeYou
+  - ovos-skill-personal.openvoiceos:what_are_you
+  - ovos-skill-personal.openvoiceos:when_were_you_born
+  - ovos-skill-personal.openvoiceos:where_were_you_born
+  - ovos-skill-personal.openvoiceos:who_are_you
+  - ovos-skill-personal.openvoiceos:who_made_you
+  - ovos-skill-pokepedia.openvoiceos:battle
+  - ovos-skill-pokepedia.openvoiceos:get_pokemon_info
+  - ovos-skill-pokepedia.openvoiceos:get_pokemon_moves
+  - ovos-skill-pokepedia.openvoiceos:get_pokemon_type
+  - ovos-skill-screenshot.openvoiceos:screenshot_location
+  - ovos-skill-screenshot.openvoiceos:take_screenshot
+  - ovos-skill-speedtest.openvoiceos:speedtest_intent
+  - ovos-skill-volume.openvoiceos:change_volume
+  - ovos-skill-volume.openvoiceos:current_volume
+  - ovos-skill-volume.openvoiceos:increase_volume
+  - ovos-skill-volume.openvoiceos:less_volume
+  - ovos-skill-volume.openvoiceos:volume.max.boost
+  - ovos-skill-volume.openvoiceos:volume.mute
+  - ovos-skill-volume.openvoiceos:volume.mute.toggle
+  - ovos-skill-volume.openvoiceos:volume.reset
+  - ovos-skill-volume.openvoiceos:volume.unmute
+  - ovos-skill-volume.openvoiceos:volume_level
+  - ovos-skill-weather.openvoiceos:do-i-need-an-umbrella
+  - ovos-skill-weather.openvoiceos:do.i.need.an.umbrella
+  - ovos-skill-weather.openvoiceos:humidity
+  - ovos-skill-weather.openvoiceos:is_hot_or_cold
+  - ovos-skill-weather.openvoiceos:is_wind
+  - ovos-skill-weather.openvoiceos:next_rain
+  - ovos-skill-weather.openvoiceos:sunrise
+  - ovos-skill-weather.openvoiceos:sunset
+  - ovos-skill-weather.openvoiceos:temperature
+  - ovos-skill-weather.openvoiceos:weather
+  - ovos-skill-weather.openvoiceos:weather_condition
+  - ovos-skill-wikihow.openvoiceos:howto
+  - ovos-skill-wikihow.openvoiceos:wikihow
+  - ovos-skill-wikipedia.openvoiceos:wiki
+  - ovos-skill-wikipedia.openvoiceos:wiki_more
+  - ovos-skill-wikipedia.openvoiceos:wikiroulette
+  - ovos-skill-wolfie.openvoiceos:search_wolfie
+  - ovos-skill-word-of-the-day.openvoiceos:past_word
+  - ovos-skill-word-of-the-day.openvoiceos:spell_wod
+  - ovos-skill-word-of-the-day.openvoiceos:word_of_the_day
+  - ovos-skill-wordnet.openvoiceos:search_wordnet
+  - skill-easter-eggs.openvoiceos:adult_mode_intent
+  - skill-easter-eggs.openvoiceos:arnold_intent
+  - skill-easter-eggs.openvoiceos:bender_intent
+  - skill-easter-eggs.openvoiceos:bill_and_ted_intent
+  - skill-easter-eggs.openvoiceos:conan_intent
+  - skill-easter-eggs.openvoiceos:duke_nukem_intent
+  - skill-easter-eggs.openvoiceos:glados_intent
+  - skill-easter-eggs.openvoiceos:grandma_mode_intent
+  - skill-easter-eggs.openvoiceos:hal_intent
+  - skill-easter-eggs.openvoiceos:languages_you_speak_intent
+  - skill-easter-eggs.openvoiceos:law_of_robotics
+  - skill-easter-eggs.openvoiceos:malibu_stacey_intent
+  - skill-easter-eggs.openvoiceos:pod_bay_doors_intent
+  - skill-easter-eggs.openvoiceos:portal_intent
+  - skill-easter-eggs.openvoiceos:rock_paper_scissors_lizard_spock_intent
+  - skill-easter-eggs.openvoiceos:sing_intent
+  - skill-easter-eggs.openvoiceos:stardate_intent
+  - skill-meal-plan.oscillatelabsllc:add.meal
+  - skill-meal-plan.oscillatelabsllc:list.meal
+  - skill-meal-plan.oscillatelabsllc:plan.meal
+  - skill-meal-plan.oscillatelabsllc:remove.meal
+  - skill-musicassistant.oscillatelabsllc:next
+  - skill-musicassistant.oscillatelabsllc:pause
+  - skill-musicassistant.oscillatelabsllc:play_album
+  - skill-musicassistant.oscillatelabsllc:play_artist
+  - skill-musicassistant.oscillatelabsllc:play_playlist
+  - skill-musicassistant.oscillatelabsllc:play_radio
+  - skill-musicassistant.oscillatelabsllc:play_track
+  - skill-musicassistant.oscillatelabsllc:previous
+  - skill-musicassistant.oscillatelabsllc:set_default_player
+  - skill-musicassistant.oscillatelabsllc:volume
+  - skill-ovos-randomness.openvoiceos:flip_a_coin
+  - skill-ovos-randomness.openvoiceos:fortune_teller
+  - skill-ovos-randomness.openvoiceos:make_a_choice
+  - skill-ovos-randomness.openvoiceos:pick_a_number
+  - skill-ovos-randomness.openvoiceos:roll_multiple_dice
+  - skill-ovos-randomness.openvoiceos:roll_single_die
+  - skill-ovos-spelling.openvoiceos:spell
+  - skill-ovos-wallpapers.openvoiceos:make_wallpaper
+  - skill-ovos-wallpapers.openvoiceos:next_picture
+  - skill-ovos-wallpapers.openvoiceos:picture_about
+  - skill-ovos-wallpapers.openvoiceos:picture_random
+  - skill-ovos-wallpapers.openvoiceos:previous_picture
+  - skill-ovos-wallpapers.openvoiceos:wallpaper_about
+  - skill-ovos-wallpapers.openvoiceos:wallpaper_random
+removed:
+- label: ovos-skill-cmd.openvoiceos:RunScriptCommandIntent
+  reason: the OVOS-INTENT-2 2 rename wave gave the resource an underscored base
+    name; the phrasings did not change (ovos-skill-cmd#94)
+  merged_into: ovos-skill-cmd.openvoiceos:run_script_command
+- label: ovos-skill-color-picker.krisgesling:request-color
+  reason: the OVOS-INTENT-2 2 rename wave gave the resource an underscored base
+    name; the phrasings did not change (ovos-skill-color-picker#59)
+  merged_into: ovos-skill-color-picker.krisgesling:request_color
+- label: ovos-skill-color-picker.krisgesling:request-color-by-hex
+  reason: the OVOS-INTENT-2 2 rename wave gave the resource an underscored base
+    name; the phrasings did not change (ovos-skill-color-picker#59)
+  merged_into: ovos-skill-color-picker.krisgesling:request_color_by_hex
+- label: ovos-skill-color-picker.krisgesling:request-color-by-name
+  reason: the OVOS-INTENT-2 2 rename wave gave the resource an underscored base
+    name; the phrasings did not change (ovos-skill-color-picker#59)
+  merged_into: ovos-skill-color-picker.krisgesling:request_color_by_name
+- label: ovos-skill-color-picker.krisgesling:request-color-by-rgb
+  reason: the OVOS-INTENT-2 2 rename wave gave the resource an underscored base
+    name; the phrasings did not change (ovos-skill-color-picker#59)
+  merged_into: ovos-skill-color-picker.krisgesling:request_color_by_rgb
+- label: ovos-skill-laugh.openvoiceos:Laugh
+  reason: the OVOS-INTENT-2 2 rename wave gave the resource an underscored base
+    name; the phrasings did not change (ovos-skill-laugh 2f04a26)
+  merged_into: ovos-skill-laugh.openvoiceos:laugh
+- label: ovos-skill-laugh.openvoiceos:RandomLaugh
+  reason: the OVOS-INTENT-2 2 rename wave gave the resource an underscored base
+    name; the phrasings did not change (ovos-skill-laugh 2f04a26)
+  merged_into: ovos-skill-laugh.openvoiceos:random_laugh
+- label: ovos-skill-naptime.openvoiceos:WakeUp
+  reason: the OVOS-INTENT-2 2 rename wave gave the resource an underscored base
+    name; the phrasings did not change (ovos-skill-naptime#118)
+  merged_into: ovos-skill-naptime.openvoiceos:wake_up
+- label: ovos-skill-volume.openvoiceos:volume.max.boost
+  reason: the OVOS-INTENT-2 2 rename wave gave the resource an underscored base
+    name; the phrasings did not change (ovos-skill-volume#165)
+  merged_into: ovos-skill-volume.openvoiceos:volume_max_boost
+- label: ovos-skill-volume.openvoiceos:volume.mute
+  reason: the OVOS-INTENT-2 2 rename wave gave the resource an underscored base
+    name; the phrasings did not change (ovos-skill-volume#165)
+  merged_into: ovos-skill-volume.openvoiceos:volume_mute
+- label: ovos-skill-volume.openvoiceos:volume.mute.toggle
+  reason: the OVOS-INTENT-2 2 rename wave gave the resource an underscored base
+    name; the phrasings did not change (ovos-skill-volume#165)
+  merged_into: ovos-skill-volume.openvoiceos:volume_mute_toggle
+- label: ovos-skill-volume.openvoiceos:volume.reset
+  reason: the OVOS-INTENT-2 2 rename wave gave the resource an underscored base
+    name; the phrasings did not change (ovos-skill-volume#165)
+  merged_into: ovos-skill-volume.openvoiceos:volume_reset
+- label: ovos-skill-volume.openvoiceos:volume.unmute
+  reason: the OVOS-INTENT-2 2 rename wave gave the resource an underscored base
+    name; the phrasings did not change (ovos-skill-volume#165)
+  merged_into: ovos-skill-volume.openvoiceos:volume_unmute
+- label: ovos-skill-alerts.openvoiceos:create_alarm_alt
+  reason: ovos-skill-alerts#270 folded create_alarm_alt into create_alarm on purpose.
+    The alt file held a second phrasing of one intent, and create_alarm was already
+    a label, so the fold removes a label and keeps every phrasing
+  merged_into: ovos-skill-alerts.openvoiceos:create_alarm
+- label: ovos-skill-hello-world.openvoiceos:HowAreYou
+  reason: 'ovos-skill-hello-world#140 renamed the resource to how_are_you and #148
+    folded the stray gl-ES copy in. how_are_you was already a label at the v6.1
+    pins, because the rename was half done there, so the completed rename merges
+    rather than pairs'
+  merged_into: ovos-skill-hello-world.openvoiceos:how_are_you
+- label: ovos-skill-personal.openvoiceos:WhatAreYou
+  reason: 'ovos-skill-personal completed the same half-done OVOS-INTENT-2 rename:
+    what_are_you was already a label at the v6.1 pins. The skill is Mike''s and
+    this lane never touches it; the entry records the reading only'
+  merged_into: ovos-skill-personal.openvoiceos:what_are_you
+- label: ovos-skill-personal.openvoiceos:WhenWereYouBorn
+  reason: 'ovos-skill-personal completed the same half-done OVOS-INTENT-2 rename:
+    when_were_you_born was already a label at the v6.1 pins. The skill is Mike''s
+    and this lane never touches it; the entry records the reading only'
+  merged_into: ovos-skill-personal.openvoiceos:when_were_you_born
+- label: ovos-skill-personal.openvoiceos:WhoMadeYou
+  reason: 'ovos-skill-personal completed the same half-done OVOS-INTENT-2 rename:
+    who_made_you was already a label at the v6.1 pins. The skill is Mike''s and
+    this lane never touches it; the entry records the reading only'
+  merged_into: ovos-skill-personal.openvoiceos:who_made_you
+- label: ovos-skill-weather.openvoiceos:do-i-need-an-umbrella
+  reason: 'ovos-skill-weather#264 (c0459e11) removed this spelling: it deleted the
+    file in 18 locales and renamed it in 4. ovos-skill-weather#258 (66f7fe96) is
+    the later change and removed only the underscored name #264 left behind, which
+    the baseline never carried. The file sat under vocabulary/condition/, and the
+    skill registers only intents/*.intent, so the label was never routable at
+    runtime. Its 631 lines, in the 21 umbrella files the builder reads at the
+    weather pin 64900360, moved into each locale''s weather_condition.intent, where
+    en-US already carried them. No file ends with a newline, so wc -l reports 610.
+    Count the lines per file with: for f in $(git ls-tree -r --name-only 64900360
+    | grep -E "umbrella.*\.intent$"); do git show 64900360:$f | grep -c ''''; done
+    | awk ''{s+=$1} END {print s}''. A 22nd path at that pin,
+    da-DK/.../do-i-need-an-umbrella-intent, has no dot before intent, so the
+    builder never reads it'
+  merged_into: ovos-skill-weather.openvoiceos:weather_condition
+- label: ovos-skill-weather.openvoiceos:do.i.need.an.umbrella
+  reason: 'the second spelling of the same orphan file. ovos-skill-weather#264
+    (c0459e11) renamed it and ovos-skill-weather#258 (66f7fe96) then folded it into
+    the same weather_condition.intent. It is a second label and not a second
+    intent: two files, one meaning, and neither one ever reached a handler'
+  merged_into: ovos-skill-weather.openvoiceos:weather_condition
+added:
+- label: ovos-skill-cmd.openvoiceos:run_script_command
+  reason: ovos-skill-cmd#94 renamed ovos-skill-cmd.openvoiceos:RunScriptCommandIntent
+    to this compliant base name. The phrasings are the same ones under a new label
+- label: ovos-skill-color-picker.krisgesling:request_color
+  reason: ovos-skill-color-picker#59 renamed ovos-skill-color-picker.krisgesling:request-color
+    to this compliant base name. The phrasings are the same ones under a new label
+- label: ovos-skill-color-picker.krisgesling:request_color_by_hex
+  reason: ovos-skill-color-picker#59 renamed ovos-skill-color-picker.krisgesling:request-color-by-hex
+    to this compliant base name. The phrasings are the same ones under a new label
+- label: ovos-skill-color-picker.krisgesling:request_color_by_name
+  reason: ovos-skill-color-picker#59 renamed ovos-skill-color-picker.krisgesling:request-color-by-name
+    to this compliant base name. The phrasings are the same ones under a new label
+- label: ovos-skill-color-picker.krisgesling:request_color_by_rgb
+  reason: ovos-skill-color-picker#59 renamed ovos-skill-color-picker.krisgesling:request-color-by-rgb
+    to this compliant base name. The phrasings are the same ones under a new label
+- label: ovos-skill-laugh.openvoiceos:laugh
+  reason: ovos-skill-laugh 2f04a26 renamed ovos-skill-laugh.openvoiceos:Laugh to
+    this compliant base name. The phrasings are the same ones under a new label
+- label: ovos-skill-laugh.openvoiceos:random_laugh
+  reason: ovos-skill-laugh 2f04a26 renamed ovos-skill-laugh.openvoiceos:RandomLaugh
+    to this compliant base name. The phrasings are the same ones under a new label
+- label: ovos-skill-naptime.openvoiceos:wake_up
+  reason: ovos-skill-naptime#118 renamed ovos-skill-naptime.openvoiceos:WakeUp to
+    this compliant base name. The phrasings are the same ones under a new label
+- label: ovos-skill-volume.openvoiceos:volume_max_boost
+  reason: ovos-skill-volume#165 renamed ovos-skill-volume.openvoiceos:volume.max.boost
+    to this compliant base name. The phrasings are the same ones under a new label
+- label: ovos-skill-volume.openvoiceos:volume_mute
+  reason: ovos-skill-volume#165 renamed ovos-skill-volume.openvoiceos:volume.mute
+    to this compliant base name. The phrasings are the same ones under a new label
+- label: ovos-skill-volume.openvoiceos:volume_mute_toggle
+  reason: ovos-skill-volume#165 renamed ovos-skill-volume.openvoiceos:volume.mute.toggle
+    to this compliant base name. The phrasings are the same ones under a new label
+- label: ovos-skill-volume.openvoiceos:volume_reset
+  reason: ovos-skill-volume#165 renamed ovos-skill-volume.openvoiceos:volume.reset
+    to this compliant base name. The phrasings are the same ones under a new label
+- label: ovos-skill-volume.openvoiceos:volume_unmute
+  reason: ovos-skill-volume#165 renamed ovos-skill-volume.openvoiceos:volume.unmute
+    to this compliant base name. The phrasings are the same ones under a new label
+- label: ovos-skill-date-time.openvoiceos:days_between
+  reason: 'a new intent: ovos-skill-date-time#412 added days_between for the number
+    of days between two dates'

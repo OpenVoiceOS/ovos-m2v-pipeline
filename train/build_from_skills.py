@@ -1,0 +1,978 @@
+#!/usr/bin/env python3
+"""Build the intent corpus from the skills themselves.
+
+The skills are the data. Every locale resource a running skill would load is
+the training side, and the gold sentences the fleet already ships are the test
+side. Provenance alone does not keep the two disjoint: a gold sentence and an
+expansion of that skill's own template are both somebody reaching for the
+obvious phrasing of the same intent, and they collide constantly regardless
+of which file either one was read from. So after both sides are built, every
+training row whose utterance matches a gold utterance is removed from the
+training side. The comparison is string equality after lowercasing,
+collapsing whitespace, and stripping leading and trailing punctuation --
+the same trailing-punctuation fold ``ovos-utterance-normalizer`` applies to
+an incoming utterance before an intent engine ever sees it, so "play rock?"
+in gold and "play rock" in a template expansion are one string here because
+they are one string at match time. It is still not accent-insensitive and
+not semantic. The gold side is never thinned: dropping the gold rows a
+skill author happened to also think of would leave the phrasings nobody
+anticipated, a biased sample rather than a smaller one. The manifest
+records the measured overlap between the two sides after the removal under
+both the punctuation-insensitive comparison the removal itself uses and the
+narrower exact-string comparison, both of which must be zero, and how many
+templates the removal left with no rows at all, because that count is the
+price paid for the fix and a manifest that reports only the zero is how
+this defect gets rebuilt. The test side itself is a claim that must hold a
+floor too: a gold glob that resolves to nothing builds a corpus with zero
+test rows and reports the overlap as a vacuous zero, so ``--min-test-rows``
+and ``--min-labels-scored`` gate the test side exactly as ``--min-labels``
+and ``--min-languages`` gate the training side.
+
+Three resource kinds, each read for what it is. An ``.intent`` file carries
+templates. An ``.entity`` file carries example values for a slot -- a hint per
+OVOS-INTENT-3 5.2, never a closed set, because a value outside it must stay
+matchable. A slot with no examples still produces a row: INTENT-1 5.2 makes a
+slot free-form capture and 5.4 says it fills without a value set, so the
+placeholder is left literal exactly as the runtime leaves it. A ``.voc`` file carries the keywords that trigger an intent, and is
+never read as slot values: ``repeat.voc`` holding "every" and "frequency" says
+how a user asks for recurrence, not what a ``{repeat}`` slot contains.
+
+Language comes from the locale directory a file sits in and stays with the
+row, so a value attested only under ``en-US`` fills only English templates.
+Dialect directories keep their tags; collapsing them is a publication step
+applied to the finished dataset. OVOS-INTENT-2 2 makes tag comparison
+case-insensitive ("`en-us` and `en-US` denote the same language"), so a
+directory's case is not part of a language's identity: ``fr-fr`` and
+``fr-FR`` fold onto one canonical spelling before a row is built. That is
+the only equivalence this builder applies -- ``eu``/``eu-ES``,
+``cmn-CN``/``zh-CN`` and similar macrolanguage or variant pairs differ by
+more than case and stay distinct.
+"""
+import argparse
+import collections
+import json
+import re
+import shutil
+import string
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+import yaml
+
+from ovos_spec_tools.expansion import expand
+from ovos_spec_tools.lint import declared_slot_types
+
+import typed_slots
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import skill_labels  # noqa: E402
+from build_eval import read_gold  # noqa: E402  (the one gold reader)
+
+#: A locale directory: an ISO subtag, optionally with a script and a region.
+LOCALE_DIR = re.compile(r"^[a-z]{2,3}(?:-[A-Za-z]{4})?(?:-(?:[A-Za-z]{2}|\d{3}))?$")
+
+#: Where a resource sits, whatever nests the locale root.
+RESOURCE = re.compile(r"(?:^|.*/)locale/([^/]+)/(?:.*/)?([^/]+)\.(intent|entity|voc)$")
+
+#: Gold lives beside the end-to-end suite that reads it.
+GOLD = re.compile(r"(?:^|.*/)golden_utterances(?:_([A-Za-z-]+))?\.jsonl$")
+
+#: OVOS-INTENT-2 2: "A resource base name MUST consist only of lowercase
+#: ASCII letters, digits, and underscores, and MUST NOT contain whitespace".
+COMPLIANT_BASE_NAME = re.compile(r"^[a-z0-9_]+$")
+
+#: A template producing more than this is a generator, not a phrasing.
+EXPANSION_CAP = 2000
+
+
+def strip_groups(text: str) -> str:
+    """*text* with every balanced `(...)` and `[...]` group removed.
+
+    Both are grammar: `(a|b)` is an alternation and `[a]` an optional
+    segment, and the expander reads each correctly. What is left is the part
+    of a line the grammar does not account for, so a `|` still in it belongs
+    to nothing: the author wrote an alternation and left off its
+    parentheses.
+    """
+    out = []
+    depth = 0
+    for ch in text:
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth = max(0, depth - 1)
+        elif depth == 0:
+            out.append(ch)
+    return "".join(out)
+
+
+def has_bare_alternation(text: str) -> bool:
+    """A `|` none of the grammar's own groups covers.
+
+    Only the pipe. An optional segment is legal template syntax that expands,
+    so reading `[the]` as a defect drops thousands of sound templates and
+    takes their labels with them -- the build's own label floor catches that,
+    which is how this check was caught being too wide.
+    """
+    return "|" in strip_groups(text)
+
+
+def split_bare_alternation(value: str) -> list:
+    """The alternatives a resource value names, splitting a bare `|`.
+
+    A value is one whole thing, so a `|` in it that no group covers separates
+    two values the author wrote on one line -- `complet|ple|plena` is three
+    Catalan words for one brightness setting. Substituted whole, it ships as
+    the literal string `complet|ple|plena` in a training row, which teaches a
+    model to say the pipe out loud. The scope is unambiguous here, unlike the
+    same mistake in a template, so the value is split rather than dropped.
+    """
+    if not has_bare_alternation(value) or "|" not in strip_groups(value):
+        return [value]
+    parts, depth, current = [], 0, []
+    for ch in value:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(0, depth - 1)
+        if ch == "|" and depth == 0:
+            parts.append("".join(current))
+            current = []
+            continue
+        current.append(ch)
+    parts.append("".join(current))
+    return [p.strip() for p in parts if p.strip()]
+
+
+def git(repo: Path, *args: str) -> str:
+    return subprocess.run(["git", "-C", str(repo), *args],
+                          capture_output=True, text=True, check=True).stdout
+
+
+def tree(repo: Path, rev: str):
+    return git(repo, "ls-tree", "-r", "--name-only", rev).split("\n")
+
+
+def show(repo: Path, rev: str, path: str) -> str:
+    try:
+        return git(repo, "show", f"{rev}:{path}")
+    except subprocess.CalledProcessError:
+        return ""
+
+
+def normalize_utterance(text: str) -> str:
+    """Lowercase and collapse whitespace, the narrower overlap comparison.
+
+    Exact string match after this normalisation, nothing wider: not
+    accent-insensitive, not semantic. Kept and reported alongside the
+    punctuation-insensitive comparison below because the two answer
+    different questions, and collapsing them into one number would hide
+    which normalisation the removal actually rests on.
+    """
+    return re.sub(r"\s+", " ", text.strip()).lower()
+
+
+def normalize_utterance_punct_insensitive(text: str) -> str:
+    """As ``normalize_utterance``, plus stripping leading/trailing punctuation.
+
+    ``ovos-utterance-normalizer``, the runtime transformer every incoming
+    utterance passes through before an intent engine matches it, strips
+    edge punctuation with ``utterance.strip(string.punctuation).strip()``.
+    A gold row ending in "?" and a training expansion without one are the
+    same string at that point, so the removal this builder performs is
+    matched on this wider equivalence, not the narrower one above. Still
+    not accent-insensitive, not semantic, and inner punctuation is left
+    alone -- only what the runtime strips is stripped here.
+    """
+    return normalize_utterance(text).strip(string.punctuation).strip()
+
+
+def normalize_lang(tag: str) -> str:
+    """Canonical spelling of a BCP-47 tag, per OVOS-INTENT-2 2.
+
+    Tag comparison is case-insensitive, so a locale directory's case is not
+    part of a language's identity. Lowercase the primary and extended
+    subtags, titlecase a 4-letter script, uppercase a 2-letter region; a
+    3-digit region is a number and has no case to fold.
+    """
+    parts = tag.split("-")
+    out = [parts[0].lower()]
+    for part in parts[1:]:
+        if len(part) == 4 and part.isalpha():
+            out.append(part.title())
+        elif len(part) == 2 and part.isalpha():
+            out.append(part.upper())
+        else:
+            out.append(part)
+    return "-".join(out)
+
+
+def read_skill(repo: Path, rev: str, repo_name: str, stats: collections.Counter,
+               violations: set, dropped_templates: list = None):
+    """Templates, hints and keywords a skill ships, per language."""
+    if dropped_templates is None:
+        dropped_templates = []
+    templates = []                                   # (lang, label, template)
+    hints = collections.defaultdict(dict)            # lang -> name -> values
+    keywords = collections.defaultdict(dict)         # lang -> name -> words
+    # the one label function (skill_labels): the id the entry point declares
+    skill_id = skill_labels.skill_id_from_repo(repo, rev, repo_name)
+    if not skill_labels.declares_skill_id(repo, rev):
+        stats["skill_id_assumed_from_repo_name"] += 1
+    for path in tree(repo, rev):
+        if not path or path.split("/")[0] in {"test", "tests"}:
+            continue
+        m = RESOURCE.match(path)
+        if not m:
+            continue
+        lang, name, kind = m.group(1), m.group(2), m.group(3)
+        if not LOCALE_DIR.match(lang):
+            stats["resource_outside_a_locale"] += 1
+            continue
+        lang = normalize_lang(lang)
+        if not COMPLIANT_BASE_NAME.match(name):
+            # The corpus still reads it -- the fleet is what it is -- but a
+            # base name carrying a dot, a dash or a capital breaks the rule
+            # the loader relies on, and the fallback that rescues its gold
+            # rows would otherwise hide it.
+            violations.add(f"{repo_name}: {name}.{kind}")
+        body = show(repo, rev, path)
+        values = [l.strip() for l in body.splitlines()
+                  if l.strip() and not l.strip().startswith("#")]
+        if kind == "intent":
+            label = skill_labels.label(skill_id, name)
+            for line in values:
+                # A `|` the grammar's groups do not cover binds nothing the
+                # grammar defines. Where the same mistake in a resource value
+                # has one possible reading, here it has several -- the author
+                # may have meant two words, two phrases or the whole line --
+                # so the line is dropped and counted rather than expanded to
+                # a guess. `Se espera nieve en el pronostico|` is the shape:
+                # nobody can say what the trailing pipe was for.
+                if has_bare_alternation(line):
+                    stats["template_with_a_bare_alternation_dropped"] += 1
+                    dropped_templates.append(f"{repo_name} {lang}: {line}")
+                    continue
+                templates.append((lang, label, line))
+        elif kind == "entity":
+            # Two directories differing only in case are one language after
+            # normalisation, so their entity files are the same file under
+            # two spellings: union the values rather than letting whichever
+            # sorts last silently discard the other's.
+            existing = hints[lang].setdefault(name.lower(), [])
+            for value in values:
+                alternatives = split_bare_alternation(value)
+                if len(alternatives) > 1:
+                    stats["resource_value_bare_alternation_split"] += 1
+                existing.extend(v for v in alternatives if v not in existing)
+        else:
+            existing = keywords[lang].setdefault(name.lower(), [])
+            for value in values:
+                alternatives = split_bare_alternation(value)
+                if len(alternatives) > 1:
+                    stats["resource_value_bare_alternation_split"] += 1
+                existing.extend(v for v in alternatives if v not in existing)
+    return templates, hints, keywords
+
+
+def fill(template: str, hints: dict, keywords: dict, stats: collections.Counter,
+         lang: str = "en-US"):
+    """Sentences a template produces, with its own language's resources.
+
+    `<name>` references a keyword file, which is how a template says "any of
+    these words here". `{name}` is a slot: filled from the language's hints
+    when it has them, and left unfilled otherwise -- an unfilled slot is a
+    phrasing this corpus cannot use, not a phrasing the skill cannot match.
+    """
+    # `expand` strips a type prefix, so `{number:offset}` reaches the loop
+    # below as `{offset}` and the type is only knowable from the template
+    # itself (OVOS-INTENT-4 6.1).
+    try:
+        slot_types = declared_slot_types([template]) or {}
+    except Exception:
+        slot_types = {}
+    try:
+        sentences = expand(template, keywords)
+    except Exception:
+        stats["template_would_not_expand"] += 1
+        return []
+    if len(sentences) > EXPANSION_CAP:
+        stats["template_over_cap"] += 1
+        sentences = sentences[:EXPANSION_CAP]
+    out = []
+    for s in sentences:
+        slots = {n.lower() for n in re.findall(r"\{([^}]+)\}", s)}
+        if not slots:
+            out.append(s)
+            continue
+        # A slot with no examples is not a dead template. INTENT-1 5.2 makes
+        # a slot free-form capture, 5.4 says a slot with no value set still
+        # fills, and the runtime agrees: `expand_entities` passes a sample
+        # through with the placeholder left literal and embeds it that way.
+        # The corpus mirrors the runtime rather than discarding the phrasing.
+        # A typed slot is filled from the parser for its type in THIS
+        # language, never from an .entity and never left as a brace: the
+        # runtime binds it by asking that same parser, so a row carrying the
+        # placeholder teaches a surface the runtime never produces. A type
+        # with no generator for this language drops the sentence rather than
+        # filling it with another language's words.
+        typed_here = {n: slot_types[n] for n in slots if n in slot_types}
+        if typed_here:
+            values = {n: typed_slots.values_for(t, lang)
+                      for n, t in typed_here.items()}
+            if not all(values.values()):
+                stats["sentence_dropped_no_typed_values_for_this_language"] += 1
+                continue
+            partials = [s]
+            for name, produced in values.items():
+                grown = []
+                for partial in partials:
+                    for value in produced:
+                        grown.append(re.sub(r"\{" + re.escape(name) + r"\}", value,
+                                            partial, flags=re.IGNORECASE))
+                partials = grown[:EXPANSION_CAP]
+            stats["sentences_from_a_typed_slot"] += len(partials)
+            slots = slots - set(typed_here)
+            if not slots:
+                out.extend(partials)
+                continue
+            # an untyped slot is left to the hint pass below, per sentence
+            for partial in partials:
+                out.extend(fill(partial, hints, keywords, stats, lang))
+            continue
+
+        if any(n not in hints for n in slots):
+            stats["sentences_kept_with_an_unfilled_slot_before_filling"] += 1
+        filled = [s]
+        for slot in sorted(n for n in slots if n in hints):
+            nxt = []
+            for partial in filled:
+                for value in hints[slot]:
+                    nxt.append(re.sub(r"\{" + re.escape(slot) + r"\}", value,
+                                      partial, flags=re.IGNORECASE))
+            filled = nxt[:EXPANSION_CAP]
+        # A hint value is substituted verbatim, and a value can itself carry
+        # template syntax (an `.entity` line copied from a template, or one
+        # written with alternation in it). Left alone, that syntax ships as a
+        # literal training row instead of the sentences it denotes, so every
+        # filled string is expanded again. `expand` is eager and raises
+        # rather than returning a partial sample set, so a fill that produces
+        # a malformed string is dropped whole, the same way a malformed
+        # template is dropped above -- never partially kept.
+        reexpanded = []
+        for f in filled:
+            try:
+                grown = expand(f, {})
+            except Exception:
+                stats["filled_sentence_would_not_expand"] += 1
+                continue
+            if len(grown) > 1:
+                stats["rows_expanded_after_filling"] += len(grown)
+            reexpanded.extend(grown)
+        if len(reexpanded) > EXPANSION_CAP:
+            stats["sentence_over_cap_after_fill"] += 1
+            reexpanded = reexpanded[:EXPANSION_CAP]
+        out.extend(reexpanded)
+    return out
+
+
+class RowsOnDisk:
+    """A re-readable view of the streamed corpus.
+
+    The builder used to hold every row in a list, then build a second full
+    list for the dedup and a third for the gold-overlap removal, so its peak
+    scaled with rows: measured 2.12 GB at 2.24M rows, and killed at the
+    4.0 GiB cgroup ceiling at 4.46M (T-6737). Rows go to disk instead.
+
+    The three counters below read the FINISHED corpus, and one of them,
+    count_ambiguous_rows, iterates it twice. Re-opening the file on each
+    __iter__ leaves all three unchanged. That matters more than saving the
+    second read: a counter rewritten to one pass is a counter whose agreement
+    with the old build would have to be argued instead of measured.
+    """
+
+    def __init__(self, path: Path):
+        self.path = path
+        self._len = None
+
+    def __iter__(self):
+        with self.path.open(encoding="utf-8") as fh:
+            for line in fh:
+                if line.strip():
+                    yield json.loads(line)
+
+    def __len__(self):
+        if self._len is None:
+            self._len = sum(1 for _ in self)
+        return self._len
+
+
+def count_leftover_template_syntax(rows) -> int:
+    """Written rows that still carry template syntax other than `{slot}`.
+
+    A slot left unfilled (INTENT-1 5.4) is the documented, correct shape of
+    a row -- `{slot}` is excluded. Anything else the grammar defines is never
+    a valid training row.
+
+    This counted `(a|b)` and `[a]` only, so it read 0 on a corpus holding 715
+    rows whose alternation had lost its parentheses -- `complet|ple|plena`,
+    the exact shape the expander leaves behind. A detector that cannot see
+    the defect it exists for is worse than no detector: it reports a clean
+    build. A bare `|`, `(`, `)`, `[` or `]` all count now, so a zero here has
+    to be earned.
+    """
+    leftover = re.compile(r"[()\[\]|]")
+    return sum(1 for row in rows if leftover.search(row["utterance"]))
+
+
+def count_rows_with_an_unfilled_slot(rows) -> int:
+    """Written rows that still carry a `{slot}`.
+
+    Read off the finished corpus, not counted as the expander goes. The
+    per-stage counter says how many SENTENCES were kept with an unfilled
+    slot, before filling multiplied them and before dedup and the gold
+    overlap removed some, so it is not the number of rows that ship and must
+    not be read as one.
+    """
+    return sum(1 for row in rows if re.search(r"\{[^}]+\}", row["utterance"]))
+
+
+#: A typed slot as the resource writes it: `{number:offset}`
+#: (OVOS-INTENT-1 5.6).
+TYPED_SLOT = re.compile(r"\{\s*([A-Za-z_][\w-]*)\s*:\s*([A-Za-z_][\w-]*)\s*\}")
+
+
+def typed_slot_placeholders(rows):
+    """Rows whose own typed slot survived into the utterance, with a sample.
+
+    A typed slot is `{number:offset}` in the resource, and `expand` strips
+    the type, so an unfilled one reaches a finished row as `{offset}` -- the
+    same shape an UNTYPED slot leaves behind legitimately (INTENT-1 5.4).
+    That is why `train_rows_with_an_unfilled_slot` cannot be read as this
+    number: 43,502 en-US rows of v6.1 carry a brace on purpose, and a typed
+    placeholder would sit inside that figure unseen.
+
+    So the type is read back from the row's own template, which keeps the
+    colon form, and only a brace the template wrote as typed counts. The
+    read is this module's own regex and NOT `declared_slot_types`, on
+    purpose: the filler asks that function which slots are typed, and a gate
+    that asks the same question cannot catch the answer coming back empty --
+    which is exactly the failure that puts a placeholder in a row. A literal
+    `{number:offset}` in an utterance counts too: it means the type prefix
+    was never stripped.
+    """
+    cache = {}
+    hits = []
+    for row in rows:
+        template = row.get("template", "")
+        if template not in cache:
+            cache[template] = {name.lower() for _, name
+                               in TYPED_SLOT.findall(template)}
+        typed = cache[template]
+        for name in re.findall(r"\{([^}]+)\}", row["utterance"]):
+            bare = name.split(":")[-1].strip().lower()
+            if ":" in name or bare in typed:
+                hits.append(f'{row["lang"]} {row["label"]}: {row["utterance"]}')
+                break
+    return hits
+
+
+def count_ambiguous_rows(rows) -> int:
+    """Rows whose locale and utterance carry a label another row disagrees on.
+
+    Not duplicates. A duplicate is the same sentence for the same label and
+    says nothing new; these are the same sentence for DIFFERENT labels, which
+    is a conflict the model is asked to resolve and cannot. They are counted
+    and named separately because folding them into a duplicate count hides a
+    labelling problem behind a housekeeping figure.
+    """
+    labels = collections.defaultdict(set)
+    for row in rows:
+        labels[(row["lang"], row["utterance"])].add(row["label"])
+    conflicted = {key for key, names in labels.items() if len(names) > 1}
+    return sum(1 for row in rows
+               if (row["lang"], row["utterance"]) in conflicted)
+
+
+def load_label_ledger(path: Path) -> dict:
+    """Read the label ledger: the baseline label set and every change to it.
+
+    A bare count cannot tell a label that left on purpose from a label whose
+    resource was deleted by mistake, and the only repair a bare count offers
+    is to lower the floor, which deletes the signal the floor exists to
+    raise. The ledger replaces the count with a list. It holds the label set
+    of the last published corpus, every label the current pins remove from
+    that set with the reason it left, and every label they add. The floor is
+    derived from those three numbers and never typed.
+
+    Every removal names a reason. A removal that folds one label into another
+    names the surviving label under ``merged_into``; once the removal takes
+    effect, that survivor must be in the corpus, or the fold moved the
+    phrasings nowhere. A removal of a label with no survivor says
+    ``merged_into: null`` and says in its reason where the phrasings went.
+    """
+    doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+    baseline = doc["baseline"]
+    names = baseline["labels"]
+    labels = set(names)
+    if len(labels) != len(names):
+        raise SystemExit(f"{path}: the baseline label list repeats a label")
+    if len(labels) != baseline["labels_trained"]:
+        raise SystemExit(
+            f"{path}: the baseline lists {len(labels)} labels and claims "
+            f"{baseline['labels_trained']}")
+    removed, added = {}, {}
+    for entry in doc.get("removed") or []:
+        label = entry["label"]
+        if label not in labels:
+            raise SystemExit(
+                f"{path}: removed entry {label} is not a baseline label, so "
+                f"there is nothing for it to remove")
+        if not (entry.get("reason") or "").strip():
+            raise SystemExit(f"{path}: removed entry {label} has no reason")
+        if "merged_into" not in entry:
+            raise SystemExit(
+                f"{path}: removed entry {label} does not say which label the "
+                f"phrasings went to (use `merged_into: null` for none)")
+        removed[label] = entry
+    for entry in doc.get("added") or []:
+        label = entry["label"]
+        if label in labels:
+            raise SystemExit(
+                f"{path}: added entry {label} is already a baseline label")
+        if not (entry.get("reason") or "").strip():
+            raise SystemExit(f"{path}: added entry {label} has no reason")
+        added[label] = entry
+    return {
+        "path": str(path),
+        "corpus": baseline.get("corpus"),
+        "baseline_labels": labels,
+        "baseline_count": baseline["labels_trained"],
+        "removed": removed,
+        "added": added,
+        "min_labels": baseline["labels_trained"] - len(removed) + len(added),
+    }
+
+
+def check_label_ledger(ledger: dict, labels_trained: set) -> dict:
+    """Compare the built label set against the ledger, name by name.
+
+    The ledger may lead the pins: an entry is written when the change is
+    read, and the pin that carries it moves later. So a removal that has not
+    happened yet and an addition that has not arrived yet are reported and
+    are not failures. A loss nobody wrote down is the failure, because it is
+    the one a count would have hidden.
+
+    The floor is the size of the expected label set, and that set is built
+    by name from the changes that HAVE taken effect at these pins: a listed
+    removal counts only once its label is gone, a listed addition only once
+    its label is here. A floor derived from the whole ledger instead would
+    count a listed addition that has not arrived and so raise the bar the
+    corpus must clear before the label that raises it exists, which fails a
+    build the ledger promises is safe.
+    """
+    lost = ledger["baseline_labels"] - labels_trained
+    gained = labels_trained - ledger["baseline_labels"]
+    removals_applied = set(ledger["removed"]) - labels_trained
+    additions_arrived = set(ledger["added"]) & labels_trained
+    expected = (ledger["baseline_labels"] - removals_applied) | additions_arrived
+    orphaned = sorted(
+        entry["merged_into"] for label, entry in ledger["removed"].items()
+        if label in lost and entry["merged_into"]
+        and entry["merged_into"] not in labels_trained)
+    return {
+        "ledger": ledger["path"],
+        "baseline_corpus": ledger["corpus"],
+        "baseline_labels": ledger["baseline_count"],
+        "min_labels_derived": len(expected),
+        "min_labels_if_every_listed_change_lands": ledger["min_labels"],
+        "labels_lost_against_baseline": sorted(lost),
+        "labels_gained_against_baseline": sorted(gained),
+        "labels_lost_and_unlisted": sorted(lost - set(ledger["removed"])),
+        "labels_gained_and_unlisted": sorted(gained - set(ledger["added"])),
+        "listed_removals_not_yet_applied":
+            sorted(set(ledger["removed"]) & labels_trained),
+        "listed_additions_not_yet_arrived":
+            sorted(set(ledger["added"]) - labels_trained),
+        "merge_targets_missing_from_the_corpus": orphaned,
+    }
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--sources", default="train/sources.yaml")
+    ap.add_argument("--workspace", default=None)
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--dry-run", action="store_true")
+    # Floors rather than an equality: the corpus grows as skills gain
+    # resources, and it must never quietly shrink. The number moves the
+    # moment the expansion step starts discarding templates again, which is
+    # the failure this build already had once and which no count revealed.
+    #
+    # The label floor is not typed. It is the size of the expected label
+    # set, built by name from train/labels.yaml: the label set of the last
+    # published corpus, minus the listed removals that have taken effect at
+    # these pins, plus the listed additions that have arrived. The ledger
+    # may lead the pins, so a change it lists but the pins do not carry yet
+    # moves the floor by nothing. A loss the ledger does not list fails the
+    # build whatever the count says, so the floor can no longer be satisfied
+    # by a hand-lowered number, and a loss can no longer hide inside a net
+    # count that a gain holds up. --min-labels stays as an override for a
+    # stricter floor only: a value below the derived one is refused. That
+    # refusal reads the built corpus, so it lands with the other gates and
+    # not at the command line.
+    ap.add_argument("--labels", default="train/labels.yaml")
+    ap.add_argument("--min-labels", type=int, default=None)
+    # Measured on the same tree: 53 distinct locale directories folded to 52
+    # once fa-ir/fa-IR merged under OVOS-INTENT-2 2's case-insensitive tag
+    # comparison. The prior floor of 53 counted that pair twice.
+    ap.add_argument("--min-languages", type=int, default=52)
+    # The zero this build asserts on the overlap is satisfied trivially when
+    # the test side is empty: a gold glob renamed or moved out from under the
+    # builder still builds rc=0 with test_rows=0 and every overlap zero by
+    # construction, scoring nothing while reporting the cleanest possible
+    # number. Floors on the test side close that, the same way min-labels
+    # and min-languages close it on the training side. Measured against a
+    # real build over dev@72d73a5 (`--workspace ~/AgentWorkspaces`, shipped
+    # source pins): test_rows=1412.
+    # Measured after every gold PR of the v6.1 wave merged: test_rows=2380.
+    ap.add_argument("--min-test-rows", type=int, default=2380)
+    # Measured on the same build: labels_scored=164.
+    # Measured on the same build: labels_scored=191.
+    ap.add_argument("--min-labels-scored", type=int, default=191)
+    # A base name that breaks OVOS-INTENT-2 2 is read anyway, because the
+    # corpus must build against the fleet as it stands. Pinning the count
+    # stops the set growing while the rename campaign brings it down; a zero
+    # here would be red on arrival and loosened away by whoever ran it next.
+    ap.add_argument("--max-noncompliant-base-names", type=int, default=None)
+    args = ap.parse_args()
+
+    ledger = load_label_ledger(Path(args.labels))
+
+    cfg = yaml.safe_load(Path(args.sources).read_text(encoding="utf-8"))
+    ws = Path(args.workspace or cfg["workspace"]).expanduser()
+    refs = cfg["skill_refs"]["refs"]
+
+    stats = collections.Counter()
+    test = []
+    labels_trained, labels_scored = set(), set()
+    labels_with_templates = set()
+    no_gold, no_resources = [], []
+    violations = set()
+    dropped_templates = []
+
+    # The rows go to disk as they are filled, in two passes, and the only
+    # structure that holds the whole corpus is the dedup key set. `scratch`
+    # is removed on every exit path including a refusal: the old builder
+    # created --out only after the floors passed, and half a corpus left
+    # where a reader expects a whole one is worse than none.
+    scratch = Path(tempfile.mkdtemp(prefix="m2v-build-"))
+    deduped_path = scratch / "deduped.jsonl"
+    train_path = scratch / "train.jsonl"
+    try:
+        # Pass 1: read each skill, fill its templates, drop duplicates, write.
+        # The repo loop keeps its order and still reads the skill before the
+        # gold, so `stats` gains its keys in the same order as before and the
+        # manifest stays comparable key for key with an older build.
+        seen = set()
+        # Counted locally and folded into `stats` after the loop, where the
+        # old builder's dedup pass created this key. The value is the same
+        # either way; the placement keeps the manifest comparable key for key
+        # and in order with a build from before this change.
+        duplicates = 0
+        with deduped_path.open("w", encoding="utf-8") as raw:
+            for key, rev in sorted(refs.items()):
+                repo, repo_name = ws / key, key.rsplit("/", 1)[-1]
+                if not repo.is_dir():
+                    stats["skill_missing_clone"] += 1
+                    continue
+                templates, hints, keywords = read_skill(
+                    repo, rev, repo_name, stats, violations, dropped_templates)
+                if not templates:
+                    no_resources.append(repo_name)
+                for _, label, _ in templates:
+                    labels_with_templates.add(label)
+                for lang, label, template in templates:
+                    for sentence in fill(template, hints.get(lang, {}),
+                                         keywords.get(lang, {}), stats, lang):
+                        key_seen = (label, lang, sentence.lower())
+                        if key_seen in seen:
+                            duplicates += 1
+                            continue
+                        seen.add(key_seen)
+                        raw.write(json.dumps(
+                            {"lang": lang, "label": label,
+                             "utterance": sentence,
+                             "source": f"skill:{repo_name}",
+                             "template": template},
+                            ensure_ascii=False) + "\n")
+                # The gold side is read by build_eval.read_gold, the same
+                # reader the eval builder uses, and labelled by the same
+                # function as the train rows above. No spelling fallback: a
+                # gold label the train side does not carry is reported by the
+                # manifest and refused by the census.
+                gold = read_gold(repo, rev, repo_name, stats)
+                if not gold:
+                    no_gold.append(repo_name)
+                for row in gold:
+                    test.append(row)
+                    labels_scored.add(row["label"])
+        del seen
+        # Guarded, because `Counter[k] += 0` CREATES the key. The old builder
+        # incremented once per duplicate, so a duplicate-free build carried no
+        # such key at all, and an unguarded fold would add
+        # `"train_duplicate_rows_removed": 0` to a manifest that never had it.
+        if duplicates:
+            stats["train_duplicate_rows_removed"] += duplicates
+
+        # A gold sentence and an expansion of the same skill's own template
+        # are both somebody reaching for the obvious phrasing of the same
+        # intent, so they collide regardless of which file either was read
+        # from. Every training row that collides with a gold row -- match
+        # after lowercasing, whitespace collapse, and stripping edge
+        # punctuation, the same fold the runtime utterance normalizer applies
+        # before an intent engine matches -- is removed from the training
+        # side; the gold side is never touched. Measured, not assumed: the
+        # overlap under both comparisons and the templates the removal
+        # silences all go in the manifest.
+        gold_normalized = {normalize_utterance(r["utterance"]) for r in test}
+        gold_normalized_wide = {
+            normalize_utterance_punct_insensitive(r["utterance"])
+            for r in test}
+
+        # Pass 2: drop the rows that collide with a gold row. Only the
+        # per-template label map is held, which is one entry per distinct
+        # template rather than one per row.
+        templates_before = collections.defaultdict(set)
+        templates_after = set()
+        train_gold_overlap_count = 0
+        train_gold_overlap_after = 0
+        train_gold_overlap_after_punct_insensitive = 0
+        languages_train = set()
+        labels_trained = set()
+        with train_path.open("w", encoding="utf-8") as out_fh:
+            for row in RowsOnDisk(deduped_path):
+                templates_before[row["template"]].add(row["label"])
+                if normalize_utterance_punct_insensitive(
+                        row["utterance"]) in gold_normalized_wide:
+                    train_gold_overlap_count += 1
+                    continue
+                templates_after.add(row["template"])
+                # The overlap this fix removes may have been the only
+                # training rows a label had, so both sets are derived from
+                # what SURVIVES; deriving them from the pre-removal pass
+                # would call a label trained when its last row was just
+                # deleted.
+                labels_trained.add(row["label"])
+                languages_train.add(row["lang"])
+                # Both counters are re-measured on the surviving rows rather
+                # than asserted to be zero by construction: the filter and
+                # the check must be able to disagree, or the check proves
+                # nothing about the filter.
+                if normalize_utterance(row["utterance"]) in gold_normalized:
+                    train_gold_overlap_after += 1
+                if normalize_utterance_punct_insensitive(
+                        row["utterance"]) in gold_normalized_wide:
+                    train_gold_overlap_after_punct_insensitive += 1
+                out_fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+        deduped_path.unlink()
+        train = RowsOnDisk(train_path)
+        silenced_templates = sorted(t for t in templates_before
+                                    if t not in templates_after)
+        silenced_labels = sorted({label for t in silenced_templates
+                                  for label in templates_before[t]})
+        del templates_before, templates_after
+
+        # A gold sentence naming a label no skill trains is two different
+        # findings wearing one shape, and they ask for opposite work. If the
+        # skill ships the intent and it produces no rows, the intent is starved
+        # of slot examples and the skill is fine. If the skill does not ship the
+        # intent at all, the gold row asserts a routing its own skill never
+        # supported -- either written wrong, or written before a rename nobody
+        # carried into the gold file.
+        scored_labels = {r["label"] for r in test}
+        starved = sorted(scored_labels & labels_with_templates - labels_trained)
+        unsupported = sorted(scored_labels - labels_with_templates)
+
+        # Name by name, not count against count: the ledger reads the finished
+        # label set and says which of its losses were written down.
+        ledger_report = check_label_ledger(ledger, labels_trained)
+        typed_placeholders = typed_slot_placeholders(train)
+
+        # The floor is known only now: which listed changes took effect is a
+        # property of the built corpus, not of the ledger file. An override is
+        # allowed to raise it and refused below it.
+        floor_derived = ledger_report["min_labels_derived"]
+        if args.min_labels is None:
+            args.min_labels = floor_derived
+        elif args.min_labels < floor_derived:
+            print(f"--min-labels {args.min_labels} is below the floor "
+                  f"{floor_derived} that {args.labels} derives "
+                  f"({ledger['baseline_count']} baseline labels, "
+                  f"{len(ledger_report['listed_removals_not_yet_applied'])} of "
+                  f"{len(ledger['removed'])} listed removals still to apply, "
+                  f"{len(ledger_report['listed_additions_not_yet_arrived'])} of "
+                  f"{len(ledger['added'])} listed additions still to arrive). A "
+                  f"floor is lowered by listing the label that left and why, not "
+                  f"by typing a smaller number.", file=sys.stderr)
+            return 1
+
+        report = {
+            "train_rows": len(train),
+            "test_rows": len(test),
+            "labels_trained": len(labels_trained),
+            "labels_scored": len(labels_scored & labels_trained),
+            "labels_never_scored": len(labels_trained - labels_scored),
+            "languages_train": len(languages_train),
+            "languages_test": len({r["lang"] for r in test}),
+            "train_gold_overlap_removed": train_gold_overlap_count,
+            "train_gold_overlap_after_fix": train_gold_overlap_after,
+            "train_gold_overlap_after_fix_punct_insensitive":
+                train_gold_overlap_after_punct_insensitive,
+            "templates_silenced": len(silenced_templates),
+            "templates_silenced_detail": silenced_templates,
+            "labels_with_a_silenced_template": silenced_labels,
+            # A row still carrying template syntax other than an unfilled `{slot}`
+            # is unusable, whatever the per-stage counters above say. This is the
+            # number that would have caught the shipped-alternation defect: it
+            # reads the finished corpus rather than trusting the builder's own
+            # account of its work.
+            "train_rows_with_leftover_template_syntax":
+                count_leftover_template_syntax(train),
+            # Both read the finished corpus. The per-stage counters under "stats"
+            # count sentences as the expander sees them, which is a different
+            # number and carries a different name.
+            "train_rows_with_an_unfilled_slot":
+                count_rows_with_an_unfilled_slot(train),
+            # A typed slot is never a legitimate leftover: the runtime binds
+            # it by asking a parser, so a row carrying the placeholder teaches
+            # a surface no runtime produces. Counted apart from the brace
+            # count above, which an untyped slot fills legitimately.
+            "train_rows_with_a_typed_slot_placeholder": len(typed_placeholders),
+            "train_rows_with_a_typed_slot_placeholder_detail":
+                sorted(typed_placeholders)[:20],
+            "train_rows_ambiguous_same_utterance_different_label":
+                count_ambiguous_rows(train),
+            "templates_dropped_for_a_bare_alternation": len(dropped_templates),
+            "templates_dropped_for_a_bare_alternation_detail":
+                sorted(dropped_templates),
+            "gold_flags_are_not_evidence": (
+                "every gold sentence in this fleet was written by a model, so the "
+                "machine_generated field is unreliable wherever it claims False "
+                "and is not read; needs_manual marks a row somebody meant a human "
+                "to check, and whether that check happened is unrecorded"),
+            "skills_without_gold": sorted(no_gold),
+            "skills_without_locale_resources": sorted(no_resources),
+            "noncompliant_base_names": len(violations),
+            "noncompliant_base_names_detail": sorted(violations),
+            "label_function": "train/skill_labels.py (no spelling fallback)",
+            "label_ledger": ledger_report,
+            "gold_labels_starved_of_slot_examples": starved,
+            "gold_labels_no_skill_supports": unsupported,
+            "stats": dict(stats),
+        }
+        print(json.dumps({k: v for k, v in report.items()
+                          if not isinstance(v, list)}, indent=2))
+        short = []
+        if ledger_report["labels_lost_and_unlisted"]:
+            short.append(
+                f"{len(ledger_report['labels_lost_and_unlisted'])} labels left "
+                f"the corpus and {args.labels} does not list them: "
+                f"{', '.join(ledger_report['labels_lost_and_unlisted'])}. Either "
+                f"the resource was dropped by mistake, which is a regression to "
+                f"fix in the skill, or it left on purpose, which is an entry in "
+                f"the ledger naming the reason and the label its phrasings went "
+                f"to. A net count hides this whenever a gain holds the total up")
+        if ledger_report["merge_targets_missing_from_the_corpus"]:
+            short.append(
+                f"a removal in {args.labels} folds a label into "
+                f"{', '.join(ledger_report['merge_targets_missing_from_the_corpus'])}"
+                f", and the corpus does not carry that label: the phrasings the "
+                f"fold moved are in no label at all")
+        if report["labels_trained"] < args.min_labels:
+            # Name what is missing. The old message named one cause -- a dropped
+            # template -- for every shortfall, which sent a reader hunting a loss
+            # that a pending addition had faked.
+            unlisted = ledger_report["labels_lost_and_unlisted"]
+            if unlisted:
+                why = (f"{len(unlisted)} baseline labels are gone and "
+                       f"{args.labels} does not list them: "
+                       f"{', '.join(unlisted[:5])}"
+                       f"{' and more' if len(unlisted) > 5 else ''}")
+            else:
+                why = ("every baseline label the ledger does not excuse is "
+                       "present, so the shortfall is in the labels this build "
+                       "gained and lost again, not in the baseline")
+            short.append(
+                f"the corpus shrank to {report['labels_trained']} labels, floor "
+                f"{args.min_labels} derived from {args.labels} "
+                f"({ledger['baseline_count']} baseline labels, "
+                f"{len(ledger_report['listed_removals_not_yet_applied'])} of "
+                f"{len(ledger['removed'])} listed removals still to apply, "
+                f"{len(ledger_report['listed_additions_not_yet_arrived'])} of "
+                f"{len(ledger['added'])} listed additions still to arrive): "
+                f"{why}")
+        if report["languages_train"] < args.min_languages:
+            short.append(
+                f"the corpus shrank to {report['languages_train']} languages, "
+                f"floor {args.min_languages}")
+        if report["test_rows"] < args.min_test_rows:
+            short.append(
+                f"the gold side shrank to {report['test_rows']} test rows, "
+                f"floor {args.min_test_rows}: a moved or renamed gold glob "
+                f"that matches nothing builds an overlap of zero by having "
+                f"nothing to overlap with, and no other count shows the loss")
+        if report["labels_scored"] < args.min_labels_scored:
+            short.append(
+                f"the gold side scores only {report['labels_scored']} labels, "
+                f"floor {args.min_labels_scored}")
+        if report["train_rows_with_a_typed_slot_placeholder"]:
+            short.append(
+                f"{report['train_rows_with_a_typed_slot_placeholder']} training "
+                f"rows still carry a typed slot as a placeholder, for example "
+                f"{sorted(typed_placeholders)[0]}: the runtime binds a typed "
+                f"slot by asking a parser, so the brace is a surface it never "
+                f"produces, and the unfilled-slot count cannot show this "
+                f"because an untyped slot fills that count legitimately")
+        if report["train_gold_overlap_after_fix"] != 0:
+            short.append(
+                f"{report['train_gold_overlap_after_fix']} training rows still "
+                f"match a gold utterance after the removal pass: the fix did "
+                f"not do what it claims")
+        if report["train_gold_overlap_after_fix_punct_insensitive"] != 0:
+            short.append(
+                f"{report['train_gold_overlap_after_fix_punct_insensitive']} "
+                f"training rows still match a gold utterance once edge "
+                f"punctuation is stripped, the fold the runtime normalizer "
+                f"applies before an intent engine ever compares the two: the "
+                f"fix did not do what it claims")
+        cap = args.max_noncompliant_base_names
+        if cap is not None and report["noncompliant_base_names"] > cap:
+            short.append(
+                f"{report['noncompliant_base_names']} resource base names break "
+                f"OVOS-INTENT-2 2, ceiling {cap}: the set may shrink as skills "
+                f"are renamed and must never gain a member")
+        if short:
+            for line in short:
+                print(f"[gate] {line}", file=sys.stderr)
+            return 1
+        if args.dry_run:
+            return 0
+        out = Path(args.out)
+        out.mkdir(parents=True, exist_ok=True)
+        # train.jsonl is already written, row for row, in the scratch directory:
+        # move it instead of serialising every row a second time.
+        shutil.move(str(train_path), str(out / "train.jsonl"))
+        with (out / "test.jsonl").open("w", encoding="utf-8") as fh:
+            for row in test:
+                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+        (out / "manifest.json").write_text(
+            json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+        return 0
+    finally:
+        # Removed whether the floors passed, refused, or the build raised.
+        shutil.rmtree(scratch, ignore_errors=True)
+
+if __name__ == "__main__":
+    sys.exit(main())
