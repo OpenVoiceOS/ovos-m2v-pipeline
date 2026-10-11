@@ -864,6 +864,161 @@ class TestBlacklistConcurrentRegistration(unittest.TestCase):
                          ["music.skill:play_music"])
 
 
+class TestRequiredKeywords(unittest.TestCase):
+    """OVOS-INTENT-3 §5.6: "The engine **MUST NOT** report a match for the
+    intent when no keyword of the set occurs. Like `.blacklist` suppression,
+    this is a hard, score-independent rejection, and every engine that scores
+    the intent applies it."
+
+    Both intents score above every tier threshold for any utterance, and the
+    tie goes to LIFESPAN, so only the required keywords decide. Every case
+    runs in both modes.
+    """
+
+    LIFESPAN = "confucius.skill:confucius_lifespan"
+    QUOTE = "confucius.skill:confucius_quote"
+    TIERS = ("high", "medium", "low")
+
+    def _register(self, p, label, lang, required=None):
+        skill_id, intent_name = label.split(":")
+        data = {"skill_id": skill_id, "intent_name": intent_name,
+                "lang": lang, "samples": ["when was confucius born"]}
+        if required is not None:
+            data["required_keywords"] = required
+        p._handle_intent4_register_template(
+            Message(SpecMessage.INTENT_REGISTER_TEMPLATE.value,
+                    data=data, context={"skill_id": skill_id}))
+
+    def _pipelines(self):
+        proto = _make_prototype_pipeline()
+        classifier = _make_classifier_pipeline({"low_tier": "classifier"})
+        classifier.model.classes_ = np.array([self.LIFESPAN, self.QUOTE])
+        classifier.model.predict_proba.return_value = np.array([[0.95, 0.05]])
+        for p in (proto, classifier):
+            self._register(p, self.LIFESPAN, "en-US", ["confucius", "kong fuzi"])
+            self._register(p, self.LIFESPAN, "de-DE", ["konfuzius", "kong fuzi"])
+            self._register(p, self.QUOTE, "en-US")
+            self._register(p, self.QUOTE, "de-DE", [])
+        proto.model.encode.side_effect = None
+        proto.model.encode.return_value = np.array([[1.0, 0.0, 0.0, 0.0]],
+                                                   dtype=np.float32)
+        return {"prototype": proto, "classifier": classifier}
+
+    def _tiers(self, p, utterance, lang):
+        msg = Message("recognizer_loop:utterance",
+                      {"utterances": [utterance], "lang": lang})
+        out = {}
+        for tier in self.TIERS:
+            match = getattr(p, f"match_{tier}")([utterance], lang, msg)
+            out[tier] = match.match_type if match else None
+        return out
+
+    def _candidates(self, p, utterance, lang):
+        return [label for _, label, _, _ in p._match(utterance, None, lang)]
+
+    def test_named_person_matches_and_another_person_does_not(self):
+        cases = {"en-US": ("when was confucius born", "when was einstein born"),
+                 "de-DE": ("wann wurde konfuzius geboren",
+                           "wann wurde einstein geboren")}
+        for mode, p in self._pipelines().items():
+            for lang, (named, other) in cases.items():
+                with self.subTest(mode=mode, lang=lang):
+                    self.assertEqual(self._tiers(p, named, lang),
+                                     {t: self.LIFESPAN for t in self.TIERS})
+                    self.assertEqual(self._candidates(p, other, lang), [self.QUOTE])
+                    self.assertNotIn(self.LIFESPAN,
+                                     self._tiers(p, other, lang).values())
+
+    def test_multi_word_keyword_is_a_contiguous_token_run(self):
+        for mode, p in self._pipelines().items():
+            with self.subTest(mode=mode):
+                self.assertEqual(self._candidates(p, "when was Kong Fuzi born?", "en-US"),
+                                 [self.LIFESPAN, self.QUOTE])
+                self.assertEqual(self._candidates(p, "kong said fuzi was born", "en-US"),
+                                 [self.QUOTE])
+
+    def test_punctuation_does_not_hide_a_keyword(self):
+        for mode, p in self._pipelines().items():
+            with self.subTest(mode=mode):
+                for utterance in ("When was CONFUCIUS born?", "confucius, when was he born",
+                                  "was it confucius' birth"):
+                    self.assertEqual(self._candidates(p, utterance, "en-US"),
+                                     [self.LIFESPAN, self.QUOTE], utterance)
+
+    def test_a_keyword_inside_a_word_does_not_occur(self):
+        for mode, p in self._pipelines().items():
+            with self.subTest(mode=mode):
+                for utterance in ("when was neoconfucius born",
+                                  "when were the confuciuses born",
+                                  "when was kong fuzian born"):
+                    self.assertEqual(self._candidates(p, utterance, "en-US"),
+                                     [self.QUOTE], utterance)
+
+    def test_a_keyword_does_not_cross_languages(self):
+        for mode, p in self._pipelines().items():
+            with self.subTest(mode=mode):
+                self.assertEqual(self._candidates(p, "when was konfuzius born", "en-US"),
+                                 [self.QUOTE])
+                self.assertEqual(self._candidates(p, "wann wurde confucius geboren", "de-DE"),
+                                 [self.QUOTE])
+
+    def test_a_language_without_required_keywords_has_no_requirement(self):
+        """fr-FR registers no `.required`, so a French utterance naming
+        nobody still matches, and never borrows the en-US or de-DE set."""
+        for mode, p in self._pipelines().items():
+            with self.subTest(mode=mode):
+                self._register(p, self.LIFESPAN, "fr-FR")
+                self.assertEqual(self._tiers(p, "quand est né einstein", "fr-FR"),
+                                 {t: self.LIFESPAN for t in self.TIERS})
+
+    def test_a_dialect_uses_its_closest_registration(self):
+        for mode, p in self._pipelines().items():
+            with self.subTest(mode=mode):
+                self.assertEqual(self._candidates(p, "when was einstein born", "en-GB"),
+                                 [self.QUOTE])
+                self.assertEqual(self._candidates(p, "when was confucius born", "en-GB"),
+                                 [self.LIFESPAN, self.QUOTE])
+                self.assertEqual(self._candidates(p, "wann starb mozart", "de-AT"),
+                                 [self.QUOTE])
+
+    def test_an_intent_without_required_keywords_is_unchanged(self):
+        """QUOTE registers no `required_keywords` in en-US and an empty list
+        in de-DE: neither is a requirement, so it answers every utterance."""
+        for mode, p in self._pipelines().items():
+            for lang, utterance in (("en-US", "tell me something wise"),
+                                    ("de-DE", "sag mir etwas weises")):
+                with self.subTest(mode=mode, lang=lang):
+                    self.assertIn(self.QUOTE, self._candidates(p, utterance, lang))
+
+    def test_re_registering_a_language_replaces_its_keywords(self):
+        for mode, p in self._pipelines().items():
+            with self.subTest(mode=mode):
+                self._register(p, self.LIFESPAN, "en-US", ["laozi"])
+                self.assertEqual(self._candidates(p, "when was confucius born", "en-US"),
+                                 [self.QUOTE])
+                self.assertEqual(self._candidates(p, "when was laozi born", "en-US"),
+                                 [self.LIFESPAN, self.QUOTE])
+                self._register(p, self.LIFESPAN, "en-US")
+                self.assertEqual(self._candidates(p, "when was einstein born", "en-US"),
+                                 [self.LIFESPAN, self.QUOTE])
+                # the de-DE set is untouched by the en-US registrations
+                self.assertEqual(self._candidates(p, "wann starb mozart", "de-DE"),
+                                 [self.QUOTE])
+
+    def test_deregistration_drops_the_keywords(self):
+        for mode, p in self._pipelines().items():
+            with self.subTest(mode=mode):
+                p._handle_intent4_deregister_intent(Message(
+                    SpecMessage.INTENT_DEREGISTER.value,
+                    data={"skill_id": "confucius.skill",
+                          "intent_name": "confucius_lifespan"},
+                    context={"skill_id": "confucius.skill"}))
+                self.assertNotIn(self.LIFESPAN, p.required_keywords)
+                self._register(p, self.LIFESPAN, "en-US")
+                self.assertEqual(self._candidates(p, "when was einstein born", "en-US"),
+                                 [self.LIFESPAN, self.QUOTE])
+
+
 class TestPadatiousContextGating(unittest.TestCase):
     """OVOS-CONTEXT-1 §6/§6.1 gating for the legacy ``padatious:register_intent``
     wire contract, mirroring ``TestIntent4ContextGating``. §6's tolerated

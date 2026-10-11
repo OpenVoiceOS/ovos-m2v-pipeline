@@ -231,6 +231,39 @@ model download. A missing or corrupt manifest is logged and ignored. A
 `label_map` target with no colon is used as-is and logged once as a
 warning.
 
+## Blacklist and required keywords
+
+Both plugins read two keyword sets from a template registration
+(OVOS-INTENT-4 §6.1). A skill sends them from the `.blacklist` and
+`.required` files paired with the intent (OVOS-INTENT-2 §4.3, §4.5):
+
+- `blacklist`: when one phrase occurs in the utterance, the intent does not
+  match;
+- `required_keywords`: when no keyword occurs in the utterance, the intent
+  does not match.
+
+A phrase or keyword occurs when its words appear in the utterance as a
+contiguous run of whole words, after both are lowercased and every
+punctuation or symbol character becomes a word break. `art` does not occur
+in `start`, and `kong fuzi` does not occur in `kong said fuzi`. Both checks
+remove the intent before any confidence threshold applies, at every tier, in
+the classifier and in the prototype pipeline. Another intent can still match
+the utterance.
+
+The sets are kept per intent and per registration language. The utterance
+language selects the set of the closest registered language, by the rule
+that selects a label's prototypes. A language whose registration carries no
+required keywords has no requirement, and never uses the set of another
+language.
+
+Use required keywords for an intent about one named thing. The model scores
+by meaning, so "when was einstein born" is close to "when was confucius
+born". A `.required` that lists `confucius` stops that match.
+
+Required slots (OVOS-INTENT-3 §5.3) are not checked here. Neither plugin
+reads a slot value from the utterance (see below), so a check would reject
+every match of an intent with a required slot.
+
 ## Typed slots
 
 The prototype plugin never reads a slot value from the utterance text

@@ -1199,6 +1199,11 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         #: phrases still records its language, so an utterance in that
         #: language never borrows a sibling dialect's phrases.
         self.excluded_keywords: Dict[str, Dict[Optional[str], List[str]]] = {}
+        #: Required keywords (OVOS-INTENT-2 §4.5, delivered as the
+        #: OVOS-INTENT-4 §6.1 ``required_keywords``), stored exactly as
+        #: ``excluded_keywords``. An intent whose keyword set for the
+        #: utterance language is not empty matches only when one occurs.
+        self.required_keywords: Dict[str, Dict[Optional[str], List[str]]] = {}
         #: Declared slot names per registered label (OVOS-CONTEXT-1 §7),
         #: parsed from the label's original template samples before entity
         #: expansion rewrites ``{slot}`` placeholders into concrete values.
@@ -2196,10 +2201,13 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
 
         # OVOS-INTENT-2 §4.3 suppression phrases, scoped to this intent and
         # this language; re-registering the pair replaces them (§8.1)
-        phrases = [_word_sequence(p) for p in message.data.get("blacklist") or []
-                   if isinstance(p, str)]
-        self.excluded_keywords.setdefault(label, {})[
-            standardize_lang(reg_lang) if reg_lang else None] = [p for p in phrases if p]
+        # and the OVOS-INTENT-2 §4.5 required keywords, kept the same way
+        lang_key = standardize_lang(reg_lang) if reg_lang else None
+        for store, field in ((self.excluded_keywords, "blacklist"),
+                             (self.required_keywords, "required_keywords")):
+            phrases = [_word_sequence(p) for p in message.data.get(field) or []
+                       if isinstance(p, str)]
+            store.setdefault(label, {})[lang_key] = [p for p in phrases if p]
 
         # Classifier mode is frozen: only gate the (already trained) label.
         if self.prototype_store is None:
@@ -2510,6 +2518,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         self._intent_slots.pop(label, None)
         self._forget_slot_types(label)
         self.excluded_keywords.pop(label, None)
+        self.required_keywords.pop(label, None)
         self._forget_disabled(label)
         LOG.debug(f"Model2Vec: deregistered INTENT-4 intent '{label}'")
 
@@ -2547,6 +2556,8 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                               if not l.startswith(skill_id + ":")}
         self._forget_slot_types_skill(skill_id)
         self.excluded_keywords = {i: kw for i, kw in self.excluded_keywords.items()
+                                  if not i.startswith(skill_id + ":")}
+        self.required_keywords = {i: kw for i, kw in self.required_keywords.items()
                                   if not i.startswith(skill_id + ":")}
         self._forget_disabled_skill(skill_id)
         self.entities.pop(skill_id, None)
@@ -2630,34 +2641,58 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                         f"'{label}': {target!r}; using as-is")
         return label.split(":")[0], label
 
+    @staticmethod
+    def _phrases_for_lang(by_lang: Dict[Optional[str], List[str]],
+                          lang: Optional[str]) -> List[str]:
+        """The phrases of one label's per-language store that apply to *lang*.
+
+        These are the phrases of the registration language closest to *lang*,
+        chosen as the prototype store chooses a label's partition, plus those
+        of a registration that named no language. With no *lang*, the phrases
+        of every language apply.
+        """
+        phrases = list(by_lang.get(None, []))
+        tagged = sorted(t for t in by_lang if t is not None)
+        if lang is None:
+            phrases += [p for t in tagged for p in by_lang[t]]
+        elif tagged:
+            closest = closest_lang(lang, tagged)
+            if closest is not None:
+                phrases += by_lang[closest]
+        return phrases
+
     def _excluded_labels(self, utterance: str, lang: Optional[str] = None) -> List[str]:
         """Labels suppressed by a blacklist phrase occurring in *utterance*.
 
         OVOS-INTENT-2 §4.3: a phrase occurs when its words appear in the
         utterance as a contiguous sequence of whole words, compared in
-        ``_word_sequence`` form. A label's phrases come from the registration
-        language closest to *lang*, chosen as the prototype store chooses a
-        label's partition, plus any registration that named no language.
-        With no *lang*, the phrases of every language apply.
+        ``_word_sequence`` form. ``_phrases_for_lang`` picks a label's
+        phrases for *lang*.
         """
         words = f" {_word_sequence(utterance)} "
         excluded: List[str] = []
         # bus handlers register on other threads while this runs: read copies
         for label, by_lang in list(self.excluded_keywords.items()):
-            by_lang = dict(by_lang)
-            if not any(by_lang.values()):
-                continue
-            phrases = list(by_lang.get(None, []))
-            tagged = sorted(t for t in by_lang if t is not None)
-            if lang is None:
-                phrases += [p for t in tagged for p in by_lang[t]]
-            elif tagged:
-                closest = closest_lang(lang, tagged)
-                if closest is not None:
-                    phrases += by_lang[closest]
+            phrases = self._phrases_for_lang(dict(by_lang), lang)
             if any(f" {p} " in words for p in phrases):
                 excluded.append(label)
         return excluded
+
+    def _unanchored_labels(self, utterance: str, lang: Optional[str] = None) -> List[str]:
+        """Labels whose required keywords all fail to occur in *utterance*.
+
+        OVOS-INTENT-2 §4.5: a keyword occurs by the blacklist rule of
+        ``_excluded_labels``. A label with no keyword for *lang* has no
+        requirement and is never returned.
+        """
+        words = f" {_word_sequence(utterance)} "
+        unanchored: List[str] = []
+        # bus handlers register on other threads while this runs: read copies
+        for label, by_lang in list(self.required_keywords.items()):
+            keywords = self._phrases_for_lang(dict(by_lang), lang)
+            if keywords and not any(f" {k} " in words for k in keywords):
+                unanchored.append(label)
+        return unanchored
 
     def _session_disabled(self, message: Optional[Message]) -> frozenset:
         """Labels disabled (§8.5) for the caller's session.
@@ -2699,7 +2734,8 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         descending, where ``slots`` carries the OVOS-CONTEXT-1 §7
         context-supplied slot values for the label (empty when none apply).
 
-        Candidates suppressed by a §6.1 template ``blacklist`` phrase, or by the
+        Candidates suppressed by a §6.1 template ``blacklist`` phrase, those
+        none of whose §6.1 ``required_keywords`` occurs, or those dropped by the
         session's ``blacklisted_intents`` / ``blacklisted_skills``, are dropped.
 
         Args:
@@ -2740,6 +2776,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         intent_context = (SessionManager.get(message).intent_context or {}) \
             if (self._context_gates or self._intent_slots) else {}
         excluded = self._excluded_labels(utterance, lang)
+        unanchored = self._unanchored_labels(utterance, lang)
         blacklisted_intents, blacklisted_skills = self._session_blacklists(message)
         disabled = self._session_disabled(message)
         for skill_id, label, score in candidates:
@@ -2764,6 +2801,10 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             if label in excluded:
                 LOG.debug(f"discarding match: {label} - utterance hits its "
                           f"OVOS-INTENT-2 §4.3 blacklist")
+                continue
+            if label in unanchored:
+                LOG.debug(f"discarding match: {label} - no keyword of its "
+                          f"OVOS-INTENT-2 §4.5 .required occurs")
                 continue
             if label in blacklisted_intents or skill_id in blacklisted_skills:
                 LOG.debug(f"discarding match: {label} - blacklisted in session")
