@@ -1,3 +1,4 @@
+import hashlib
 import itertools
 import json
 import re
@@ -377,6 +378,11 @@ class PrototypeIntentStore:
         #: measured as a 1.2GB array reallocated per skill on real installs)
         self._pending: List[tuple] = []
         self._label_set = set(np.unique(self._labels)) if len(self._labels) else set()
+        #: internal label -> digest of the anchor rows it currently holds. An
+        #: identical re-registration (same label, same language, same rows) is
+        #: then recognised in O(1) and skipped instead of re-folding the whole
+        #: store; see ``_add_anchors``.
+        self._label_digests: Dict[str, str] = {}
         #: bare label / registration language per consolidated row, plus a
         #: factorization of the bare labels into small integer codes -- all
         #: computed once here (and refreshed by ``_consolidate``), never in
@@ -589,6 +595,15 @@ class PrototypeIntentStore:
         label, lang = cls._decompose(internal_label)
         return f"{label!r} [{lang}]" if lang else repr(label)
 
+    @staticmethod
+    def _anchor_digest(anchors: np.ndarray) -> str:
+        """Content digest of a label's anchor rows (shape, dtype and bytes)."""
+        arr = np.ascontiguousarray(anchors)
+        h = hashlib.sha256()
+        h.update(f"{arr.dtype.str}{arr.shape}".encode("ascii"))
+        h.update(arr.tobytes())
+        return h.hexdigest()
+
     def _add_anchors(self, label: str, anchors: np.ndarray) -> int:
         """Insert already-computed, already-normalised anchor embeddings for
         *label*, replacing any existing prototypes for that label.
@@ -598,7 +613,21 @@ class PrototypeIntentStore:
         anchors were obtained (encode + select_anchors vs. a disk read).
         """
         n_added = len(anchors)
+        digest = self._anchor_digest(anchors)
         with self._lock:
+            if label in self._label_set and self._label_digests.get(label) == digest:
+                # identical re-registration: the label already holds exactly
+                # these rows. Every skill registers each intent twice at boot
+                # (the legacy topic and OVOS-INTENT-4), and replacing the
+                # rows means _consolidate() plus a masked copy of the WHOLE
+                # store and a _recompute_derived() over every row -- once per
+                # label, so the boot cost grows with labels x rows. At 11
+                # languages that was minutes of CPU; at 46 the boot never
+                # finished. Nothing would change, so do nothing.
+                LOG.debug(f"prototype store: {self._readable(label)} "
+                          f"re-registered unchanged, keeping its "
+                          f"{n_added} prototypes")
+                return n_added
             if label in self._label_set:
                 # re-registration: drop the label's rows from BOTH the
                 # consolidated store and any not-yet-folded pending
@@ -618,12 +647,14 @@ class PrototypeIntentStore:
                 self._pending = [(c, l) for c, l in self._pending
                                   if not len(l) or l[0] != label]
                 self._label_set.discard(label)
+                self._label_digests.pop(label, None)
             if n_added == 0:
                 self._rebuild_langs_by_label()
                 return 0
             self._pending.append(
                 (anchors, np.array([label] * n_added, dtype=object)))
             self._label_set.add(label)
+            self._label_digests[label] = digest
             self._rebuild_langs_by_label()
             LOG.info(f"prototype store: +{n_added} prototypes for "
                      f"{self._readable(label)} ({len(self)} total, "
@@ -756,6 +787,8 @@ class PrototypeIntentStore:
             self._pending = [(c, l) for c, l in self._pending
                               if not len(l) or l[0] not in matching]
             self._label_set -= matching
+            for gone in matching:
+                self._label_digests.pop(gone, None)
             self._rebuild_langs_by_label()
 
     def remove_skill(self, skill_id: str) -> None:
@@ -780,6 +813,8 @@ class PrototypeIntentStore:
             remaining = (set(np.unique(self._labels)) if len(self._labels) else set())
             remaining |= {l[0] for _, l in self._pending if len(l)}
             self._label_set = remaining
+            self._label_digests = {l: d for l, d in self._label_digests.items()
+                                   if l in remaining}
             self._rebuild_langs_by_label()
 
     # ------------------------------------------------------------------
