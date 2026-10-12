@@ -366,8 +366,15 @@ class PrototypeIntentStore:
                     f"got {len(embeddings)} vs {len(labels_arr)}"
                 )
             norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+            # Rows that are already unit length (a saved or prebuilt store,
+            # which only ever holds add()'s normalised anchors) are kept
+            # byte for byte: dividing a float32 unit vector by its float32
+            # norm again moves about a third of the rows by an ulp, and then
+            # the restored rows no longer match the digest of the very same
+            # anchors re-registered at boot (see _digest_restored_rows).
+            unit = np.abs(norms - 1.0) <= 1e-5
             self._embeddings: np.ndarray = np.where(
-                norms > 0, embeddings / norms, embeddings
+                (norms > 0) & ~unit, embeddings / norms, embeddings
             ).astype(np.float32)
             self._labels: np.ndarray = labels_arr
         else:
@@ -383,6 +390,11 @@ class PrototypeIntentStore:
         #: then recognised in O(1) and skipped instead of re-folding the whole
         #: store; see ``_add_anchors``.
         self._label_digests: Dict[str, str] = {}
+        #: rows handed to the constructor (``load()``, a prebuilt artifact)
+        #: have no digest yet. They are hashed together, from the stored
+        #: rows, the first time a restored label is registered again, so a
+        #: store that is never re-registered never pays for the hashing.
+        self._restored_undigested: bool = bool(len(self._labels))
         #: bare label / registration language per consolidated row, plus a
         #: factorization of the bare labels into small integer codes -- all
         #: computed once here (and refreshed by ``_consolidate``), never in
@@ -604,6 +616,29 @@ class PrototypeIntentStore:
         h.update(arr.tobytes())
         return h.hexdigest()
 
+    def _digest_restored_rows(self) -> None:
+        """Fill ``_label_digests`` for the labels the constructor restored.
+
+        Only consolidated rows can lack a digest (every ``add()`` records
+        one), so one stable grouping pass over ``self._labels`` gives each
+        such label its rows in stored order, which is the order ``add()``
+        wrote them in. Caller holds ``self._lock``.
+        """
+        self._restored_undigested = False
+        if not len(self._labels):
+            return
+        order = np.argsort(self._labels.astype(str), kind="stable")
+        sorted_labels = self._labels[order]
+        starts = np.flatnonzero(
+            np.r_[True, sorted_labels[1:] != sorted_labels[:-1]])
+        ends = np.r_[starts[1:], len(order)]
+        for start, end in zip(starts, ends):
+            label = sorted_labels[start]
+            if label in self._label_digests:
+                continue
+            self._label_digests[label] = self._anchor_digest(
+                self._embeddings[order[start:end]])
+
     def _add_anchors(self, label: str, anchors: np.ndarray) -> int:
         """Insert already-computed, already-normalised anchor embeddings for
         *label*, replacing any existing prototypes for that label.
@@ -615,6 +650,9 @@ class PrototypeIntentStore:
         n_added = len(anchors)
         digest = self._anchor_digest(anchors)
         with self._lock:
+            if (self._restored_undigested and label in self._label_set
+                    and label not in self._label_digests):
+                self._digest_restored_rows()
             if label in self._label_set and self._label_digests.get(label) == digest:
                 # identical re-registration: the label already holds exactly
                 # these rows. Every skill registers each intent twice at boot

@@ -137,6 +137,50 @@ class TestIdenticalReregistration(unittest.TestCase):
         q = q / np.linalg.norm(q)
         self.assertEqual(once.scores(q, lang="en-US"), twice.scores(q, lang="en-US"))
 
+    def _saved_and_loaded(self, model):
+        store = _store()
+        store.add(model, "other.skill:hello", ["hello there", "hi"], lang="en-US")
+        store.add(model, LABEL, EN, lang="en-US")
+        store.add(model, LABEL, FR, lang="fr-FR")
+        with tempfile.TemporaryDirectory() as d:
+            path = f"{d}/prototypes.npz"
+            store.save(path)
+            return store, PrototypeIntentStore.load(path)
+
+    def test_restored_label_reregistered_unchanged_is_a_no_op(self):
+        # a store restored from disk (load(), or a prebuilt artifact at
+        # boot) knows its labels but had no digests for them, so the first
+        # identical registration of each one used to rebuild the store
+        model = _Model()
+        original, loaded = self._saved_and_loaded(model)
+        np.testing.assert_array_equal(loaded._embeddings, original.embeddings)
+        emb_before = loaded._embeddings
+        labels_before = loaded._labels
+        snapshot = emb_before.copy()
+        with patch.object(loaded, "_consolidate", wraps=loaded._consolidate) as fold, \
+                patch.object(loaded, "_recompute_derived",
+                             wraps=loaded._recompute_derived) as derive:
+            self.assertEqual(loaded.add(model, LABEL, EN, lang="en-US"), len(EN))
+            self.assertEqual(loaded.add(model, LABEL, FR, lang="fr-FR"), len(FR))
+            loaded.add(model, "other.skill:hello", ["hello there", "hi"], lang="en-US")
+        fold.assert_not_called()
+        derive.assert_not_called()
+        self.assertIs(loaded._embeddings, emb_before)
+        self.assertIs(loaded._labels, labels_before)
+        np.testing.assert_array_equal(loaded._embeddings, snapshot)
+        self.assertEqual(loaded._pending, [])
+        self.assertEqual(len(loaded), len(EN) + len(FR) + 2)
+
+    def test_restored_label_with_new_samples_is_replaced(self):
+        model = _Model()
+        _original, loaded = self._saved_and_loaded(model)
+        loaded.add(model, LABEL, EN[:1], lang="en-US")
+        self.assertEqual(len(loaded), 1 + len(FR) + 2)
+        q = model.encode(EN[1:2])[0]
+        q = q / np.linalg.norm(q)
+        # the retired phrasing no longer matches perfectly
+        self.assertLess(loaded.scores(q, lang="en-US").get(LABEL, 0.0), 0.999)
+
 
 if __name__ == "__main__":
     unittest.main()
