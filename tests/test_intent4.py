@@ -39,6 +39,8 @@ def _make_prototype_pipeline(config=None):
         from ovos_utils.fakebus import FakeBus
         pipeline = Model2VecIntentPipeline(bus=FakeBus(), config=config)
     pipeline.model = mock_embed_model
+    # a running pipeline: skills have loaded, no language is held
+    pipeline._settle_boot()
     return pipeline
 
 

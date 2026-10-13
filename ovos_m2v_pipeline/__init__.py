@@ -1245,6 +1245,16 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         #: once by `_flush_pending_additions` when the deferred load
         #: completes.
         self._pending_additions: List[Tuple[str, List[str], Optional[int], Optional[str], Optional[str]]] = []
+        #: languages whose prototypes are added while skills load: the
+        #: primary one and the `eager_langs` setting. Registrations in any
+        #: other language are held while skills are loading (same tuples,
+        #: keyed by language): see `_add_prototypes` and `_watch_boot`.
+        self._eager_langs = {standardize_lang(lang)} | {
+            standardize_lang(l) for l in self.config.get("eager_langs") or []}
+        self._held_additions: Dict[str, List[Tuple[str, List[str], Optional[int], Optional[str], Optional[str]]]] = {}
+        self._boot_settled = threading.Event()
+        self._init_time = time.monotonic()
+        self._last_registration_at: Optional[float] = None
         #: how long a match call waits for a cold-start model load before
         #: giving up on THIS utterance and warming up in the background.
         self._model_load_budget: float = float(self.config.get("model_load_budget", 0.5))
@@ -1325,6 +1335,8 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                                 f"not used: {reason}")
 
             self.bus.on("mycroft.ready", self._handle_ready_prototype)
+            threading.Thread(target=self._watch_boot, name="m2v-boot-settle",
+                             daemon=True).start()
             # Legacy registration topics (kept alongside OVOS-INTENT-4).
             self.bus.on("padatious:register_intent", self._handle_register_padatious)
             self.bus.on("register_intent", self._handle_register_adapt)
@@ -1718,11 +1730,67 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             return self.prototype_store.add(self.model, label, sentences, k=k,
                                             cache_key=cache_key, lang=lang)
         with lock:
+            self._last_registration_at = time.monotonic()
+            held = standardize_lang(lang) if lang else None
+            if (held is not None and held not in self._eager_langs
+                    and (not self._boot_settled.is_set() or held in self._held_additions)):
+                # a secondary language waits for the boot to settle (or for a
+                # query in it); one that is still held keeps its order
+                self._held_additions.setdefault(held, []).append(
+                    (label, list(sentences), k, cache_key, lang))
+                return len(sentences)
             if self.model is None:
                 self._pending_additions.append((label, list(sentences), k, cache_key, lang))
                 return len(sentences)
             return self.prototype_store.add(self.model, label, sentences, k=k,
                                             cache_key=cache_key, lang=lang)
+
+    #: Secondary languages wait while skills are loading, which is while
+    #: registrations keep arriving: their prototypes are held and added once
+    #: no registration (in any language) has arrived for this long, or as
+    #: soon as a query in that language needs them. Skill loading registers
+    #: every intent in every language, and reading a secondary language's
+    #: prototypes only competed with the skills still loading. Production's
+    #: longest gap between two registrations during a boot was under 7 s.
+    _SECONDARY_QUIET_S = 10.0
+    #: ...and never longer than this after the pipeline started.
+    _SECONDARY_HOLD_MAX_S = 300.0
+
+    def _watch_boot(self) -> None:
+        """Settle the boot once registrations have gone quiet (see
+        ``_SECONDARY_QUIET_S``); the pipeline needs no outside signal."""
+        while not self._boot_settled.wait(1.0):
+            now = time.monotonic()
+            last = self._last_registration_at
+            if ((last is not None and now - last >= self._SECONDARY_QUIET_S)
+                    or now - self._init_time >= self._SECONDARY_HOLD_MAX_S):
+                self._settle_boot()
+
+    def _settle_boot(self) -> None:
+        """Stop holding secondary languages and add what was held, on this
+        (background) thread."""
+        with self._model_lock:
+            if self._boot_settled.is_set():
+                return
+            self._boot_settled.set()
+            langs = list(self._held_additions)
+        for lang in langs:
+            self._apply_held_prototypes(lang)
+
+    def _apply_held_prototypes(self, lang: str) -> None:
+        """Add ``lang``'s held registrations, in the order they arrived."""
+        with self._model_lock:
+            held = self._held_additions.pop(lang, [])
+            if self.model is None:
+                # still loading: the load's flush adds them
+                self._pending_additions.extend(held)
+                return
+            for label, sentences, k, cache_key, reg_lang in held:
+                try:
+                    self.prototype_store.add(self.model, label, sentences, k=k,
+                                             cache_key=cache_key, lang=reg_lang)
+                except Exception as exc:
+                    LOG.error(f"held prototype add failed for '{label}': {exc}")
 
     def _forget_pending(self, label: str) -> None:
         """Drop any buffered-but-unencoded registration for *label* (mirrors
@@ -1730,6 +1798,9 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         pending = getattr(self, "_pending_additions", None)
         if pending:
             self._pending_additions = [p for p in pending if p[0] != label]
+        with self._model_lock:
+            for lang, held in self._held_additions.items():
+                self._held_additions[lang] = [p for p in held if p[0] != label]
 
     def _forget_pending_skill(self, skill_id: str) -> None:
         """Drop buffered-but-unencoded registrations owned by *skill_id*
@@ -1739,6 +1810,10 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             prefix = skill_id + ":"
             self._pending_additions = [p for p in pending
                                        if not p[0].startswith(prefix)]
+        with self._model_lock:
+            for lang, held in self._held_additions.items():
+                self._held_additions[lang] = [p for p in held
+                                              if not p[0].startswith(skill_id + ":")]
 
     def _initial_intent_sync(self) -> None:
         """Query adapt + padatious manifests once at startup.
@@ -2854,6 +2929,9 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         for one language would compete for utterances in every other
         language sharing the same multilingual embedding space.
         """
+        if lang and standardize_lang(lang) in self._held_additions:
+            # asked before the boot settled: add this language's prototypes
+            self._apply_held_prototypes(standardize_lang(lang))
         emb = self.model.encode([utterance], use_multiprocessing=False)[0]
         label_scores = self.prototype_store.scores(emb, lang=lang)
         special = self._allowed_special_labels(message)
