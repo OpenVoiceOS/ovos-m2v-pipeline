@@ -598,6 +598,26 @@ class TestPrototypeIntentStoreMutable(unittest.TestCase):
         self.assertEqual(n, 0)
         self.assertEqual(len(store), 0)
 
+    def test_add_anchors_logs_at_debug_not_info(self):
+        """Every language registering every intent (no eager/held split)
+        calls this ~1,500 times on an 11-language, 18-skill boot. At INFO
+        each call's f-string and handler write compete with the
+        padatious/padaos training threads for the GIL -- regression guard
+        for that cost: the per-registration line must not be at INFO.
+
+        The OVOS logger does not propagate, so pytest's caplog/assertLogs
+        see nothing; record the calls on the logger itself (see
+        test_slot_filling.py's test of the same shape)."""
+        from ovos_m2v_pipeline import PrototypeIntentStore, LOG
+        calls = []
+        with patch.object(LOG, "info", lambda m, *a, **k: calls.append(("INFO", m))), \
+             patch.object(LOG, "debug", lambda m, *a, **k: calls.append(("DEBUG", m))):
+            store = PrototypeIntentStore()
+            store.add(self._mock_model(), "skill_a:intent", ["hello"], k=5)
+        matching = [c for c in calls if "prototype store: +1 prototypes" in c[1]]
+        self.assertTrue(matching)
+        self.assertTrue(all(level == "DEBUG" for level, _ in matching))
+
     def test_remove_deletes_label(self):
         from ovos_m2v_pipeline import PrototypeIntentStore
         store = PrototypeIntentStore()
