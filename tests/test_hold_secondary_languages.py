@@ -87,3 +87,31 @@ class TestHoldSecondaryLanguages(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestHoldEdges(unittest.TestCase):
+    def test_every_registration_path_counts_as_activity(self):
+        p = booting()
+        p._last_registration_at = None
+        p._handle_register_adapt(Message("register_intent", {"name": f"{SKILL}:adapt"},
+                                         {"skill_id": SKILL}))
+        self.assertIsNotNone(p._last_registration_at)
+
+    def test_a_held_language_skips_the_prebuilt_shortcut(self):
+        p = booting()
+        p._prebuilt_validated = True
+        with patch.object(p, "_prototype_cache_key", return_value="k"), \
+                patch.object(p, "_install_prebuilt_label", return_value=True) as prebuilt:
+            p._prebuilt_cache_keys = {f"{SKILL}:time": "k"}
+            register(p, "fr-FR")
+            prebuilt.assert_not_called()
+            self.assertEqual(len(p._held_additions["fr-FR"]), 1)
+            register(p, "en-US")
+            prebuilt.assert_called_once()
+
+    def test_a_query_in_a_dialect_adds_the_held_language_it_scores_against(self):
+        p = booting()
+        register(p, "fr-FR", samples=("quelle heure est-il",))
+        list(p._match_prototype("quelle heure est-il", lang="fr-ca"))
+        self.assertNotIn("fr-FR", p._held_additions)
+        self.assertEqual(len(p.prototype_store), 1)

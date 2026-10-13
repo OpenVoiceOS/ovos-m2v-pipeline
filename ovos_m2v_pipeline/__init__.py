@@ -1731,12 +1731,10 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                                             cache_key=cache_key, lang=lang)
         with lock:
             self._last_registration_at = time.monotonic()
-            held = standardize_lang(lang) if lang else None
-            if (held is not None and held not in self._eager_langs
-                    and (not self._boot_settled.is_set() or held in self._held_additions)):
+            if self._is_held(lang):
                 # a secondary language waits for the boot to settle (or for a
                 # query in it); one that is still held keeps its order
-                self._held_additions.setdefault(held, []).append(
+                self._held_additions.setdefault(standardize_lang(lang), []).append(
                     (label, list(sentences), k, cache_key, lang))
                 return len(sentences)
             if self.model is None:
@@ -1755,6 +1753,20 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
     _SECONDARY_QUIET_S = 10.0
     #: ...and never longer than this after the pipeline started.
     _SECONDARY_HOLD_MAX_S = 300.0
+
+    def _is_held(self, lang: Optional[str]) -> bool:
+        """Whether a registration in ``lang`` waits for the boot to settle:
+        a language outside ``eager_langs`` while skills load, or one whose
+        held registrations are still queued (so the order is kept). The
+        prebuilt shortcut does not apply to a held language either, or a
+        newer registration installed through it would be replaced by an
+        older held one at settlement."""
+        if not lang:
+            return False
+        held = standardize_lang(lang)
+        with self._model_lock:
+            return held not in self._eager_langs and (
+                not self._boot_settled.is_set() or held in self._held_additions)
 
     def _watch_boot(self) -> None:
         """Settle the boot once registrations have gone quiet (see
@@ -1795,25 +1807,25 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
     def _forget_pending(self, label: str) -> None:
         """Drop any buffered-but-unencoded registration for *label* (mirrors
         ``prototype_store.remove`` for entries that never reached the store)."""
-        pending = getattr(self, "_pending_additions", None)
-        if pending:
-            self._pending_additions = [p for p in pending if p[0] != label]
+        # one critical section: a held entry moved to the pending queue in
+        # between would otherwise escape both filters
         with self._model_lock:
+            self._pending_additions = [p for p in self._pending_additions
+                                       if p[0] != label]
             for lang, held in self._held_additions.items():
                 self._held_additions[lang] = [p for p in held if p[0] != label]
 
     def _forget_pending_skill(self, skill_id: str) -> None:
         """Drop buffered-but-unencoded registrations owned by *skill_id*
         (mirrors ``prototype_store.remove_skill``)."""
-        pending = getattr(self, "_pending_additions", None)
-        if pending:
-            prefix = skill_id + ":"
-            self._pending_additions = [p for p in pending
-                                       if not p[0].startswith(prefix)]
+        prefix = skill_id + ":"
+        # one critical section, as in _forget_pending
         with self._model_lock:
+            self._pending_additions = [p for p in self._pending_additions
+                                       if not p[0].startswith(prefix)]
             for lang, held in self._held_additions.items():
                 self._held_additions[lang] = [p for p in held
-                                              if not p[0].startswith(skill_id + ":")]
+                                              if not p[0].startswith(prefix)]
 
     def _initial_intent_sync(self) -> None:
         """Query adapt + padatious manifests once at startup.
@@ -2014,6 +2026,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         present; otherwise the file at ``message.data["file_name"]`` is read
         and its template syntax is expanded lazily via ``iter_expand``.
         """
+        self._last_registration_at = time.monotonic()
         name: str = message.data.get("name", "")
         if name.endswith(".intent"):
             # ovos-workshop dual-registers one intent on both wire contracts
@@ -2076,6 +2089,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         if (cache_key is not None
                 and self._prebuilt_validated
                 and self._prebuilt_cache_keys.get(name) == cache_key
+                and not self._is_held(reg_lang)
                 and self._install_prebuilt_label(name, reg_lang)):
             # A prebuilt artifact already carries centroids for this exact
             # registration (same model, same model2vec version, same raw
@@ -2099,6 +2113,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
 
     def _handle_register_adapt(self, message: Message) -> None:
         """Track Adapt intent labels (no example sentences -> no prototypes)."""
+        self._last_registration_at = time.monotonic()
         name: str = message.data.get("name", "")
         if name and name not in self.ignore_labels:
             self.intents.add(name)
@@ -2109,8 +2124,9 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             # mirror the registration-side dealiasing
             name = name[:-len(".intent")]
         if name:
-            self.prototype_store.remove(name)
-            self._forget_pending(name)
+            with self._model_lock:
+                self.prototype_store.remove(name)
+                self._forget_pending(name)
             self.intents.discard(name)
             self._context_gates.pop(name, None)
             self._intent_slots.pop(name, None)
@@ -2121,8 +2137,9 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
     def _handle_detach_skill(self, message: Message) -> None:
         skill_id: str = self._legacy_skill_id(message, message.msg_type)
         if skill_id:
-            self.prototype_store.remove_skill(skill_id)
-            self._forget_pending_skill(skill_id)
+            with self._model_lock:
+                self.prototype_store.remove_skill(skill_id)
+                self._forget_pending_skill(skill_id)
             self.intents = {i for i in self.intents if not i.startswith(skill_id + ":")}
             self._context_gates = {l: g for l, g in self._context_gates.items()
                                    if not l.startswith(skill_id + ":")}
@@ -2228,6 +2245,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         """Register a template intent (§6): bracket-expand + entity-fill the
         ``samples`` and embed them as prototypes (prototype mode) or track the
         label name (classifier mode)."""
+        self._last_registration_at = time.monotonic()
         topic = SpecMessage.INTENT_REGISTER_TEMPLATE.value
         reg_lang = message.data.get("lang")
         label = self._intent4_label(message)
@@ -2332,6 +2350,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         if (cache_key is not None
                 and self._prebuilt_validated
                 and self._prebuilt_cache_keys.get(label) == cache_key
+                and not self._is_held(reg_lang)
                 and self._install_prebuilt_label(label, reg_lang)):
             # See the matching shortcut in _handle_register_padatious.
             self.intents.add(label)
@@ -2524,6 +2543,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
 
     def _handle_intent4_register_entity(self, message: Message) -> None:
         """Register an entity value-set hint (§7). No-op in classifier mode."""
+        self._last_registration_at = time.monotonic()
         topic = SpecMessage.ENTITY_REGISTER.value
         name: str = message.data.get("entity_name", "")
         samples = message.data.get("samples")
@@ -2578,8 +2598,9 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                                "missing skill_id or intent_name")
             return
         if self.prototype_store is not None:
-            self.prototype_store.remove(label)
-            self._forget_pending(label)
+            with self._model_lock:
+                self.prototype_store.remove(label)
+                self._forget_pending(label)
         self.intents.discard(label)
         self._context_gates.pop(label, None)
         self._intent_slots.pop(label, None)
@@ -2613,8 +2634,9 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             self._intent4_warn(message.msg_type, message, "missing skill_id")
             return
         if self.prototype_store is not None:
-            self.prototype_store.remove_skill(skill_id)
-            self._forget_pending_skill(skill_id)
+            with self._model_lock:
+                self.prototype_store.remove_skill(skill_id)
+                self._forget_pending_skill(skill_id)
         self.intents = {i for i in self.intents if not i.startswith(skill_id + ":")}
         self._context_gates = {l: g for l, g in self._context_gates.items()
                                if not l.startswith(skill_id + ":")}
@@ -2929,9 +2951,12 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         for one language would compete for utterances in every other
         language sharing the same multilingual embedding space.
         """
-        if lang and standardize_lang(lang) in self._held_additions:
-            # asked before the boot settled: add this language's prototypes
-            self._apply_held_prototypes(standardize_lang(lang))
+        if lang and self._held_additions:
+            # asked before the boot settled: add the held language this query
+            # scores against (its own, or the closest dialect) first
+            held = closest_lang(standardize_lang(lang), list(self._held_additions))
+            if held is not None:
+                self._apply_held_prototypes(held)
         emb = self.model.encode([utterance], use_multiprocessing=False)[0]
         label_scores = self.prototype_store.scores(emb, lang=lang)
         special = self._allowed_special_labels(message)
