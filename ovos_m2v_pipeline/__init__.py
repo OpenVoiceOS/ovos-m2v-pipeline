@@ -625,9 +625,16 @@ class PrototypeIntentStore:
                 (anchors, np.array([label] * n_added, dtype=object)))
             self._label_set.add(label)
             self._rebuild_langs_by_label()
-            LOG.info(f"prototype store: +{n_added} prototypes for "
-                     f"{self._readable(label)} ({len(self)} total, "
-                     f"{len(self._label_set)} labels)")
+            # Every language registers every intent now (no eager/held
+            # split, OVOS-316): a boot with 11 languages across 18 skills
+            # calls this ~1,500 times. At INFO each call's f-string and
+            # the handler's write compete with the padatious/padaos
+            # training threads for the GIL; measured 47.6s of an 11-lang
+            # Pop Culture boot's 74s "skills ready" window was these
+            # calls. The count is still available at DEBUG.
+            LOG.debug(f"prototype store: +{n_added} prototypes for "
+                      f"{self._readable(label)} ({len(self)} total, "
+                      f"{len(self._label_set)} labels)")
         return n_added
 
     def add(
