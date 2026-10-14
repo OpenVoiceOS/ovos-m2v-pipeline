@@ -366,12 +366,8 @@ class PrototypeIntentStore:
                     f"got {len(embeddings)} vs {len(labels_arr)}"
                 )
             norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
-            # Rows that are already unit length (a saved or prebuilt store,
-            # which only ever holds add()'s normalised anchors) are kept
-            # byte for byte: dividing a float32 unit vector by its float32
-            # norm again moves about a third of the rows by an ulp, and then
-            # the restored rows no longer match the digest of the very same
-            # anchors re-registered at boot (see _digest_restored_rows).
+            # Re-normalising a float32 unit row moves some of them by an ulp,
+            # which would change the digest of rows restored from disk.
             unit = np.abs(norms - 1.0) <= 1e-5
             self._embeddings: np.ndarray = np.where(
                 (norms > 0) & ~unit, embeddings / norms, embeddings
@@ -654,14 +650,9 @@ class PrototypeIntentStore:
                     and label not in self._label_digests):
                 self._digest_restored_rows()
             if label in self._label_set and self._label_digests.get(label) == digest:
-                # identical re-registration: the label already holds exactly
-                # these rows. Every skill registers each intent twice at boot
-                # (the legacy topic and OVOS-INTENT-4), and replacing the
-                # rows means _consolidate() plus a masked copy of the WHOLE
-                # store and a _recompute_derived() over every row -- once per
-                # label, so the boot cost grows with labels x rows. At 11
-                # languages that was minutes of CPU; at 46 the boot never
-                # finished. Nothing would change, so do nothing.
+                # Replacing rows copies the whole store, so a repeat of the
+                # same registration (every intent arrives on two topics) must
+                # not take that path.
                 LOG.debug(f"prototype store: {self._readable(label)} "
                           f"re-registered unchanged, keeping its "
                           f"{n_added} prototypes")
@@ -851,8 +842,8 @@ class PrototypeIntentStore:
             remaining = (set(np.unique(self._labels)) if len(self._labels) else set())
             remaining |= {l[0] for _, l in self._pending if len(l)}
             self._label_set = remaining
-            self._label_digests = {l: d for l, d in self._label_digests.items()
-                                   if l in remaining}
+            self._label_digests = {k: d for k, d in self._label_digests.items()
+                                   if k in remaining}
             self._rebuild_langs_by_label()
 
     # ------------------------------------------------------------------
