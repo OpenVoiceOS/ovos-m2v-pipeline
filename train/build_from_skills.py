@@ -479,6 +479,51 @@ def typed_slot_placeholders(rows):
     return hits
 
 
+def typed_slot_template_losses(outcomes: list):
+    """Typed-slot templates that produced no row, split by what explains it.
+
+    *outcomes* holds one `(lang, slot_types, template, rows)` entry per
+    template the expander accepted, where the types are read from the
+    template by `TYPED_SLOT`, not asked of `typed_slots`: a gate that asks
+    the sampler whether it has values cannot see the sampler coming back
+    empty.
+
+    A template with no row is explained by a language gap: one of its types
+    produced no row from any template in that language, which is the
+    documented answer for a language with no generator. One empty type is
+    enough, because `fill` drops a sentence when any of its typed slots has
+    no values. Two shapes have no such explanation and are refused. A type
+    that produced no row in ANY language is a parser that is absent or
+    broken, because number has digits in every language and the other types
+    have English. A template with no row in a language where every one of
+    its types filled other templates lost its rows to something other than
+    the language.
+
+    A template carrying a type the runtime does not bind is never sampled by
+    design and is left out of both.
+    """
+    skipped = typed_slots.unresolvable()
+    producing = collections.defaultdict(set)
+    for lang, slot_types, _, rows in outcomes:
+        if rows:
+            for slot_type in slot_types:
+                producing[slot_type].add(lang)
+    gaps, unexplained, dead_types = [], [], set()
+    for lang, slot_types, template, rows in outcomes:
+        if rows or slot_types & skipped:
+            continue
+        entry = f"{'+'.join(sorted(slot_types))} {template}"
+        dead = {t for t in slot_types if not producing[t]}
+        if dead:
+            dead_types |= dead
+            unexplained.append(entry)
+        elif any(lang not in producing[t] for t in slot_types):
+            gaps.append(entry)
+        else:
+            unexplained.append(entry)
+    return sorted(dead_types), sorted(set(unexplained)), sorted(set(gaps))
+
+
 def count_ambiguous_rows(rows) -> int:
     """Rows whose locale and utterance carry a label another row disagrees on.
 
@@ -681,6 +726,7 @@ def main() -> int:
         # either way; the placement keeps the manifest comparable key for key
         # and in order with a build from before this change.
         duplicates = 0
+        typed_outcomes = []
         with deduped_path.open("w", encoding="utf-8") as raw:
             for key, rev in sorted(refs.items()):
                 repo, repo_name = ws / key, key.rsplit("/", 1)[-1]
@@ -694,8 +740,18 @@ def main() -> int:
                 for _, label, _ in templates:
                     labels_with_templates.add(label)
                 for lang, label, template in templates:
-                    for sentence in fill(template, hints.get(lang, {}),
-                                         keywords.get(lang, {}), stats, lang):
+                    malformed = stats["template_would_not_expand"]
+                    sentences = fill(template, hints.get(lang, {}),
+                                     keywords.get(lang, {}), stats, lang)
+                    slot_types = frozenset(t.lower() for t, _
+                                           in TYPED_SLOT.findall(template))
+                    # A template the expander rejects is already counted
+                    # under its own cause and says nothing about a parser.
+                    if slot_types and stats["template_would_not_expand"] == malformed:
+                        typed_outcomes.append(
+                            (lang, slot_types,
+                             f"{repo_name} {lang}: {template}", len(sentences)))
+                    for sentence in sentences:
                         key_seen = (label, lang, sentence.lower())
                         if key_seen in seen:
                             duplicates += 1
@@ -799,6 +855,9 @@ def main() -> int:
         # label set and says which of its losses were written down.
         ledger_report = check_label_ledger(ledger, labels_trained)
         typed_placeholders = typed_slot_placeholders(train)
+        typed_dead, typed_lost, typed_gaps = typed_slot_template_losses(
+            typed_outcomes)
+        del typed_outcomes
 
         # The floor is known only now: which listed changes took effect is a
         # property of the built corpus, not of the ledger file. An override is
@@ -852,6 +911,15 @@ def main() -> int:
             "train_rows_with_a_typed_slot_placeholder": len(typed_placeholders),
             "train_rows_with_a_typed_slot_placeholder_detail":
                 sorted(typed_placeholders)[:20],
+            # Read at fill time, before dedup and the gold removal, because
+            # the question is whether the parser produced anything at all.
+            "typed_slot_types_with_no_row_in_any_language": typed_dead,
+            "typed_slot_templates_with_no_row_unexplained": len(typed_lost),
+            "typed_slot_templates_with_no_row_unexplained_detail":
+                typed_lost[:50],
+            "typed_slot_templates_with_no_row_language_gap": len(typed_gaps),
+            "typed_slot_templates_with_no_row_language_gap_detail":
+                typed_gaps[:50],
             "train_rows_ambiguous_same_utterance_different_label":
                 count_ambiguous_rows(train),
             "templates_dropped_for_a_bare_alternation": len(dropped_templates),
@@ -935,6 +1003,13 @@ def main() -> int:
                 f"slot by asking a parser, so the brace is a surface it never "
                 f"produces, and the unfilled-slot count cannot show this "
                 f"because an untyped slot fills that count legitimately")
+        if typed_lost:
+            short.append(
+                f"{len(typed_lost)} typed-slot templates produced no row and no "
+                f"language gap explains it, for example {typed_lost[0]}"
+                + (f"; the types {', '.join(typed_dead)} produced no row in any "
+                   f"language, which is a parser that is missing or broken"
+                   if typed_dead else ""))
         if report["train_gold_overlap_after_fix"] != 0:
             short.append(
                 f"{report['train_gold_overlap_after_fix']} training rows still "

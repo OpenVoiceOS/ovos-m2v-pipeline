@@ -146,6 +146,13 @@ for every dropped row, per skill per locale) and `manifest.json`. With
 no train row fails the build with the labels listed. That is a naming defect in
 the skill or its gold file, and it is fixed there, never in the reader.
 
+`build_from_skills.py` fills a typed slot (`{number:offset}`) from the parser
+for its type, so it needs the `corpus` extra
+(`uv pip install --prerelease=allow 'ovos-m2v-pipeline[corpus]'`). Without one
+of those parsers the build stops with `MissingParser`. The build also refuses a
+typed-slot template that produced no row, unless the type produced no row in
+that language from any template; that language gap is listed in the manifest.
+
 Every label, on both sides, comes from `train/skill_labels.py`: the skill id
 the repository's entry point declares (`pyproject.toml`, else `setup.py`, else
 the GitHub URL), and the intent name without its `.intent` suffix.

@@ -45,7 +45,18 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# train/build_from_skills.py. Typed slots are filled from these parsers and the
+# set of types from the transformer; the build refuses to run without them.
+corpus = [
+    "pyyaml>=5.1",
+    "ovos-number-parser",
+    "ovos-date-parser",
+    "ovos-color-parser",
+    "ovos-lang-parser",
+    "ovos-typed-slots-transformer>=0.0.1a4",
+]
 test = [
+    "ovos-m2v-pipeline[corpus]",
     # Measured floor for the --import-mode=importlib in [tool.pytest.ini_options]:
     # 7.0.0 collects all 712 tests under it. 6.2.5 cannot run this dependency
     # set at all, because the installed anyio plugin imports _pytest.scope.

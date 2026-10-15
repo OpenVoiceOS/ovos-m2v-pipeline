@@ -23,14 +23,38 @@ runtime can never reproduce is worse than a row that is missing.
 
 A type with no generator for a language yields nothing rather than an
 English value. A German row that says "forty two" is not German data.
+
+A parser that is not installed is a different answer, and it is never
+silence: `values_for` raises `MissingParser`. An absent package empties every
+language at once, so reading it as "no generator for this language" drops
+every row of that type from the corpus while the build reports success.
+The packages are the `corpus` extra of this project.
 """
 from __future__ import annotations
 
 import datetime
 import functools
+import importlib
 from typing import Dict, FrozenSet, List
 
 SAMPLES_PER_SLOT = 3
+
+
+class MissingParser(RuntimeError):
+    """A parser the typed-slot sampler reads is not installed."""
+
+
+def _require(module: str):
+    """Import *module*, or raise `MissingParser` naming its package."""
+    try:
+        return importlib.import_module(module)
+    except ImportError as exc:
+        package = module.split(".")[0].replace("_", "-")
+        raise MissingParser(
+            f"{module} is not importable ({exc}). Typed slots are filled from "
+            f"{package}; without it every row with such a slot is dropped. "
+            f"Install the corpus extra: uv pip install 'ovos-m2v-pipeline[corpus]'"
+        ) from exc
 
 #: How many surface forms one sampled value yields, by type. A numeric value
 #: has two surfaces: the DIGITS an ASR front end sends ("in 2 hours") and the
@@ -71,15 +95,12 @@ def registry() -> FrozenSet[str]:
 def resolvable() -> FrozenSet[str]:
     """Every type the runtime transformer binds, read from the plugin.
 
-    Falls back to the registry when the plugin is absent, so a build host
-    without it samples everything rather than nothing, and the census then
-    reports what could not be checked.
+    The plugin is required. Without it the sampler cannot tell which types
+    the runtime binds, and sampling a type it cannot bind ships rows the
+    runtime never reproduces.
     """
-    try:
-        from ovos_typed_slots_transformer import TypedSlotsTransformer
-    except ImportError:
-        return registry()
-    return frozenset(TypedSlotsTransformer.supported_types)
+    plugin = _require("ovos_typed_slots_transformer")
+    return frozenset(plugin.TypedSlotsTransformer.supported_types)
 
 
 def unresolvable() -> FrozenSet[str]:
@@ -91,14 +112,16 @@ def _numbers(lang: str) -> List[str]:
     """Both surfaces of each anchor: the digits, then the language's words.
 
     The digits are language-neutral and are emitted for every language, so a
-    language whose wordlist the parser lacks still gets numeric rows instead
-    of none. The word form is still that language's own: a German row does
-    not say "forty two".
+    language whose wordlist `ovos_number_parser` lacks still gets numeric
+    rows instead of none. The word form is still that language's own: a
+    German row does not say "forty two". The parser package itself is
+    required; without it this raises `MissingParser` rather than shipping a
+    digits-only corpus nobody chose.
 
     The two surfaces of one anchor sit together, digits first, and `cap_for`
     admits both surfaces of every anchor, so nothing is truncated here.
     """
-    from ovos_number_parser import pronounce_number
+    pronounce_number = _require("ovos_number_parser").pronounce_number
     out = []
     for value in _NUMBERS:
         out.append(str(value))
@@ -112,7 +135,7 @@ def _numbers(lang: str) -> List[str]:
 
 
 def _dates(lang: str) -> List[str]:
-    from ovos_date_parser import nice_date
+    nice_date = _require("ovos_date_parser").nice_date
     out = []
     for anchor in _DATE_ANCHORS:
         try:
@@ -125,7 +148,7 @@ def _dates(lang: str) -> List[str]:
 
 
 def _durations(lang: str) -> List[str]:
-    from ovos_date_parser import nice_duration
+    nice_duration = _require("ovos_date_parser").nice_duration
     out = []
     for seconds in _DURATIONS:
         try:
@@ -150,11 +173,8 @@ def _colors(lang: str) -> List[str]:
     language with no term set yields nothing, because an English colour name
     in a Finnish row is not Finnish data.
     """
-    try:
-        from ovos_color_parser import lookup_name
-        from ovos_color_parser.models import sRGBAColor
-    except ImportError:
-        return []
+    lookup_name = _require("ovos_color_parser").lookup_name
+    sRGBAColor = _require("ovos_color_parser.models").sRGBAColor
     out = []
     for red, green, blue in _COLOURS:
         try:
@@ -180,10 +200,7 @@ def _languages(lang: str) -> List[str]:
     is the empty answer here: an English "French" in a Finnish row is not
     Finnish data.
     """
-    try:
-        from ovos_lang_parser import pronounce_lang
-    except ImportError:
-        return []
+    pronounce_lang = _require("ovos_lang_parser").pronounce_lang
     out = []
     for code in _LANGUAGE_CODES:
         try:
@@ -210,7 +227,8 @@ def values_for(slot_type: str, lang: str) -> tuple:
 
     An empty result is a real answer: this language has no generator for
     this type, and the caller must leave the template out rather than fill
-    it with another language's words.
+    it with another language's words. A parser that is not installed is not
+    that answer, and raises `MissingParser`.
     """
     if slot_type not in resolvable():
         return ()
@@ -219,6 +237,8 @@ def values_for(slot_type: str, lang: str) -> tuple:
         return ()
     try:
         produced = generator(lang)
+    except MissingParser:
+        raise
     except Exception:
         return ()
     seen, out = set(), []
