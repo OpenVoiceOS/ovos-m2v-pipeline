@@ -76,7 +76,10 @@ def built(tmp_path):
         "ovos-skill-hello-world,hello.world.intent,say hi to the world\n"
         "ovos-skill-hello-world,hello.world.intent,greet the world\n"
         "ovos-skill-hello-world,hello.world.intent,world greeting please\n"
-        "ovos-skill-hello-world,hello.world.intent,hello there world\n")})
+        "ovos-skill-hello-world,hello.world.intent,hello there world\n"
+        # a spelling that resolves only by folding case and separators
+        "ovos-skill-hello-world,HelloWorld,wave at the world\n"
+        "ovos-skill-hello-world,HelloWorld,a hello for the world\n")})
 
     golden = ws / "golden.jsonl"
     golden.write_text(json.dumps(
@@ -176,3 +179,14 @@ def test_manifest_records_the_pinned_revisions(built):
                                       "test.parquet", "test.jsonl",
                                       "labels.json", "README.md",
                                       "exclusions.json"}
+
+
+def test_the_intent_column_names_the_resolved_label(built):
+    """`intent` is the intent half of the label a row trains, not the corpus
+    spelling it was read under."""
+    rows = [json.loads(line) for name in ("train.jsonl", "test.jsonl")
+            for line in (built / name).read_text().splitlines() if line]
+    assert any(r["utterance"] == "wave at the world" for r in rows)
+    wrong = [(r["label"], r["intent"]) for r in rows
+             if r["intent"] != r["label"].split(":", 1)[1]]
+    assert not wrong, wrong

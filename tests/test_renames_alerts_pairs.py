@@ -23,7 +23,8 @@ RENAMED = {
     "ChangeRepeat": "change_repeat",
     "ChangeUntil": "change_until",
     "CreateAlarm": "create_alarm",
-    "CreateAlarmAlt": "create_alarm_alt",
+    # alerts#270 folded create_alarm_alt into create_alarm
+    "CreateAlarmAlt": "create_alarm",
     "CreateEvent": "create_event",
     "CreateList": "create_list",
     "CreateReminder": "create_reminder",
