@@ -319,6 +319,13 @@ def read_skill(repo: Path, rev: str, repo_name: str, stats: collections.Counter,
     return templates, hints, keywords
 
 
+def _word_after(sentence: str, slot: str) -> str:
+    """The word written right after `{slot}` in *sentence*, or ""."""
+    match = re.search(r"\{" + re.escape(slot) + r"\}\s+(\w+)", sentence,
+                      flags=re.IGNORECASE)
+    return match.group(1) if match else ""
+
+
 def fill(template: str, hints: dict, keywords: dict, stats: collections.Counter,
          lang: str = "en-US"):
     """Sentences a template produces, with its own language's resources.
@@ -362,10 +369,17 @@ def fill(template: str, hints: dict, keywords: dict, stats: collections.Counter,
         # filling it with another language's words.
         typed_here = {n: slot_types[n] for n in slots if n in slot_types}
         if typed_here:
-            values = {n: typed_slots.values_for(t, lang)
+            # The word after a number slot can fix which numbers fit it
+            # ("za 3 minuty", "za 5 minut"), so the sampler is told what it is.
+            after = {n: _word_after(s, n) for n in typed_here}
+            values = {n: typed_slots.values_for(t, lang, after[n])
                       for n, t in typed_here.items()}
             if not all(values.values()):
-                stats["sentence_dropped_no_typed_values_for_this_language"] += 1
+                if any(typed_slots.never_after_a_number(lang, after[n])
+                       for n, t in typed_here.items() if t == "number"):
+                    stats["sentence_dropped_noun_never_follows_a_number"] += 1
+                else:
+                    stats["sentence_dropped_no_typed_values_for_this_language"] += 1
                 continue
             partials = [s]
             for name, produced in values.items():
@@ -541,6 +555,10 @@ def typed_slot_template_losses(outcomes: list):
     its types filled other templates lost its rows to something other than
     the language.
 
+    A template whose number slot is followed by a noun form no number can
+    stand before ("3 часы") has no grammatical row at all. It is reported
+    apart, as a defect of the template rather than of the sampler.
+
     A template carrying a type the runtime does not bind is never sampled by
     design and is left out of both.
     """
@@ -550,20 +568,25 @@ def typed_slot_template_losses(outcomes: list):
         if rows:
             for slot_type in slot_types:
                 producing[slot_type].add(lang)
-    gaps, unexplained, dead_types = [], [], set()
+    gaps, unexplained, never, dead_types = [], [], [], set()
     for lang, slot_types, template, rows in outcomes:
         if rows or slot_types & skipped:
             continue
         entry = f"{'+'.join(sorted(slot_types))} {template}"
         dead = {t for t in slot_types if not producing[t]}
-        if dead:
+        if "number" in slot_types and any(
+                typed_slots.never_after_a_number(lang, word)
+                for word in re.findall(r"\{[^}]+\}\s+(\w+)", template)):
+            never.append(f"{lang} {entry}")
+        elif dead:
             dead_types |= dead
             unexplained.append(entry)
         elif any(lang not in producing[t] for t in slot_types):
             gaps.append(entry)
         else:
             unexplained.append(entry)
-    return sorted(dead_types), sorted(set(unexplained)), sorted(set(gaps))
+    return (sorted(dead_types), sorted(set(unexplained)), sorted(set(gaps)),
+            sorted(set(never)))
 
 
 #: A resource path in a row: a relative path or a resource file name. A value
@@ -915,8 +938,8 @@ def main() -> int:
         # label set and says which of its losses were written down.
         ledger_report = check_label_ledger(ledger, labels_trained)
         typed_placeholders = typed_slot_placeholders(train)
-        typed_dead, typed_lost, typed_gaps = typed_slot_template_losses(
-            typed_outcomes)
+        typed_dead, typed_lost, typed_gaps, typed_never = \
+            typed_slot_template_losses(typed_outcomes)
         del typed_outcomes
         path_rows = rows_with_a_resource_path(train)
 
@@ -981,6 +1004,10 @@ def main() -> int:
             "typed_slot_templates_with_no_row_language_gap": len(typed_gaps),
             "typed_slot_templates_with_no_row_language_gap_detail":
                 typed_gaps[:50],
+            "typed_slot_templates_with_no_row_noun_never_follows_a_number":
+                len(typed_never),
+            "typed_slot_templates_with_no_row_noun_never_follows_a_number_detail":
+                typed_never[:50],
             "train_rows_with_a_resource_path": len(path_rows),
             "train_rows_with_a_resource_path_detail": sorted(path_rows)[:20],
             "train_rows_ambiguous_same_utterance_different_label":

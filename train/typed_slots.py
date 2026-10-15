@@ -134,6 +134,322 @@ def _numbers(lang: str) -> List[str]:
     return out
 
 
+#: Numeral-noun agreement. The noun after a number takes a form the number
+#: decides: Portuguese "em 1 hora" but "em 3 horas", Polish "za 3 minuty" and
+#: "za 22 minuty" but "za 5 minut". In languages with grammatical gender the
+#: number word also agrees with the noun: "uma hora" and "duas horas" but "um
+#: minuto" and "dois minutos", Catalan "dues hores". A template that writes a
+#: noun right after a number slot therefore fixes which numbers fit it and how
+#: their words are spelled, and a number drawn without looking at that noun
+#: produces "em 3 hora" or "em quarenta e dois horas".
+#:
+#: Each language lists its `nouns`, each a gender and its form per agreement
+#: class; a form that serves two classes (Polish "dni" after 3 and after 5)
+#: is written under both. `values` holds the numbers sampled for each class;
+#: where "two" changes with gender (Portuguese, Catalan, Galician) the plural
+#: sample starts at 2, so both spellings reach the corpus.
+#: The classes follow the CLDR cardinal plural rules for integers.
+#:
+#: The number word comes from `ovos_number_parser` in the noun's gender, with
+#: `gender` naming the parser's gender for each of the table's. `words`
+#: overrides the parser where it has no gendered form: French "une heure",
+#: Swedish "en minut". `digits_only` names the classes whose number words
+#: also change with case ("jedną minutę", "in einer Stunde"), which no source
+#: here gives; those rows carry the digits alone. Where the parser has no
+#: gendered form either and the word does change, the class `values` avoid
+#: such numbers: Polish says "dwa dni" but "dwie minuty", so no number ending
+#: in 2 is sampled there.
+AGREEMENT = {
+    "en": {
+        "values": {"one": (1,), "other": (3, 15, 42)},
+        "nouns": [
+            ("", {"one": "second", "other": "seconds"}),
+            ("", {"one": "minute", "other": "minutes"}),
+            ("", {"one": "hour", "other": "hours"}),
+            ("", {"one": "day", "other": "days"}),
+            ("", {"one": "week", "other": "weeks"}),
+            ("", {"one": "month", "other": "months"}),
+            ("", {"one": "year", "other": "years"}),
+        ],
+    },
+    "pt": {
+        "values": {"one": (1,), "other": (2, 15, 42)},
+        "gender": {"m": "masculine", "f": "feminine"},
+        "nouns": [
+            ("m", {"one": "segundo", "other": "segundos"}),
+            ("m", {"one": "minuto", "other": "minutos"}),
+            ("f", {"one": "hora", "other": "horas"}),
+            ("m", {"one": "dia", "other": "dias"}),
+            ("f", {"one": "semana", "other": "semanas"}),
+            ("m", {"one": "mês", "other": "meses"}),
+            ("m", {"one": "ano", "other": "anos"}),
+        ],
+    },
+    # Before a noun Spanish shortens "uno" to "un" ("un minuto", "veintiún
+    # minutos"); the parser calls that form neutral.
+    "es": {
+        "values": {"one": (1,), "other": (3, 15, 42)},
+        "gender": {"m": "neutral", "f": "feminine"},
+        "nouns": [
+            ("m", {"one": "segundo", "other": "segundos"}),
+            ("m", {"one": "minuto", "other": "minutos"}),
+            ("f", {"one": "hora", "other": "horas"}),
+            ("m", {"one": "día", "other": "días"}),
+            ("f", {"one": "semana", "other": "semanas"}),
+            ("m", {"one": "mes", "other": "meses"}),
+            ("m", {"one": "año", "other": "años"}),
+        ],
+    },
+    # Aragonese feminine "two" varies by dialect ("dos", "das"), so no number
+    # ending in 2 is sampled.
+    "an": {
+        "values": {"one": (1,), "other": (3, 15, 30)},
+        "gender": {"m": "masculine", "f": "feminine"},
+        "nouns": [
+            ("m", {"one": "segundo", "other": "segundos"}),
+            ("m", {"one": "minuto", "other": "minutos"}),
+            ("f", {"one": "hora", "other": "horas"}),
+        ],
+    },
+    "ca": {
+        "values": {"one": (1,), "other": (2, 15, 42)},
+        "gender": {"m": "masculine", "f": "feminine"},
+        "nouns": [
+            ("m", {"one": "segon", "other": "segons"}),
+            ("m", {"one": "minut", "other": "minuts"}),
+            ("f", {"one": "hora", "other": "hores"}),
+            ("m", {"one": "dia", "other": "dies"}),
+            ("f", {"one": "setmana", "other": "setmanes"}),
+            ("m", {"one": "mes", "other": "mesos"}),
+            ("m", {"one": "any", "other": "anys"}),
+        ],
+    },
+    "gl": {
+        "values": {"one": (1,), "other": (2, 15, 42)},
+        "gender": {"m": "masculine", "f": "feminine"},
+        "nouns": [
+            ("m", {"one": "segundo", "other": "segundos"}),
+            ("m", {"one": "minuto", "other": "minutos"}),
+            ("f", {"one": "hora", "other": "horas"}),
+            ("m", {"one": "día", "other": "días"}),
+            ("f", {"one": "semana", "other": "semanas"}),
+            ("m", {"one": "mes", "other": "meses"}),
+            ("m", {"one": "ano", "other": "anos"}),
+        ],
+    },
+    "fr": {
+        "values": {"one": (1,), "other": (3, 15, 42)},
+        "words": {("f", 1): "une"},
+        "nouns": [
+            ("f", {"one": "seconde", "other": "secondes"}),
+            ("f", {"one": "minute", "other": "minutes"}),
+            ("f", {"one": "heure", "other": "heures"}),
+            ("m", {"one": "jour", "other": "jours"}),
+            ("f", {"one": "semaine", "other": "semaines"}),
+            ("m", {"one": "mois", "other": "mois"}),
+            ("m", {"one": "an", "other": "ans"}),
+        ],
+    },
+    # Italian writes "un minuto" and "una settimana", but "un'ora": the
+    # elision joins the word to the noun, which a slot cannot write, so the
+    # feminine "one" before a vowel is left to the digits.
+    "it": {
+        "values": {"one": (1,), "other": (3, 15, 42)},
+        "words": {("m", 1): "un", ("f", 1): "una", ("fv", 1): None},
+        "nouns": [
+            ("m", {"one": "secondo", "other": "secondi"}),
+            ("m", {"one": "minuto", "other": "minuti"}),
+            ("fv", {"one": "ora", "other": "ore"}),
+            ("m", {"one": "giorno", "other": "giorni"}),
+            ("f", {"one": "settimana", "other": "settimane"}),
+            ("m", {"one": "mese", "other": "mesi"}),
+            ("m", {"one": "anno", "other": "anni"}),
+        ],
+    },
+    "de": {
+        "values": {"one": (1,), "other": (3, 15, 42)},
+        "digits_only": ("one",),
+        "nouns": [
+            ("f", {"one": "sekunde", "other": "sekunden"}),
+            ("f", {"one": "minute", "other": "minuten"}),
+            ("f", {"one": "stunde", "other": "stunden"}),
+            ("m", {"one": "tag", "other": "tage"}),
+            ("f", {"one": "woche", "other": "wochen"}),
+            ("m", {"one": "monat", "other": "monate"}),
+            ("n", {"one": "jahr", "other": "jahre"}),
+        ],
+    },
+    "sv": {
+        "values": {"one": (1,), "other": (3, 15, 42)},
+        "words": {("c", 1): "en", ("n", 1): "ett"},
+        "nouns": [
+            ("c", {"one": "sekund", "other": "sekunder"}),
+            ("c", {"one": "minut", "other": "minuter"}),
+            ("c", {"one": "timme", "other": "timmar"}),
+            ("c", {"one": "dag", "other": "dagar"}),
+            ("c", {"one": "vecka", "other": "veckor"}),
+            ("c", {"one": "månad", "other": "månader"}),
+            ("n", {"one": "år", "other": "år"}),
+        ],
+    },
+    "da": {
+        "values": {"one": (1,), "other": (3, 15, 42)},
+        "words": {("c", 1): "en", ("n", 1): "et"},
+        "nouns": [
+            ("n", {"one": "sekund", "other": "sekunder"}),
+            ("n", {"one": "minut", "other": "minutter"}),
+            ("c", {"one": "time", "other": "timer"}),
+            ("c", {"one": "dag", "other": "dage"}),
+            ("c", {"one": "uge", "other": "uger"}),
+            ("c", {"one": "måned", "other": "måneder"}),
+            ("n", {"one": "år", "other": "år"}),
+        ],
+    },
+    "pl": {
+        "values": {"one": (1,), "few": (3, 4, 23), "many": (5, 15, 30)},
+        "digits_only": ("one",),
+        "nouns": [
+            ("f", {"one": "sekundę", "few": "sekundy", "many": "sekund"}),
+            ("f", {"one": "sekunda"}),
+            ("f", {"one": "minutę", "few": "minuty", "many": "minut"}),
+            ("f", {"one": "minuta"}),
+            ("f", {"one": "godzinę", "few": "godziny", "many": "godzin"}),
+            ("f", {"one": "godzina"}),
+            ("m", {"one": "dzień", "few": "dni", "many": "dni"}),
+            ("m", {"one": "tydzień", "few": "tygodnie", "many": "tygodni"}),
+            ("m", {"one": "miesiąc", "few": "miesiące", "many": "miesięcy"}),
+            ("m", {"one": "rok", "few": "lata", "many": "lat"}),
+        ],
+    },
+    # "часы" is the nominative plural, which no cardinal takes ("3 часа",
+    # "5 часов"); a template that writes it after a number has no right row.
+    "ru": {
+        "values": {"one": (1, 21, 31), "few": (3, 4, 23), "many": (5, 15, 30)},
+        "digits_only": ("one",),
+        "never": ("часы",),
+        "nouns": [
+            ("f", {"one": "секунду", "few": "секунды", "many": "секунд"}),
+            ("f", {"one": "секунда"}),
+            ("f", {"one": "минуту", "few": "минуты", "many": "минут"}),
+            ("f", {"one": "минута"}),
+            ("m", {"one": "час", "few": "часа", "many": "часов"}),
+            ("m", {"one": "день", "few": "дня", "many": "дней"}),
+            ("f", {"one": "неделю", "few": "недели", "many": "недель"}),
+            ("f", {"one": "неделя"}),
+            ("m", {"one": "месяц", "few": "месяца", "many": "месяцев"}),
+            ("m", {"one": "год", "few": "года", "many": "лет"}),
+        ],
+    },
+    "uk": {
+        "values": {"one": (1, 21, 31), "few": (3, 4, 23), "many": (5, 15, 30)},
+        "digits_only": ("one",),
+        "nouns": [
+            ("f", {"one": "секунду", "few": "секунди", "many": "секунд"}),
+            ("f", {"one": "секунда"}),
+            ("f", {"one": "хвилину", "few": "хвилини", "many": "хвилин"}),
+            ("f", {"one": "хвилина"}),
+            ("f", {"one": "годину", "few": "години", "many": "годин"}),
+            ("f", {"one": "година"}),
+            ("m", {"one": "день", "few": "дні", "many": "днів"}),
+            ("m", {"one": "тиждень", "few": "тижні", "many": "тижнів"}),
+            ("m", {"one": "місяць", "few": "місяці", "many": "місяців"}),
+            ("m", {"one": "рік", "few": "роки", "many": "років"}),
+        ],
+    },
+    "cs": {
+        "values": {"one": (1,), "few": (3, 4), "other": (5, 15, 30)},
+        "digits_only": ("one",),
+        "nouns": [
+            ("f", {"one": "sekundu", "few": "sekundy", "other": "sekund"}),
+            ("f", {"one": "sekunda"}),
+            ("f", {"one": "minutu", "few": "minuty", "other": "minut"}),
+            ("f", {"one": "minuta"}),
+            ("f", {"one": "hodinu", "few": "hodiny", "other": "hodin"}),
+            ("f", {"one": "hodina"}),
+            ("m", {"one": "den", "few": "dny", "other": "dní"}),
+            ("m", {"other": "dnů"}),
+            ("m", {"one": "týden", "few": "týdny", "other": "týdnů"}),
+            ("m", {"one": "měsíc", "few": "měsíce", "other": "měsíců"}),
+            ("m", {"one": "rok", "few": "roky", "other": "let"}),
+        ],
+    },
+}
+
+
+@functools.lru_cache(maxsize=None)
+def _forms(lang: str) -> Dict[str, tuple]:
+    """Each noun form of a language, as (its agreement classes, its gender)."""
+    out = {}
+    for gender, by_class in AGREEMENT[lang]["nouns"]:
+        for cls, form in by_class.items():
+            classes, _ = out.get(form, ((), gender))
+            out[form] = (classes + (cls,), gender)
+    return out
+
+
+def agreement(lang: str, noun: str) -> tuple:
+    """(classes, gender) for a noun form after a number, or ((), "").
+
+    No classes means this language has no agreement table or the word is not
+    a noun form it lists, and the number is sampled as it always was.
+    """
+    key = lang.split("-")[0].lower()
+    if key not in AGREEMENT or not noun:
+        return (), ""
+    return _forms(key).get(noun.lower(), ((), ""))
+
+
+def never_after_a_number(lang: str, noun: str) -> bool:
+    """Whether *noun* is a form no number in this language can stand before."""
+    table = AGREEMENT.get(lang.split("-")[0].lower(), {})
+    return bool(noun) and noun.lower() in table.get("never", ())
+
+
+def _number_word(value: int, lang: str, gender: str):
+    """The word for *value* before a noun of *gender*, or None for digits only."""
+    table = AGREEMENT[lang.split("-")[0].lower()]
+    words = table.get("words", {})
+    if (gender, value) in words:
+        return words[(gender, value)]
+    number_parser = _require("ovos_number_parser")
+    parser_gender = table.get("gender", {}).get(gender)
+    if parser_gender is None:
+        return number_parser.pronounce_number(value, lang=lang)
+    grammatical = _require("ovos_number_parser.util").GrammaticalGender
+    return number_parser.pronounce_number(value, lang=lang,
+                                          gender=grammatical(parser_gender))
+
+
+def _agreeing_numbers(lang: str, classes: tuple, gender: str) -> List[str]:
+    """Surfaces of the numbers that agree with a noun of these classes.
+
+    The classes are taken in turn, one number from each, so a form that
+    serves two classes gets numbers from both rather than only the first.
+    """
+    table = AGREEMENT[lang.split("-")[0].lower()]
+    pools = [list(table["values"][c]) for c in classes]
+    order = []
+    while any(pools):
+        for pool in pools:
+            if pool:
+                order.append(pool.pop(0))
+    digits_only = {v for c in table.get("digits_only", ()) for v in table["values"][c]}
+    out = []
+    for value in order[:SAMPLES_PER_SLOT]:
+        out.append(str(value))
+        if value in digits_only:
+            continue
+        try:
+            spoken = _number_word(value, lang, gender)
+        except MissingParser:
+            raise
+        except Exception:
+            continue
+        if spoken and "{" not in spoken:
+            out.append(str(spoken))
+    return out
+
+
 def _dates(lang: str) -> List[str]:
     nice_date = _require("ovos_date_parser").nice_date
     out = []
@@ -222,8 +538,14 @@ _GENERATORS = {
 
 
 @functools.lru_cache(maxsize=None)
-def values_for(slot_type: str, lang: str) -> tuple:
+def values_for(slot_type: str, lang: str, noun: str = "") -> tuple:
     """Up to `cap_for(slot_type)` surfaces for one type in one language.
+
+    *noun* is the word the template writes right after the slot. For a
+    number followed by a noun form listed in `AGREEMENT`, only numbers that
+    agree with that form are sampled, and their words take the noun's
+    gender. A form no number can stand before yields nothing, so the
+    sentence is dropped. Any other word changes nothing.
 
     An empty result is a real answer: this language has no generator for
     this type, and the caller must leave the template out rather than fill
@@ -235,8 +557,12 @@ def values_for(slot_type: str, lang: str) -> tuple:
     generator = _GENERATORS.get(slot_type)
     if generator is None:
         return ()
+    if slot_type == "number" and never_after_a_number(lang, noun):
+        return ()
+    classes, gender = agreement(lang, noun) if slot_type == "number" else ((), "")
     try:
-        produced = generator(lang)
+        produced = (_agreeing_numbers(lang, classes, gender) if classes
+                    else generator(lang))
     except MissingParser:
         raise
     except Exception:
