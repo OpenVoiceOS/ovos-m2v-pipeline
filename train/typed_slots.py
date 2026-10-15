@@ -35,6 +35,7 @@ from __future__ import annotations
 import datetime
 import functools
 import importlib
+import re
 from typing import Dict, FrozenSet, List
 
 SAMPLES_PER_SLOT = 3
@@ -399,6 +400,55 @@ def agreement(lang: str, noun: str) -> tuple:
     return _forms(key).get(noun.lower(), ((), ""))
 
 
+#: Words before a number slot that join with some of the number's surfaces.
+#: Catalan elides "de" before a vowel sound, and 1 and 11 are read "u" and
+#: "onze": "d'una hora", "d'1 hora". A slot written after "de" as a separate
+#: word cannot produce the elision, so after "de" no such surface is kept and
+#: the sentence is dropped when nothing else is left; after "d'" only such a
+#: surface is kept. Each entry says whether matching surfaces are dropped or
+#: are the only ones kept. The pattern reads the start of a surface, so a
+#: grouped "1.000" or "1 000" would also count as eliding; no such number is
+#: sampled.
+_CA_ELIDES = r"^(?:1|11|un|una|onze)(?:\b|$)"
+BEFORE_A_NUMBER = {
+    "ca": {
+        "de": ("drop", _CA_ELIDES),
+        "d'": ("keep", _CA_ELIDES),
+        "d\u2019": ("keep", _CA_ELIDES),
+    },
+}
+
+
+def joins_the_word_before(lang: str, word: str) -> bool:
+    """Whether *word*, written before a number slot, restricts its surfaces."""
+    table = BEFORE_A_NUMBER.get(lang.split("-")[0].lower(), {})
+    return bool(word) and word.lower() in table
+
+
+def emptied_by_the_word_before(lang: str, noun: str, before: str) -> bool:
+    """Whether the word before a number slot alone leaves it with no surface.
+
+    True only when the slot has numbers without that word and none with it,
+    so a slot that is empty for any other reason is not explained by it.
+    """
+    if not joins_the_word_before(lang, before):
+        return False
+    return (not values_for("number", lang, noun, before)
+            and bool(values_for("number", lang, noun)))
+
+
+def _fits_after(values, lang: str, word: str) -> list:
+    """The surfaces of *values* that can stand after *word*."""
+    table = BEFORE_A_NUMBER.get(lang.split("-")[0].lower(), {})
+    rule = table.get(word.lower()) if word else None
+    if rule is None:
+        return list(values)
+    mode, pattern = rule
+    matches = [re.match(pattern, v, flags=re.IGNORECASE) is not None for v in values]
+    keep = (lambda m: not m) if mode == "drop" else (lambda m: m)
+    return [v for v, m in zip(values, matches) if keep(m)]
+
+
 def never_after_a_number(lang: str, noun: str) -> bool:
     """Whether *noun* is a form no number in this language can stand before."""
     table = AGREEMENT.get(lang.split("-")[0].lower(), {})
@@ -538,7 +588,7 @@ _GENERATORS = {
 
 
 @functools.lru_cache(maxsize=None)
-def values_for(slot_type: str, lang: str, noun: str = "") -> tuple:
+def values_for(slot_type: str, lang: str, noun: str = "", before: str = "") -> tuple:
     """Up to `cap_for(slot_type)` surfaces for one type in one language.
 
     *noun* is the word the template writes right after the slot. For a
@@ -546,6 +596,10 @@ def values_for(slot_type: str, lang: str, noun: str = "") -> tuple:
     agree with that form are sampled, and their words take the noun's
     gender. A form no number can stand before yields nothing, so the
     sentence is dropped. Any other word changes nothing.
+
+    *before* is the word written right before the slot. A word listed in
+    `BEFORE_A_NUMBER` keeps only the surfaces that can follow it as a
+    separate word, which may leave nothing.
 
     An empty result is a real answer: this language has no generator for
     this type, and the caller must leave the template out rather than fill
@@ -567,6 +621,8 @@ def values_for(slot_type: str, lang: str, noun: str = "") -> tuple:
         raise
     except Exception:
         return ()
+    if slot_type == "number":
+        produced = _fits_after(produced, lang, before)
     seen, out = set(), []
     for value in produced:
         value = value.strip()

@@ -326,6 +326,17 @@ def _word_after(sentence: str, slot: str) -> str:
     return match.group(1) if match else ""
 
 
+def _word_before(sentence: str, slot: str) -> str:
+    """The word written right before `{slot}` in *sentence*, or "".
+
+    An elided word joined to the slot counts as the word: "d'" in
+    "després d'{offset}".
+    """
+    match = re.search(r"([^\s{}]+)\s*\{" + re.escape(slot) + r"\}", sentence,
+                      flags=re.IGNORECASE)
+    return match.group(1) if match else ""
+
+
 def fill(template: str, hints: dict, keywords: dict, stats: collections.Counter,
          lang: str = "en-US"):
     """Sentences a template produces, with its own language's resources.
@@ -371,13 +382,20 @@ def fill(template: str, hints: dict, keywords: dict, stats: collections.Counter,
         if typed_here:
             # The word after a number slot can fix which numbers fit it
             # ("za 3 minuty", "za 5 minut"), so the sampler is told what it is.
+            # The word before it can join with the number ("dunha hora",
+            # "d'una hora"), which a separate slot cannot write.
             after = {n: _word_after(s, n) for n in typed_here}
-            values = {n: typed_slots.values_for(t, lang, after[n])
+            before = {n: _word_before(s, n) for n in typed_here}
+            values = {n: typed_slots.values_for(t, lang, after[n], before[n])
                       for n, t in typed_here.items()}
             if not all(values.values()):
                 if any(typed_slots.never_after_a_number(lang, after[n])
                        for n, t in typed_here.items() if t == "number"):
                     stats["sentence_dropped_noun_never_follows_a_number"] += 1
+                elif any(typed_slots.emptied_by_the_word_before(
+                             lang, after[n], before[n])
+                         for n, t in typed_here.items() if t == "number"):
+                    stats["sentence_dropped_number_joins_the_word_before"] += 1
                 else:
                     stats["sentence_dropped_no_typed_values_for_this_language"] += 1
                 continue
@@ -535,6 +553,17 @@ def typed_slot_placeholders(rows):
     return hits
 
 
+def _words_around_a_number(template: str) -> list:
+    """(word before, word after) for each number slot of a template.
+
+    Alternation punctuation is stripped, so "(després de|abans de)
+    {number:offset}" gives "de", the word `fill` sees once the template is
+    expanded.
+    """
+    return [(before.strip("()[]|"), after) for before, after in re.findall(
+        r"([^\s{}]*)\s*\{number[^}]*\}\s*[(\[]?(\w*)", template)]
+
+
 def typed_slot_template_losses(outcomes: list):
     """Typed-slot templates that produced no row, split by what explains it.
 
@@ -559,6 +588,12 @@ def typed_slot_template_losses(outcomes: list):
     stand before ("3 часы") has no grammatical row at all. It is reported
     apart, as a defect of the template rather than of the sampler.
 
+    A template whose number slot follows a word no remaining surface can
+    stand after as a separate word (Catalan "després de {number} hora",
+    where only "un", "una" and "1" fit the noun and all three elide) is
+    reported apart for the same reason, but only when that word is what
+    empties the slot: the same slot without it must have numbers.
+
     A template carrying a type the runtime does not bind is never sampled by
     design and is left out of both.
     """
@@ -568,7 +603,7 @@ def typed_slot_template_losses(outcomes: list):
         if rows:
             for slot_type in slot_types:
                 producing[slot_type].add(lang)
-    gaps, unexplained, never, dead_types = [], [], [], set()
+    gaps, unexplained, never, joined, dead_types = [], [], [], [], set()
     for lang, slot_types, template, rows in outcomes:
         if rows or slot_types & skipped:
             continue
@@ -578,6 +613,10 @@ def typed_slot_template_losses(outcomes: list):
                 typed_slots.never_after_a_number(lang, word)
                 for word in re.findall(r"\{[^}]+\}\s+(\w+)", template)):
             never.append(f"{lang} {entry}")
+        elif "number" in slot_types and any(
+                typed_slots.emptied_by_the_word_before(lang, after, before)
+                for before, after in _words_around_a_number(template)):
+            joined.append(f"{lang} {entry}")
         elif dead:
             dead_types |= dead
             unexplained.append(entry)
@@ -586,7 +625,7 @@ def typed_slot_template_losses(outcomes: list):
         else:
             unexplained.append(entry)
     return (sorted(dead_types), sorted(set(unexplained)), sorted(set(gaps)),
-            sorted(set(never)))
+            sorted(set(never)), sorted(set(joined)))
 
 
 #: A resource path in a row: a relative path or a resource file name. A value
@@ -938,7 +977,7 @@ def main() -> int:
         # label set and says which of its losses were written down.
         ledger_report = check_label_ledger(ledger, labels_trained)
         typed_placeholders = typed_slot_placeholders(train)
-        typed_dead, typed_lost, typed_gaps, typed_never = \
+        typed_dead, typed_lost, typed_gaps, typed_never, typed_joined = \
             typed_slot_template_losses(typed_outcomes)
         del typed_outcomes
         path_rows = rows_with_a_resource_path(train)
@@ -1008,6 +1047,10 @@ def main() -> int:
                 len(typed_never),
             "typed_slot_templates_with_no_row_noun_never_follows_a_number_detail":
                 typed_never[:50],
+            "typed_slot_templates_with_no_row_number_joins_the_word_before":
+                len(typed_joined),
+            "typed_slot_templates_with_no_row_number_joins_the_word_before_detail":
+                typed_joined[:50],
             "train_rows_with_a_resource_path": len(path_rows),
             "train_rows_with_a_resource_path_detail": sorted(path_rows)[:20],
             "train_rows_ambiguous_same_utterance_different_label":
