@@ -237,6 +237,6 @@ def test_the_correct_forms_beside_it_still_fill():
 def test_a_template_of_only_that_form_is_reported_apart_from_the_unexplained():
     outcomes = [("ru-RU", {"number"}, "когда это {number:offset} часы", []),
                 ("ru-RU", {"number"}, "через {number:offset} часа", ["через 3 часа"])]
-    dead, lost, gaps, never = bfs.typed_slot_template_losses(outcomes)
+    dead, lost, gaps, never, joined = bfs.typed_slot_template_losses(outcomes)
     assert lost == [] and gaps == [] and dead == []
     assert never == ["ru-RU number когда это {number:offset} часы"]
