@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.33.6a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.33.6a1) (2026-10-15)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.33.5a1...0.33.6a1)
+
+**Merged pull requests:**
+
+- test: every label the ledger folds away reaches its survivor [\#324](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/324) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.33.5a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.33.5a1) (2026-10-15)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.33.4a1...0.33.5a1)
@@ -368,10 +376,6 @@
 ## [0.18.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.18.1a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.18.0a1...0.18.1a1)
-
-**Merged pull requests:**
-
-- fix: prototype mode defaults its confidence tiers on the cosine scale [\#222](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/222) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
 
 ## [0.18.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.18.0a1) (2026-09-18)
 
