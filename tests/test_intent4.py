@@ -984,9 +984,16 @@ class TestPadatiousContextGating(unittest.TestCase):
         key_without_gate = cache.load.call_args[0][1]
 
         self._register(p, requires=["mode"])
+        # the templates are unchanged, so the registration is recognised
+        # before the cache is even read; the new gate is still recorded
+        self.assertEqual(cache.load.call_count, 1)
+        self.assertEqual(p._context_gates["music.skill:play_music"][0], ["mode"])
+
+        # and a cold store keys it the same way
+        p._forget_pending("music.skill:play_music")
+        self._register(p, requires=["mode"])
         self.assertEqual(cache.load.call_count, 2)
         key_with_gate = cache.load.call_args[0][1]
-
         self.assertEqual(key_without_gate, key_with_gate)
 
 

@@ -434,3 +434,27 @@ class TestRemovalRecomputesDerivedArrays(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRegistrationDoesNotRescanTheStore(unittest.TestCase):
+    """A registration records its own language; it does not rebuild
+    ``_langs_by_label`` from every label (quadratic over a boot)."""
+
+    def test_add_updates_incrementally_and_matches_a_rebuild(self):
+        from unittest.mock import patch
+        from ovos_m2v_pipeline import PrototypeIntentStore
+
+        vectors = {"hi there": [1.0, 0.0, 0.0, 0.0], "ola": [0.0, 1.0, 0.0, 0.0],
+                   "bye": [0.0, 0.0, 1.0, 0.0]}
+        model = MagicMock()
+        model.encode.side_effect = _make_encoder(vectors)
+        store = PrototypeIntentStore()
+        with patch.object(PrototypeIntentStore, "_rebuild_langs_by_label",
+                          side_effect=AssertionError("rebuilt on a registration")):
+            store.add(model, "skill_a:greet", ["hi there"], lang="en-US")
+            store.add(model, "skill_a:greet", ["ola"], lang="pt-PT")
+            store.add(model, "skill_b:bye", ["bye"], lang="en-US")
+        incremental = {k: set(v) for k, v in store._langs_by_label.items()}
+        store._rebuild_langs_by_label()
+        self.assertEqual(incremental, store._langs_by_label)
+        self.assertEqual(store._langs_by_label["skill_a:greet"], {"en-US", "pt-PT"})

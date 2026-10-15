@@ -51,6 +51,9 @@ from ovos_m2v_pipeline.slots import (
 #: on every single utterance.
 _MODEL_LOAD_RETRY_BASE_S = 30.0
 _MODEL_LOAD_RETRY_CAP_S = 15 * 60.0
+#: how long a copy of a registration waits for an identical copy that another
+#: bus handler thread is applying; past it the copy is applied again
+_REGISTRATION_WAIT_S = 5.0
 
 #: Bound on the single "is the cached snapshot still current" Hub call in
 #: `_resolve_model_revision`. A blackholed or slow Hub must not block boot
@@ -551,6 +554,14 @@ class PrototypeIntentStore:
                 [self._decompose(str(l))[0] for l in self._labels], dtype=object
             )
 
+    def holds(self, label: str, lang: Optional[str] = None) -> bool:
+        """Whether the store has prototypes for *label* registered in
+        *lang* (``None`` for a registration without a language), counting
+        the chunks not yet consolidated."""
+        internal = self._compose(label, lang)
+        with self._lock:
+            return internal in self._label_set
+
     @property
     def unique_labels(self) -> np.ndarray:
         return np.unique(self.labels)
@@ -692,18 +703,27 @@ class PrototypeIntentStore:
                 (anchors, np.array([label] * n_added, dtype=object)))
             self._label_set.add(label)
             self._label_digests[label] = digest
-            self._rebuild_langs_by_label()
-            # Every language registers every intent now (no eager/held
-            # split, OVOS-316): a boot with 11 languages across 18 skills
-            # calls this ~1,500 times. At INFO each call's f-string and
-            # the handler's write compete with the padatious/padaos
-            # training threads for the GIL; measured 47.6s of an 11-lang
-            # Pop Culture boot's 74s "skills ready" window was these
-            # calls. The count is still available at DEBUG.
+            self._add_lang_of(label)
+            # DEBUG: a boot makes ~1,500 of these. No store-wide total, since
+            # summing every pending chunk on each one is quadratic.
             LOG.debug(f"prototype store: +{n_added} prototypes for "
-                      f"{self._readable(label)} ({len(self)} total, "
-                      f"{len(self._label_set)} labels)")
+                      f"{self._readable(label)} ({len(self._label_set)} labels)")
         return n_added
+
+    def _add_lang_of(self, label: str) -> None:
+        """Record *label*'s registration language in ``_langs_by_label``.
+
+        Copy on write, like ``_rebuild_langs_by_label``: ``scores()`` reads
+        the mapping without the lock, so it is replaced, never mutated. A
+        registration adds one entry; rebuilding the mapping from every label
+        on each one made a boot's registrations quadratic in the label count.
+        """
+        orig, entry_lang = self._decompose(label)
+        if entry_lang is None or entry_lang in self._langs_by_label.get(orig, ()):
+            return
+        langs_by_label = dict(self._langs_by_label)
+        langs_by_label[orig] = set(langs_by_label.get(orig, ())) | {entry_lang}
+        self._langs_by_label = langs_by_label
 
     def add(
         self,
@@ -1160,6 +1180,10 @@ def _raw_intent_lines(path: str) -> List[str]:
         return []
 
 
+class _RegistrationRejected(Exception):
+    """A template registration was rejected (and already logged)."""
+
+
 class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
     """A pipeline that integrates Model2Vec with OVOS for intent matching.
 
@@ -1325,6 +1349,17 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         #: once by `_flush_pending_additions` when the deferred load
         #: completes.
         self._pending_additions: List[Tuple[str, List[str], Optional[int], Optional[str], Optional[str]]] = []
+        # The content of the last registration applied per (label, lang), so
+        # the second copy of a dual-emitted intent (ovos-workshop sends every
+        # intent on the legacy topic and on OVOS-INTENT-4 with the same
+        # samples) is recognised before it is expanded, keyed, read from the
+        # prototype cache and compared. Removal paths drop the entries (see
+        # _forget_pending / _forget_pending_skill).
+        self._applied_registrations: Dict[Tuple[str, Optional[str]], Tuple[Any, str]] = {}
+        # guards the ledger; notified whenever an entry stops being "applying"
+        self._applied_lock = threading.Condition()
+        # claims of one (label, lang) whose store write is not finished yet
+        self._registrations_in_flight: Dict[Tuple[str, Optional[str]], int] = {}
         #: how long a match call waits for a cold-start model load before
         #: giving up on THIS utterance and warming up in the background.
         self._model_load_budget: float = float(self.config.get("model_load_budget", 0.5))
@@ -1804,9 +1839,120 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             return self.prototype_store.add(self.model, label, sentences, k=k,
                                             cache_key=cache_key, lang=lang)
 
+    def _claim_registration(self, label: str, lang: Optional[str],
+                            raw_samples: List[str], skill_id: str):
+        """Claim a template registration before doing its work.
+
+        Returns None when a registration with exactly this content for this
+        (label, lang) was already applied and its rows are in the store, or
+        buffered for the deferred model load; otherwise a token to hand to
+        ``_settle_registration`` or ``_release_registration``. The content is
+        the raw templates plus the entity values their slots fill from, the
+        same inputs the prototype cache key is built from.
+        """
+        if self.prototype_store is None:
+            return (None, None)
+        slots = {slot for s in raw_samples for slot in _SLOT_RE.findall(s)}
+        values = self._entity_values(skill_id, slots, lang)
+        content = (tuple(raw_samples),
+                   tuple(sorted((k, tuple(sorted(v))) for k, v in values.items())))
+        return self._claim(label, lang, content)
+
+    def _claim(self, label: str, lang: Optional[str], content):
+        """The ledger half of ``_claim_registration``. A *content* that equals
+        no other (a fresh ``object()``) claims a write without ever being
+        skipped."""
+        if self.prototype_store is None:
+            return (None, None)
+        key = (label, standardize_lang(lang) if lang else None)
+        with self._applied_lock:
+            # An identical copy that another handler thread is applying can
+            # still fail, and then nobody would write: wait for it to settle
+            # instead of skipping on its word.
+            self._applied_lock.wait_for(
+                lambda: self._applied_registrations.get(key) != (content, "applying"),
+                timeout=_REGISTRATION_WAIT_S)
+            if (self._applied_registrations.get(key) == (content, "applied")
+                    and self._registration_held(label, lang)):
+                LOG.debug(f"prototype '{label}' [{lang}]: already registered "
+                          f"with the same templates")
+                return None
+            self._applied_registrations[key] = (content, "applying")
+            self._registrations_in_flight[key] = (
+                self._registrations_in_flight.get(key, 0) + 1)
+        return (key, content)
+
+    def _apply_claimed(self, token, work, *args) -> None:
+        """Run *work* for a claim from ``_claim_registration``, then settle the
+        claim, or release it when the work was rejected or raised."""
+        try:
+            work(*args)
+        except _RegistrationRejected:
+            self._release_registration(token)
+        except BaseException:
+            self._release_registration(token)
+            raise
+        else:
+            self._settle_registration(token)
+
+    def _registration_held(self, label: str, lang: Optional[str]) -> bool:
+        """Whether an applied registration of *label* in *lang* is still
+        there: in the prototype store, or in the deferred-load buffer, which
+        is where every registration goes while the model is not loaded. A
+        store emptied or replaced behind the handlers' back must be refilled."""
+        return self.model is None or self.prototype_store.holds(label, lang)
+
+    def _settle_registration(self, token) -> None:
+        """Mark a claim from ``_claim_registration`` as applied.
+
+        Two registrations of the same (label, lang) with different content can
+        overlap, and their store writes land in either order. The ledger then
+        cannot say which content the store holds, so it records "applied"
+        only when this was the last write in flight; otherwise the entry is
+        dropped and the next registration is applied again.
+        """
+        key, content = token or (None, None)
+        if key is None:
+            return
+        with self._applied_lock:
+            others = self._finish_in_flight(key)
+            if others == 0 and self._applied_registrations.get(key) == (content, "applying"):
+                self._applied_registrations[key] = (content, "applied")
+            else:
+                self._applied_registrations.pop(key, None)
+            self._applied_lock.notify_all()
+
+    def _release_registration(self, token) -> None:
+        """Drop a claim from ``_claim_registration`` whose work did not land."""
+        key, content = token or (None, None)
+        if key is None:
+            return
+        with self._applied_lock:
+            self._finish_in_flight(key)
+            state = self._applied_registrations.get(key)
+            if state is not None and state[0] == content:
+                del self._applied_registrations[key]
+            self._applied_lock.notify_all()
+
+    def _finish_in_flight(self, key) -> int:
+        """Count one claim of *key* as finished; return how many remain."""
+        remaining = self._registrations_in_flight[key] - 1
+        if remaining:
+            self._registrations_in_flight[key] = remaining
+        else:
+            del self._registrations_in_flight[key]
+        return remaining
+
+    def _forget_applied(self, match) -> None:
+        with self._applied_lock:
+            for key in [k for k in self._applied_registrations if match(k[0])]:
+                del self._applied_registrations[key]
+            self._applied_lock.notify_all()
+
     def _forget_pending(self, label: str) -> None:
         """Drop any buffered-but-unencoded registration for *label* (mirrors
         ``prototype_store.remove`` for entries that never reached the store)."""
+        self._forget_applied(lambda name: name == label)
         pending = getattr(self, "_pending_additions", None)
         if pending:
             self._pending_additions = [p for p in pending if p[0] != label]
@@ -1814,6 +1960,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
     def _forget_pending_skill(self, skill_id: str) -> None:
         """Drop buffered-but-unencoded registrations owned by *skill_id*
         (mirrors ``prototype_store.remove_skill``)."""
+        self._forget_applied(lambda name: name.startswith(skill_id + ":"))
         pending = getattr(self, "_pending_additions", None)
         if pending:
             prefix = skill_id + ":"
@@ -2035,9 +2182,29 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         ctx = (f"[skill_id={skill_id!r} name={name!r} "
                f"lang={message.data.get('lang')!r} topic={message.msg_type}]")
 
-        inline = message.data.get("samples") or []
+        inline = [strip_type_prefixes(s) for s in message.data.get("samples") or []]
+        reg_lang = message.data.get("lang")
         if inline:
-            inline = [strip_type_prefixes(s) for s in inline]
+            applied = self._claim_registration(name, reg_lang, inline, skill_id)
+            if applied is None:
+                # the other wire contract's copy of this registration was
+                # applied: only the per-label metadata is new
+                self.intents.add(name)
+                self._store_context_gate(name, message)
+                return
+        else:
+            # A file's templates are not known before it is read. The claim
+            # matches no other registration, and it replaces the ledger entry
+            # so a later copy of the label's earlier templates is applied.
+            applied = self._claim(name, reg_lang, object())
+        self._apply_claimed(applied, self._padatious_prototypes,
+                            message, name, skill_id, ctx, inline, reg_lang)
+
+    def _padatious_prototypes(self, message: Message, name: str, skill_id: str,
+                              ctx: str, inline: List[str],
+                              reg_lang: Optional[str]) -> None:
+        """The expansion and prototype half of ``_handle_register_padatious``."""
+        if inline:
             raw_samples: List[str] = list(inline)
             sentences: List[str] = []
             for s in inline:
@@ -2058,8 +2225,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         if not sentences:
             # zero valid templates -> the whole registration is malformed
             LOG.warning(f"rejecting registration: no valid template remains {ctx}")
-            return
-        reg_lang = message.data.get("lang")
+            raise _RegistrationRejected()
         # fill any ``{slot}`` placeholders (OVOS-INTENT-4 §7 entity hints, also
         # used ad-hoc by some legacy skills) the same way the INTENT-4 template
         # path does. Prototypes are embedded once, at registration time, and
@@ -2074,7 +2240,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         # prevent. Only a registration that declares a slot is affected.
         if slots and not reg_lang:
             LOG.warning(f"rejecting registration: missing lang {ctx}")
-            return
+            raise _RegistrationRejected()
         sentences = self._expand_entities(sentences, skill_id, reg_lang)
         entity_values = self._entity_values(skill_id, slots, reg_lang)
         cache_key = self._prototype_cache_key(raw_samples, entity_values, lang=reg_lang)
@@ -2097,7 +2263,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         except Exception as exc:
             LOG.error(f"Failed to add prototypes for Padatious intent "
                       f"'{name}': {exc}")
-            return
+            raise _RegistrationRejected() from exc
         self.intents.add(name)
         self._store_context_gate(name, message)
         LOG.debug(f"Prototype store: added {n} prototype(s) for '{name}'")
@@ -2297,13 +2463,28 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             LOG.debug(f"Model2Vec: tracking INTENT-4 template label '{label}'")
             return
 
+        skill_id = label.split(":", 1)[0]
+        applied = self._claim_registration(label, reg_lang, samples, skill_id)
+        if applied is None:
+            # see the same check in _handle_register_padatious
+            self.intents.add(label)
+            self._store_context_gate(label, message)
+            return
+        self._apply_claimed(applied, self._intent4_template_prototypes,
+                            message, label, samples, skill_id, reg_lang)
+
+    def _intent4_template_prototypes(self, message: Message, label: str,
+                                     samples: List[str], skill_id: str,
+                                     reg_lang: Optional[str]) -> None:
+        """The expansion and prototype half of
+        ``_handle_intent4_register_template``."""
+        topic = SpecMessage.INTENT_REGISTER_TEMPLATE.value
         # Entities registered so far are the only ones visible here: the
         # prototypes built below are embedded once, at registration time,
         # and the store keeps no link back to `self.entities` to re-embed
         # from later, so this is a one-shot fill just like the legacy-wire
         # path (neither re-expands on a later `ovos.entity.register`).
         expanded: List[str] = []
-        skill_id = label.split(":", 1)[0]
         for s in self._expand_entities(list(samples), skill_id, reg_lang):
             if len(expanded) >= MAX_ENTITY_EXPANSIONS:
                 break
@@ -2325,7 +2506,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         expanded = [s for s in (e.strip() for e in expanded) if s]
         if not expanded:  # zero non-empty expansions -> malformed (§6.3)
             self._intent4_warn(topic, message, "samples expand to zero non-empty templates")
-            return
+            raise _RegistrationRejected()
         # entity values referenced by this template's slots: part of the
         # cache key because they feed `_expand_entities` above, but they
         # come from a `set` upstream (`_handle_intent4_register_entity`) so
