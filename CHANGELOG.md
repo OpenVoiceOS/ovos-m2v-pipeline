@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.33.3a3](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.33.3a3) (2026-10-15)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.33.3a2...0.33.3a3)
+
+**Merged pull requests:**
+
+- chore: move the laugh, personal and alerts pins to their dev heads [\#318](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/318) ([JarbasAl](https://github.com/JarbasAl))
+- fix: an identical re-registration leaves the prototype store alone [\#307](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/307) ([goldyfruit](https://github.com/goldyfruit))
+
 ## [0.33.3a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.33.3a2) (2026-10-15)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.33.3a1...0.33.3a2)
@@ -7,7 +16,6 @@
 **Merged pull requests:**
 
 - ci: post the live-test comment only on same-repo PRs [\#316](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/316) ([JarbasAl](https://github.com/JarbasAl))
-- fix: an identical re-registration leaves the prototype store alone [\#307](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/307) ([goldyfruit](https://github.com/goldyfruit))
 - fix: read the prototype store under its lock [\#290](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/290) ([goldyfruit](https://github.com/goldyfruit))
 
 ## [0.33.3a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.33.3a1) (2026-10-15)
@@ -328,10 +336,6 @@
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.20.0a1...0.21.0a1)
 
-**Merged pull requests:**
-
-- feat: bridge the ovos-skill-wikipedia WikiMore rename [\#213](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/213) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
-
 ## [0.20.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.20.0a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.19.0a1...0.20.0a1)
@@ -371,10 +375,6 @@
 ## [0.16.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.16.0a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.15.1a1...0.16.0a1)
-
-**Merged pull requests:**
-
-- feat: bridge the ovos-skill-ip intent renames [\#212](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/212) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
 
 ## [0.15.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.15.1a1) (2026-09-18)
 
