@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.33.3a4](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.33.3a4) (2026-10-15)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.33.3a3...0.33.3a4)
+
+**Merged pull requests:**
+
+- Update dependency python to 3.15 [\#306](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/306) ([renovate[bot]](https://github.com/apps/renovate))
+
 ## [0.33.3a3](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.33.3a3) (2026-10-15)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.33.3a2...0.33.3a3)
@@ -320,17 +328,9 @@
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.22.0a1...0.23.0a1)
 
-**Merged pull requests:**
-
-- feat: bridge the ovos-skill-laugh intent renames [\#215](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/215) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
-
 ## [0.22.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.22.0a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.21.0a1...0.22.0a1)
-
-**Merged pull requests:**
-
-- feat: bridge the ovos-skill-spelling Spell rename [\#214](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/214) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
 
 ## [0.21.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.21.0a1) (2026-09-18)
 
