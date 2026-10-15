@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.33.7a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.33.7a1) (2026-10-15)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.33.6a1...0.33.7a1)
+
+**Merged pull requests:**
+
+- fix: keep a number slot apart from a Catalan "de" it elides with [\#323](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/323) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.33.6a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.33.6a1) (2026-10-15)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.33.5a1...0.33.6a1)
@@ -364,10 +372,6 @@
 ## [0.20.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.20.0a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.19.0a1...0.20.0a1)
-
-**Merged pull requests:**
-
-- feat: fill typed slots with locale-correct surfaces at build time [\#223](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/223) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
 
 ## [0.19.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.19.0a1) (2026-09-18)
 
