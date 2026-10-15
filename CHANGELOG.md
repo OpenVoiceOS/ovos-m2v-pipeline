@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.34.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.34.0a1) (2026-10-15)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.33.7a1...0.34.0a1)
+
+**Merged pull requests:**
+
+- feat: build the corpus from every skill's dev head [\#329](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/329) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.33.7a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.33.7a1) (2026-10-15)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.33.6a1...0.33.7a1)
@@ -344,10 +352,6 @@
 ## [0.23.2a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.23.2a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.23.1a1...0.23.2a1)
-
-**Merged pull requests:**
-
-- fix\(build\_eval\): a cloned skill with no golden file gets a census cell [\#226](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/226) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
 
 ## [0.23.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.23.1a1) (2026-09-18)
 
