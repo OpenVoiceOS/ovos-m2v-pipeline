@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.33.2a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.33.2a1) (2026-10-15)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.33.1a1...0.33.2a1)
+
+**Merged pull requests:**
+
+- fix: a missing typed-slot parser fails the corpus build instead of dropping the rows [\#312](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/312) ([JarbasAl](https://github.com/JarbasAl))
+- perf: the per-registration prototype-store log is DEBUG, not INFO [\#311](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/311) ([goldyfruit](https://github.com/goldyfruit))
+
 ## [0.33.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.33.1a1) (2026-10-09)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.33.0a1...0.33.1a1)
@@ -389,17 +398,9 @@
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.15a1...0.14.0a1)
 
-**Merged pull requests:**
-
-- feat: publish\_corpus.py uploads a corpus to its two dataset repos [\#202](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/202) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
-
 ## [0.13.15a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.15a1) (2026-09-14)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.13.14a1...0.13.15a1)
-
-**Merged pull requests:**
-
-- fix: see a bare alternation, and name what each counter counts [\#203](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/203) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
 
 ## [0.13.14a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.13.14a1) (2026-09-14)
 
