@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.33.5a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.33.5a1) (2026-10-15)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.33.4a1...0.33.5a1)
+
+**Merged pull requests:**
+
+- fix: route the published model's folded alerts and date-time labels [\#325](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/325) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.33.4a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.33.4a1) (2026-10-15)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.33.3a4...0.33.4a1)
@@ -372,10 +380,6 @@
 ## [0.17.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.17.0a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.16.0a1...0.17.0a1)
-
-**Merged pull requests:**
-
-- feat: one label function for train and eval, and the eval built from the skills' golden files [\#219](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/219) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
 
 ## [0.16.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.16.0a1) (2026-09-18)
 
