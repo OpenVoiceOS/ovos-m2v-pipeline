@@ -1,6 +1,7 @@
 """Embedding must stay in-process: model2vec spawns os.cpu_count() loky
 workers for large batches unless use_multiprocessing=False — observed as 24
 subprocesses inside a 2G service cgroup and an OOM-kill at skill load."""
+import threading
 from unittest import mock
 
 import numpy as np
@@ -86,6 +87,9 @@ def test_padatious_labels_dealias_to_canonical():
     p._prototype_k = None
     p.entities = {}
     p._prototype_cache_enabled = False
+    p._applied_registrations = {}
+    p._applied_lock = threading.Condition()
+    p._registrations_in_flight = {}
     p._handle_register_padatious(Message(
         "padatious:register_intent",
         {"name": "skill.test:go.intent", "samples": ["go to work"]},

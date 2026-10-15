@@ -3,6 +3,20 @@
 Behavior changes since the last stable release, newest first. This file is
 reset at each stable release.
 
+## 0.33.4a1
+
+- The second copy of a dual-emitted intent (ovos-workshop sends every intent
+  on `padatious:register_intent` and on `ovos.intent.register.template` with
+  the same samples) is recognised by its templates and entity values before
+  it is expanded, keyed and read from the prototype cache. Its context gates
+  and slots are still recorded. A detach or deregistration forgets the
+  registration, and a store emptied some other way is refilled by the next
+  registration.
+- A registration records its language in the store's language map instead of
+  rebuilding the map from every label, and its INFO line no longer prints the
+  store-wide prototype total (summing every pending chunk on each of a boot's
+  ~1,400 registrations). Both were quadratic over a boot.
+
 ## 0.33.0a1
 
 In 0.33.0a1 and earlier, an intent's `.blacklist` phrases are kept for one language only. A skill registers each intent once per language, and the last registration replaces the phrases of the earlier ones. A registration with no phrases keeps the previous language's phrases. On a device that loads English and a secondary language, English input that contains a phrase from the English `.blacklist` still matches the intent at every tier, in both the classifier and the prototype pipeline. Phrases from the other language suppress the intent in English input instead. A phrase next to punctuation, such as `trailer.` or `music-video`, also does not occur.
