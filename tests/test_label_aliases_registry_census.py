@@ -72,9 +72,9 @@ PINNED_REGISTRATIONS = {
     "ovos-skill-alerts.openvoiceos": {
         "add_list_subitems", "calendar_list", "cancel_alert",
         "change_media_properties", "change_priority", "change_repeat",
-        "change_until", "create_alarm", "create_alarm_alt", "create_event",
-        "create_list", "create_reminder", "create_reminder_recurring",
-        "create_timer", "dav_sync", "delete_list", "delete_list_entries",
+        "change_until", "create_alarm", "create_event", "create_list",
+        "create_reminder", "create_timer", "dav_sync", "delete_list",
+        "delete_list_entries",
         "list_alerts", "missed_alerts", "query_list_entries",
         "query_list_names", "reschedule_alert", "timer_status",
     },
@@ -115,7 +115,7 @@ PINNED_REGISTRATIONS = {
 #: read at. A re-pin in `train/sources.yaml` must update both tables.
 PINNED_REFS = {
     "ovos-skill-alerts.openvoiceos":
-        ("ovos/skills/ovos-skill-alerts", "be27adbd70feec395e9e12d33e631e101fb51919"),
+        ("ovos/skills/ovos-skill-alerts", "df609d6c794e7636bdb079329676194bd2b2e081"),
     "ovos-skill-confucius-quotes.openvoiceos":
         ("ovos/skills/ovos-skill-confucius-quotes", "b009ce3a57d46cd81924c435043054e977dfe7f7"),
     "ovos-skill-fuster-quotes.openvoiceos":

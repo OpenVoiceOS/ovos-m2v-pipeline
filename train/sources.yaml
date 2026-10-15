@@ -214,7 +214,7 @@ skill_refs:
     ovos/ovos-skill-youtube-music: 0812227128ee80ebec502acce7b2924f5ec0cf66
     ovos/plugins/agents/ovos-skill-ddg: 85d15d1c5d999bafa88c03a36a6b742eba354f23
     ovos/skills/adult/ovos-skill-hello-world: e50d075acaa9fefd9061e1e80285dc01e403e294
-    ovos/skills/ovos-skill-alerts: be27adbd70feec395e9e12d33e631e101fb51919
+    ovos/skills/ovos-skill-alerts: df609d6c794e7636bdb079329676194bd2b2e081
     ovos/skills/ovos-skill-application-launcher: fb7d4d71ed7e72cdaa0a4d18070ac4701e147a57
     ovos/skills/ovos-skill-audio-recording: 36077063110c3daa0cdf26b330849b7a59f3ffbf
     ovos/skills/ovos-skill-boot-finished: e6b56c1a2d0d0a64e1f9c7ffee86dace956fa90a
@@ -243,14 +243,14 @@ skill_refs:
     ovos/skills/ovos-skill-icanhazdadjokes: c8ef66dc4755910eac1c2c95b87d215543d83cf6
     ovos/skills/ovos-skill-ip: 3a2152f9053ac7225c09893fc45078ee5e5e38f1
     ovos/skills/ovos-skill-iss-location: 0a369e2086f0c9529c653f469ca62247ee93dc9f
-    ovos/skills/ovos-skill-laugh: ef55a7c527c42bd6dabc1d8c9f3a56e35a1f0a06
+    ovos/skills/ovos-skill-laugh: 217ade9c9afa56813aac14bbcec38dd7899cb62c
     ovos/skills/ovos-skill-mark1-ctrl: 781b9aa4e526138189818a81667d4a48da61c6da
     ovos/skills/ovos-skill-moon-game: 78a483d0db68e850d4ce14e07d09bf5805af2d09
     ovos/skills/ovos-skill-moviemaster: 78cc113738ad39ff2704d77008f43f90191de380
     ovos/skills/ovos-skill-naptime: 8d35e0670861740c5f4dc997e53c7a479a94d494
     ovos/skills/ovos-skill-number-facts: 415a34ed1004791e0f24838e5fecb0aca108e4f3
     ovos/skills/ovos-skill-parrot: 59fe1b6e7e3edd2e574ab69bc8324fb41bb94bc6
-    ovos/skills/ovos-skill-personal: 1f7fc7d044d66d75603d7c1a603e81f108c19675
+    ovos/skills/ovos-skill-personal: c8bed315506808e9965a2356512cb3f7f22fbb03
     ovos/skills/ovos-skill-planet-fall-game: 294d2324a0b2cad2743432644bca4827b3dc4f28
     ovos/skills/ovos-skill-pokepedia: f20146b11d8410b2065108c92ed262349b0a3ec7
     ovos/skills/ovos-skill-randomness: 2351c454f79403718165bfcc972075657eff147f

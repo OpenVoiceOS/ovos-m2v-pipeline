@@ -313,6 +313,17 @@ removed:
     The alt file held a second phrasing of one intent, and create_alarm was already
     a label, so the fold removes a label and keeps every phrasing
   merged_into: ovos-skill-alerts.openvoiceos:create_alarm
+- label: ovos-skill-alerts.openvoiceos:create_reminder_recurring
+  reason: ovos-skill-alerts#385 folded create_reminder_recurring into create_reminder
+    in every locale. Its template lines moved into create_reminder.intent and its
+    gold rows carry the create_reminder label; the handler books the recurrence the
+    utterance names
+  merged_into: ovos-skill-alerts.openvoiceos:create_reminder
+- label: ovos-skill-date-time.openvoiceos:current_date
+  reason: ovos-skill-date-time#466 folded current_date into what_day_is_it in every
+    locale. The what_day_is_it intent file holds every line of both, its handler
+    answers for today, and the gold rows carry the what_day_is_it label
+  merged_into: ovos-skill-date-time.openvoiceos:what_day_is_it
 - label: ovos-skill-hello-world.openvoiceos:HowAreYou
   reason: 'ovos-skill-hello-world#140 renamed the resource to how_are_you and #148
     folded the stray gl-ES copy in. how_are_you was already a label at the v6.1
