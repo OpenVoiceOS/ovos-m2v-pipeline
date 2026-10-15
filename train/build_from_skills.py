@@ -51,6 +51,7 @@ more than case and stay distinct.
 import argparse
 import collections
 import json
+import posixpath
 import re
 import shutil
 import string
@@ -151,15 +152,53 @@ def git(repo: Path, *args: str) -> str:
                           capture_output=True, text=True, check=True).stdout
 
 
-def tree(repo: Path, rev: str):
-    return git(repo, "ls-tree", "-r", "--name-only", rev).split("\n")
-
-
 def show(repo: Path, rev: str, path: str) -> str:
     try:
         return git(repo, "show", f"{rev}:{path}")
     except subprocess.CalledProcessError:
         return ""
+
+
+#: git's mode for a symbolic link. Its blob is the link's target path.
+SYMLINK_MODE = "120000"
+
+
+def tree_modes(repo: Path, rev: str) -> dict:
+    """Every path at *rev* mapped to its git mode, spelled as `tree` spells it."""
+    modes = {}
+    for line in git(repo, "ls-tree", "-r", rev).split("\n"):
+        if line:
+            meta, path = line.split("\t", 1)
+            modes[path] = meta.split(" ", 1)[0]
+    return modes
+
+
+def read_resource(repo: Path, rev: str, path: str, modes: dict) -> str:
+    """The text of *path* at *rev*, with symbolic links followed.
+
+    `git show` of a link returns the link's target, so a link read as a file
+    turns `../vocab/pokemon.voc` into a slot value and ships it in a row. A
+    skill loads the file the link points at, so that file is read instead, at
+    the same revision. A link that leaves the repository, points at nothing,
+    or loops refuses the build: the revision does not carry what the skill
+    would load.
+    """
+    hops = []
+    while modes.get(path) == SYMLINK_MODE:
+        hops.append(path)
+        target = show(repo, rev, path)
+        resolved = posixpath.normpath(
+            posixpath.join(posixpath.dirname(path), target))
+        if resolved not in modes:
+            where = ("outside the repository"
+                     if posixpath.isabs(target) or resolved.split("/")[0] == ".."
+                     else "to a path the revision does not carry")
+            raise SystemExit(
+                f"{repo.name}@{rev}: {hops[0]} links {where} ({target})")
+        if resolved in hops:
+            raise SystemExit(f"{repo.name}@{rev}: {hops[0]} is a symlink loop")
+        path = resolved
+    return show(repo, rev, path)
 
 
 def normalize_utterance(text: str) -> str:
@@ -221,7 +260,8 @@ def read_skill(repo: Path, rev: str, repo_name: str, stats: collections.Counter,
     skill_id = skill_labels.skill_id_from_repo(repo, rev, repo_name)
     if not skill_labels.declares_skill_id(repo, rev):
         stats["skill_id_assumed_from_repo_name"] += 1
-    for path in tree(repo, rev):
+    modes = tree_modes(repo, rev)
+    for path in modes:
         if not path or path.split("/")[0] in {"test", "tests"}:
             continue
         m = RESOURCE.match(path)
@@ -238,7 +278,9 @@ def read_skill(repo: Path, rev: str, repo_name: str, stats: collections.Counter,
             # the loader relies on, and the fallback that rescues its gold
             # rows would otherwise hide it.
             violations.add(f"{repo_name}: {name}.{kind}")
-        body = show(repo, rev, path)
+        if modes[path] == SYMLINK_MODE:
+            stats["resource_read_through_a_symlink"] += 1
+        body = read_resource(repo, rev, path, modes)
         values = [l.strip() for l in body.splitlines()
                   if l.strip() and not l.strip().startswith("#")]
         if kind == "intent":
@@ -522,6 +564,24 @@ def typed_slot_template_losses(outcomes: list):
         else:
             unexplained.append(entry)
     return sorted(dead_types), sorted(set(unexplained)), sorted(set(gaps))
+
+
+#: A resource path in a row: a relative path or a resource file name. A value
+#: shaped like this was read from a file's metadata, not from its lines.
+RESOURCE_PATH = re.compile(r"\.\./|\.(?:voc|entity|intent|dialog)\b")
+
+
+def rows_with_a_resource_path(rows):
+    """Rows whose utterance carries a path, with a sample.
+
+    The shape a symbolic link leaves when it is read as a file: the link's
+    target becomes the slot value, and the row reads "battle between
+    ../vocab/pokemon.voc and ../vocab/pokemon.voc". It reads the finished
+    rows rather than the link handling, so a reader that stops following
+    links is caught whatever the reason.
+    """
+    return [f'{row["lang"]} {row["label"]}: {row["utterance"]}'
+            for row in rows if RESOURCE_PATH.search(row["utterance"])]
 
 
 def count_ambiguous_rows(rows) -> int:
@@ -858,6 +918,7 @@ def main() -> int:
         typed_dead, typed_lost, typed_gaps = typed_slot_template_losses(
             typed_outcomes)
         del typed_outcomes
+        path_rows = rows_with_a_resource_path(train)
 
         # The floor is known only now: which listed changes took effect is a
         # property of the built corpus, not of the ledger file. An override is
@@ -920,6 +981,8 @@ def main() -> int:
             "typed_slot_templates_with_no_row_language_gap": len(typed_gaps),
             "typed_slot_templates_with_no_row_language_gap_detail":
                 typed_gaps[:50],
+            "train_rows_with_a_resource_path": len(path_rows),
+            "train_rows_with_a_resource_path_detail": sorted(path_rows)[:20],
             "train_rows_ambiguous_same_utterance_different_label":
                 count_ambiguous_rows(train),
             "templates_dropped_for_a_bare_alternation": len(dropped_templates),
@@ -1010,6 +1073,11 @@ def main() -> int:
                 + (f"; the types {', '.join(typed_dead)} produced no row in any "
                    f"language, which is a parser that is missing or broken"
                    if typed_dead else ""))
+        if path_rows:
+            short.append(
+                f"{len(path_rows)} training rows carry a resource path, for "
+                f"example {sorted(path_rows)[0]}: a value was read from a "
+                f"file's link or name rather than from its lines")
         if report["train_gold_overlap_after_fix"] != 0:
             short.append(
                 f"{report['train_gold_overlap_after_fix']} training rows still "
