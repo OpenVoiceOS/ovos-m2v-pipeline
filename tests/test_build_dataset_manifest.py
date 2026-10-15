@@ -170,7 +170,7 @@ def test_skill_labels_are_registered_and_unsuffixed(built):
     assert not any(lbl.endswith(".intent") for lbl in valid)
 
 
-def test_manifest_records_the_pinned_revisions(built):
+def test_manifest_counts_the_labels_and_the_outputs(built):
     report = json.loads((built / "manifest.json").read_text())
     assert report["labels"] == len(
         json.loads((built / "labels.json").read_text())["valid_labels"])

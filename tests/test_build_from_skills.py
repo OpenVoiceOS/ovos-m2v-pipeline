@@ -9,6 +9,7 @@ simply are not there, so no count reveals the loss.
 """
 import collections
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -69,7 +70,7 @@ def _write_skill_repo(root, files):
         path = root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
-    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    subprocess.run(["git", "init", "-q", "-b", "dev"], cwd=root, check=True)
     subprocess.run(["git", "add", "-A"], cwd=root, check=True)
     subprocess.run(
         ["git", "-c", "user.email=test@test.invalid", "-c", "user.name=test",
@@ -327,12 +328,12 @@ def test_a_blank_line_in_the_streamed_corpus_is_not_a_row(tmp_path):
     assert len(bfs.RowsOnDisk(path)) == 1
 
 
-def _sources(tmp_path, refs):
+def _sources(tmp_path, repos):
+    """A sources.yaml naming *repos* by path only: each is read at its dev head."""
     path = tmp_path / "sources.yaml"
-    path.write_text(
-        "workspace: " + str(tmp_path) + "\n"
-        "skill_refs:\n  refs:\n"
-        + "".join(f'    {k}: "{v}"\n' for k, v in refs.items()),
+    path.write_text(yaml.safe_dump({
+        "workspace": str(tmp_path),
+        "skill_refs": {"branch": "dev", "repos": list(repos)}}),
         encoding="utf-8")
     return path
 
@@ -369,7 +370,7 @@ def test_a_build_writes_the_three_files_and_leaves_no_scratch(tmp_path):
     out = tmp_path / "out"
     before = set(Path(tempfile.gettempdir()).glob("m2v-build-*"))
 
-    assert _run(_sources(tmp_path, {"ovos-skill-alpha": "HEAD"}), out) == 0
+    assert _run(_sources(tmp_path, ["ovos-skill-alpha"]), out) == 0
 
     assert (out / "train.jsonl").is_file()
     assert (out / "test.jsonl").is_file()
@@ -391,7 +392,7 @@ def test_a_refused_build_writes_no_output_and_leaves_no_scratch(tmp_path):
     out = tmp_path / "out"
     before = set(Path(tempfile.gettempdir()).glob("m2v-build-*"))
 
-    rc = _run(_sources(tmp_path, {"ovos-skill-alpha": "HEAD"}), out,
+    rc = _run(_sources(tmp_path, ["ovos-skill-alpha"]), out,
               extra=("--min-labels", "999"))
 
     assert rc == 1
@@ -414,7 +415,7 @@ def test_a_duplicate_free_build_carries_no_duplicate_key(tmp_path):
     })
     out = tmp_path / "out"
 
-    assert _run(_sources(tmp_path, {"ovos-skill-alpha": "HEAD"}), out) == 0
+    assert _run(_sources(tmp_path, ["ovos-skill-alpha"]), out) == 0
 
     manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
     assert "train_duplicate_rows_removed" not in manifest["stats"]
@@ -433,7 +434,192 @@ def test_a_build_with_duplicates_still_counts_them(tmp_path):
     })
     out = tmp_path / "out"
 
-    assert _run(_sources(tmp_path, {"ovos-skill-alpha": "HEAD"}), out) == 0
+    assert _run(_sources(tmp_path, ["ovos-skill-alpha"]), out) == 0
 
     manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["stats"]["train_duplicate_rows_removed"] == 1
+
+
+def _commit(root, files, message):
+    for rel, content in files.items():
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    subprocess.run(
+        ["git", "-c", "user.email=test@test.invalid", "-c", "user.name=test",
+         "commit", "-q", "-m", message], cwd=root, check=True)
+    return subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
+                          capture_output=True, text=True, check=True).stdout.strip()
+
+
+def _gold(rows):
+    return "".join(json.dumps(r) + "\n" for r in rows)
+
+
+def test_a_build_reads_the_dev_head_and_records_it(tmp_path):
+    """No commit is named anywhere: the head is resolved and written down."""
+    root = _write_skill_repo(tmp_path / "ovos-skill-alpha", {
+        "locale/en-US/pick.intent": "play rock\n"})
+    head = _commit(root, {"locale/en-US/pick.intent": "play rock\nplay jazz\n"},
+                   "second")
+    out = tmp_path / "out"
+    assert _run(_sources(tmp_path, ["ovos-skill-alpha"]), out) == 0
+    manifest = json.loads((out / "manifest.json").read_text())
+    rec = manifest["source_refs"]["skill_refs"]["ovos-skill-alpha"]
+    assert rec["sha"] == head and rec["branch"] == "dev"
+    utterances = {json.loads(l)["utterance"]
+                  for l in (out / "train.jsonl").read_text().splitlines()}
+    assert utterances == {"play rock", "play jazz"}
+
+
+def test_a_head_is_fetched_from_origin_not_read_from_a_stale_clone(tmp_path):
+    origin = _write_skill_repo(tmp_path / "origin" / "ovos-skill-alpha", {
+        "locale/en-US/pick.intent": "play rock\n"})
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    subprocess.run(["git", "clone", "-q", str(origin), str(ws / "ovos-skill-alpha")],
+                   check=True)
+    moved = _commit(origin, {"locale/en-US/pick.intent": "play jazz\n"}, "moved")
+    sources = _sources(ws, ["ovos-skill-alpha"])
+    out = tmp_path / "out"
+    assert _run(sources, out) == 0
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["source_refs"]["skill_refs"]["ovos-skill-alpha"]["sha"] == moved
+
+
+def test_a_missing_branch_stops_the_build(tmp_path):
+    _write_skill_repo(tmp_path / "ovos-skill-alpha", {
+        "locale/en-US/pick.intent": "play rock\n"})
+    path = tmp_path / "sources.yaml"
+    path.write_text(yaml.safe_dump({
+        "workspace": str(tmp_path),
+        "skill_refs": {"repos": [{"path": "ovos-skill-alpha", "branch": "main"}]}}))
+    with pytest.raises(SystemExit, match="no branch main"):
+        _run(path, tmp_path / "out")
+
+
+def test_from_manifest_rebuilds_at_the_recorded_commit(tmp_path):
+    root = _write_skill_repo(tmp_path / "ovos-skill-alpha", {
+        "locale/en-US/pick.intent": "play rock\n"})
+    first = tmp_path / "first"
+    assert _run(_sources(tmp_path, ["ovos-skill-alpha"]), first) == 0
+    _commit(root, {"locale/en-US/pick.intent": "play jazz\n"}, "moved")
+    again = tmp_path / "again"
+    assert _run(_sources(tmp_path, ["ovos-skill-alpha"]), again,
+                ["--from-manifest", str(first / "manifest.json")]) == 0
+    assert (again / "train.jsonl").read_text() == (first / "train.jsonl").read_text()
+    assert (json.loads((again / "manifest.json").read_text())["source_refs"]
+            == json.loads((first / "manifest.json").read_text())["source_refs"])
+
+
+def test_needs_manual_rows_are_test_rows_and_carry_the_flag(tmp_path):
+    """Miro's ruling: needs_manual never drops a row or blocks a gate."""
+    _write_skill_repo(tmp_path / "ovos-skill-alpha", {
+        "locale/en-US/pick.intent": "play rock\n",
+        "test/end2end/golden_utterances.jsonl": _gold([
+            {"utterance": "put on some rock", "intent_label": "pick.intent",
+             "lang": "en-US", "needs_manual": True},
+            {"utterance": "rock please", "intent_label": "pick.intent",
+             "lang": "en-US"},
+            {"utterance": "toca rock", "intent_label": "pick.intent",
+             "lang": "pt-PT", "needs_manual": True}]),
+    })
+    out = tmp_path / "out"
+    assert _run(_sources(tmp_path, ["ovos-skill-alpha"]), out,
+                ["--min-test-rows", "3"]) == 0
+    test = [json.loads(l) for l in (out / "test.jsonl").read_text().splitlines()]
+    assert sorted((r["utterance"], r["needs_manual"]) for r in test) == [
+        ("put on some rock", True), ("rock please", False), ("toca rock", True)]
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["test_rows_needs_manual"] == 2
+    assert manifest["test_rows_needs_manual_per_language"] == {"en-US": 1, "pt-PT": 1}
+
+
+def test_the_shipped_sources_name_no_commit():
+    """sources.yaml lists repositories and branches; a build resolves heads."""
+    cfg = yaml.safe_load((Path(__file__).resolve().parents[1] / "train"
+                          / "sources.yaml").read_text(encoding="utf-8"))
+    assert "refs" not in cfg["skill_refs"]
+    assert len(cfg["skill_refs"]["repos"]) > 50
+    for item in cfg["skill_refs"]["repos"]:
+        assert isinstance(item, str) or set(item) <= {"path", "branch"}, item
+    assert not [s["id"] for s in cfg["git_sources"] if "revision" in s]
+
+
+def test_gold_rows_of_a_skill_with_no_intent_resource_are_not_test_rows(tmp_path):
+    """A fallback skill registers no intent, so its gold rows name none."""
+    _write_skill_repo(tmp_path / "ovos-skill-alpha", {
+        "locale/en-US/pick.intent": "play rock\n",
+        "test/end2end/golden_utterances.jsonl": _gold([
+            {"utterance": "rock please", "intent_label": "pick.intent",
+             "lang": "en-US"}])})
+    _write_skill_repo(tmp_path / "ovos-skill-fallback", {
+        "locale/en-US/question.voc": "what\n",
+        "test/end2end/golden_utterances.jsonl": _gold([
+            {"utterance": "what did the dinosaurs eat", "intent_label": "question",
+             "lang": "en-US", "needs_manual": True}])})
+    out = tmp_path / "out"
+    assert _run(_sources(tmp_path, ["ovos-skill-alpha", "ovos-skill-fallback"]),
+                out) == 0
+    test = [json.loads(l)["utterance"]
+            for l in (out / "test.jsonl").read_text().splitlines()]
+    assert test == ["rock please"]
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["gold_rows_from_a_skill_with_no_intent_resource"] == {
+        "ovos-skill-fallback": 1}
+
+
+def test_an_unreachable_origin_stops_the_build(tmp_path):
+    """A head nobody could fetch is not read from a stale clone instead."""
+    origin = _write_skill_repo(tmp_path / "origin" / "ovos-skill-alpha", {
+        "locale/en-US/pick.intent": "play rock\n"})
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    subprocess.run(["git", "clone", "-q", str(origin), str(ws / "ovos-skill-alpha")],
+                   check=True)
+    subprocess.run(["git", "-C", str(ws / "ovos-skill-alpha"), "remote", "set-url",
+                    "origin", str(tmp_path / "gone")], check=True)
+    out = tmp_path / "out"
+    with pytest.raises(SystemExit, match="fetching dev"):
+        _run(_sources(ws, ["ovos-skill-alpha"]), out)
+    assert not out.exists()
+
+
+def _replay(tmp_path, edit):
+    _write_skill_repo(tmp_path / "ovos-skill-alpha", {
+        "locale/en-US/pick.intent": "play rock\n"})
+    first = tmp_path / "first"
+    assert _run(_sources(tmp_path, ["ovos-skill-alpha"]), first) == 0
+    manifest = json.loads((first / "manifest.json").read_text())
+    edit(manifest["source_refs"]["skill_refs"])
+    (first / "manifest.json").write_text(json.dumps(manifest))
+    return _run(_sources(tmp_path, ["ovos-skill-alpha"]), tmp_path / "again",
+                ["--from-manifest", str(first / "manifest.json")])
+
+
+def test_from_manifest_refuses_a_recorded_clone_that_is_missing(tmp_path):
+    def edit(refs):
+        refs["ovos-skill-gone"] = {"branch": "dev", "sha": "0" * 40, "remote": ""}
+    with pytest.raises(SystemExit, match="no clone"):
+        _replay(tmp_path, edit)
+
+
+def test_from_manifest_refuses_a_clone_it_recorded_no_commit_for(tmp_path):
+    def edit(refs):
+        refs["ovos-skill-alpha"]["sha"] = None
+    with pytest.raises(SystemExit, match="recorded no commit"):
+        _replay(tmp_path, edit)
+
+
+def test_two_typed_slots_fill_in_the_same_order_under_any_hash_seed():
+    """A rebuild from a manifest must write the same bytes, so the fill
+    order cannot follow the hash seed `slots` is iterated under."""
+    code = ("import sys; sys.path.insert(0, %r); import collections, "
+            "build_from_skills as b; print(b.fill('move {date:old} to {date:new}', "
+            "{}, {}, collections.Counter(), 'en-US'))"
+            % str(Path(__file__).resolve().parents[1] / "train"))
+    runs = {subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                           check=True, env={**os.environ, "PYTHONHASHSEED": seed}).stdout
+            for seed in ("1", "2", "3", "4", "5", "6")}
+    assert len(runs) == 1

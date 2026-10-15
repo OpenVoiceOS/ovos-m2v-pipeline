@@ -3,8 +3,8 @@
 
 The eval side of the corpus is the gold sentences the fleet ships: every
 ``test/end2end/golden_utterances*.jsonl`` of every skill in ``skill_refs``,
-read at the same pinned revision the train side reads the skill's resources
-at. Nothing else is an eval source: no hand-kept tree, no shared fleet file,
+read at the same commit the train side reads the skill's resources at: its
+branch head, resolved once when the build starts (``source_refs``). Nothing else is an eval source: no hand-kept tree, no shared fleet file,
 no model-written set.
 
 Every row's label comes from ``skill_labels``, the one label function the
@@ -35,6 +35,7 @@ import yaml
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import skill_labels  # noqa: E402
+import source_refs  # noqa: E402
 from census_gold_labels import census_paths  # noqa: E402
 
 #: Gold lives beside the end-to-end suite that reads it.
@@ -106,10 +107,14 @@ def read_gold(repo: Path, rev: str, repo_name: str, stats: collections.Counter,
                 continue
             lang = normalize_lang(d.get("lang") or from_name or "en-US")
             _count(census, repo_name, lang, "in")
-            if d.get("needs_manual"):
+            # Kept, not dropped. Every gold sentence in the fleet is
+            # model-written, so every one needs a human review; Miro's ruling
+            # is that the flag is a conscious decision and never removes a
+            # row. It is counted and carried on the row for consumers.
+            needs_manual = bool(d.get("needs_manual"))
+            if needs_manual:
                 stats["gold_needs_manual"] += 1
                 _count(census, repo_name, lang, "needs_manual")
-                continue
             raw = d.get("utterance") or ""
             if not isinstance(raw, str):
                 stats["gold_utterance_not_a_string"] += 1
@@ -141,7 +146,8 @@ def read_gold(repo: Path, rev: str, repo_name: str, stats: collections.Counter,
                 continue
             seen.add(key)
             rows.append({"lang": lang, "label": label, "utterance": utterance,
-                         "source": f"gold:{repo_name}"})
+                         "source": f"gold:{repo_name}",
+                         "needs_manual": needs_manual})
             _count(census, repo_name, lang, "out")
     if not gold_files:
         # A cloned skill that ships no golden file is still part of the
@@ -158,9 +164,10 @@ def _count(census: dict, skill: str, lang: str, key: str) -> dict:
     return cell
 
 
-def build(sources: Path, workspace: Path = None):
+def build(sources: Path, workspace: Path = None, fetch: bool = True):
     cfg = yaml.safe_load(sources.read_text(encoding="utf-8"))
     ws = Path(workspace or cfg["workspace"]).expanduser()
+    source_refs.resolve(cfg, ws, fetch=fetch, git_sources=False)
     refs = cfg["skill_refs"]["refs"]
     stats: collections.Counter = collections.Counter()
     census: dict = {}
@@ -168,7 +175,7 @@ def build(sources: Path, workspace: Path = None):
     rows = []
     for key, rev in sorted(refs.items()):
         repo, repo_name = ws / key, key.rsplit("/", 1)[-1]
-        if not repo.is_dir():
+        if rev is None or not repo.is_dir():
             stats["skill_missing_clone"] += 1
             continue
         rows.extend(read_gold(repo, rev, repo_name, stats, census,
@@ -204,6 +211,9 @@ def write(out: Path, rows, census, stats, refs, sources: Path,
         "labels_scored": len({r["label"] for r in rows}),
         "skills_with_gold": sorted({r["source"].split(":", 1)[1] for r in rows}),
         "rows_per_language": {lang: len(v) for lang, v in sorted(by_lang.items())},
+        "test_rows_needs_manual_per_language": {
+            lang: n for lang, n in sorted(collections.Counter(
+                r["lang"] for r in rows if r.get("needs_manual")).items())},
         "stats": dict(sorted(stats.items())),
         "sources": str(sources),
         "skill_refs": dict(sorted(refs.items())),

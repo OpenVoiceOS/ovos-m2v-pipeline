@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Build the ovos-m2v-pipeline intent training corpus from pinned sources.
+"""Build the ovos-m2v-pipeline intent training corpus.
 
-Every source in ``sources.yaml`` names an immutable revision. Nothing here
-reaches for a branch tip: a git revision that the local clone does not carry,
-or a Hugging Face revision that no longer resolves, is a hard error rather
-than a silent substitution. The same manifest therefore always yields the
-same corpus.
+Every git source in ``sources.yaml`` names a repository and a branch, and is
+read at that branch's head, resolved once when the build starts
+(``source_refs``). The manifest records every commit it resolved under
+``revisions``, so a manifest names its corpus exactly. A Hugging Face source
+still names a dataset revision: those datasets are frozen exports with no
+branch that moves.
 
 Labels follow ``docs/labels.md``: ``<skill_id>:<intent_name>`` exactly as
 ``ovos_m2v_pipeline`` registers it at runtime.
@@ -37,6 +38,8 @@ from ovos_m2v_pipeline.slots import (
 )
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import source_refs  # noqa: E402
 
 #: A training row is one example, not a live registration -- an evenly
 #: strided sample of this many entity-filled variants per template is
@@ -77,7 +80,7 @@ LABEL_ALIASES = {
 
     # Renames and folds the corpora predate. Each left-hand side is a
     # spelling a skill registered before the Adapt-to-`.intent` migration or
-    # the unification wave; each right-hand side is what the pinned revision
+    # the unification wave; each right-hand side is what the skill's head
     # registers today. See docs/labels.md, "Renames, merges, and the
     # unification wave".
 
@@ -115,7 +118,8 @@ LABEL_ALIASES = {
 
     # ovos-skill-weather#243: the forecast and temperature families each fold
     # to one label, and is_hot/is_cold (#231's split of the older is_hot_cold
-    # Adapt intent) fold back together.
+    # Adapt intent) fold back together. ovos-skill-weather#316 then folded
+    # is_hot_or_cold into temperature.
     "ovos-skill-weather.openvoiceos:current_weather": "ovos-skill-weather.openvoiceos:weather",
     "ovos-skill-weather.openvoiceos:hourly_forecast": "ovos-skill-weather.openvoiceos:weather",
     "ovos-skill-weather.openvoiceos:daily_forecast": "ovos-skill-weather.openvoiceos:weather",
@@ -126,7 +130,8 @@ LABEL_ALIASES = {
     "ovos-skill-weather.openvoiceos:high_temperature": "ovos-skill-weather.openvoiceos:temperature",
     "ovos-skill-weather.openvoiceos:low_temperature": "ovos-skill-weather.openvoiceos:temperature",
     "ovos-skill-weather.openvoiceos:daily_temperature": "ovos-skill-weather.openvoiceos:temperature",
-    "ovos-skill-weather.openvoiceos:is_hot_cold": "ovos-skill-weather.openvoiceos:is_hot_or_cold",
+    "ovos-skill-weather.openvoiceos:is_hot_cold": "ovos-skill-weather.openvoiceos:temperature",
+    "ovos-skill-weather.openvoiceos:is_hot_or_cold": "ovos-skill-weather.openvoiceos:temperature",
 
     # ovos-skill-volume#137: the discrete level intents became one
     # {level}-slot intent. volume.max and volume.default are deliberately
@@ -319,7 +324,7 @@ def expand_template(line: str, cap: int = 64):
 
 
 # -------------------------------------------------------------- registry ----
-# The pinned skill and pipeline refs are the ground truth for what labels can
+# The listed skill and pipeline repositories are the ground truth for what labels can
 # exist. A class the runtime cannot produce must never be trained.
 
 from skill_labels import skill_id_from_repo, _entry_point_from_setup  # noqa: E402,F401
@@ -396,7 +401,7 @@ def build_registry(cfg, ws):
     """Canonical labels, plus the lookup tables used to resolve corpus labels.
 
     Returns ``(labels, by_skill_fold, intents_by_skill)`` where ``labels`` is
-    the set of `skill_id:intent` the pinned refs actually register.
+    the set of `skill_id:intent` the resolved heads actually register.
     """
     labels = set()
     intents_by_skill = {}
@@ -514,7 +519,7 @@ def entity_lang_of(path: str) -> str:
 
 
 def collect_entities(cfg, ws) -> Dict[str, Dict[str, List[str]]]:
-    """Entity value-sets attested by the pinned refs, per language.
+    """Entity value-sets attested by the resolved heads, per language.
 
     A running pipeline holds one language's resources at a time, so its flat
     ``Model2VecIntentPipeline.entities`` never mixes languages. The corpus
@@ -594,7 +599,7 @@ def resolve_label(label: str, registry, by_skill_fold, intents_by_skill, aliases
     """``(canonical_label, how)``; ``how`` is None when the label is exact."""
     if label in registry:
         return label, None
-    # a skill renamed or folded the intent: train the name the pin registers,
+    # a skill renamed or folded the intent: train the name the head registers,
     # as the runtime routes it (see ovos_m2v_pipeline/renames.py)
     renamed = RENAMED_LABELS.get(label)
     if renamed in registry:
@@ -642,8 +647,8 @@ def assert_rev(repo: Path, rev: str, src_id: str):
                        capture_output=True)
     if r.returncode:
         raise SystemExit(
-            f"[{src_id}] pinned revision {rev} is not present in {repo}. "
-            f"Fetch the repo, or the pin in sources.yaml is wrong.")
+            f"[{src_id}] revision {rev} is not present in {repo}. "
+            f"Fetch the repo.")
 
 
 def lang_from_name(name: str, default: str) -> str:
@@ -826,9 +831,10 @@ def read_golden(cfg, ws, rows, stats):
             if not line:
                 continue
             d = json.loads(line)
+            # Counted, never dropped: every gold sentence is model-written,
+            # and Miro's ruling is that needs_manual is a conscious decision.
             if d.get("needs_manual"):
                 stats["golden_needs_manual"] += 1
-                continue
             if not d.get("intent_label"):
                 # fallback-skill corpora assert a dialog, not an intent
                 stats["golden_no_intent"] += 1
@@ -845,9 +851,9 @@ def read_golden(cfg, ws, rows, stats):
         return n
 
     # The hand-kept shared fleet file is retired: the skills' own golden
-    # files at the pins are the only gold source (train/build_eval.py).
+    # files at their heads are the only gold source (train/build_eval.py).
     if "shared" in g:
-        # retired: the skills' own golden files at the pins are the only gold
+        # retired: the skills' own golden files at their heads are the only gold
         # source (train/build_eval.py); a config that still names the fleet
         # file is counted and the file is not read.
         stats["golden_shared_ignored"] = 1
@@ -997,7 +1003,7 @@ def write_dataset_card(out: Path, report: dict) -> None:
         "## What is not here",
         "",
         f"{report['dropped_unresolved_labels']:,} rows were dropped because "
-        "their label names an intent no pinned skill registers any more — a "
+        "their label names an intent no listed skill registers any more — a "
         "rename or a removal the corpus predates. "
         f"{report['dropped_rare_labels']['labels']} further labels fell below "
         "the minimum rows per label and were dropped whole.",
@@ -1012,10 +1018,10 @@ def write_dataset_card(out: Path, report: dict) -> None:
         "## Provenance and licence",
         "",
         "Built by `train/build_dataset.py` in `OpenVoiceOS/ovos-m2v-pipeline` "
-        "from the locale resources of the skills pinned in "
-        "`train/sources.yaml`, at those exact revisions. `manifest.json` "
-        "carries the per-source counts, the pins and the checksum of every "
-        "file here.",
+        "from the locale resources of the skills listed in "
+        "`train/sources.yaml`, each read at its branch head. `manifest.json` "
+        "carries the per-source counts, the commit every source was read at "
+        "and the checksum of every file here.",
         "",
         "Apache-2.0, following the skills the utterances come from.",
         "",
@@ -1191,8 +1197,8 @@ def main(argv=None):
                     help="root the git clones live under (overrides sources.yaml)")
     ap.add_argument("--out", default=str(HERE / "dataset"))
     ap.add_argument("--skill-ref-list", default=None,
-                    help="file of '<repo-name> <sha>' lines replacing skill_refs.refs; "
-                         "use after the Adapt->.intent PRs merge")
+                    help="file of '<repo-path> <sha>' lines read instead of "
+                         "the branch heads of skill_refs")
     ap.add_argument("--allow-ambiguous", action="store_true",
                     help="keep rows whose (utterance, lang) carries several "
                          "labels instead of dropping them")
@@ -1215,7 +1221,8 @@ def main(argv=None):
                 continue
             name, sha = line.split()
             refs[name] = sha
-        cfg["skill_refs"]["refs"] = refs
+        cfg["skill_refs"] = {"refs": refs}
+    source_refs.resolve(cfg, ws)
 
     rows = []
     stats = collections.Counter()
@@ -1250,7 +1257,7 @@ def main(argv=None):
 
     # ---- fill {slot} placeholders the same way the runtime prototype
     # pipeline does (ovos_m2v_pipeline.slots.expand_entities), from entity
-    # values attested by the pinned refs' `.entity` files. A row whose slot
+    # values attested by the resolved heads' `.entity` files. A row whose slot
     # has no registered entity is left with the placeholder literal by
     # `expand_entities` (entities are an optional hint, same as at runtime);
     # such rows carry no natural-language signal and are dropped below,
@@ -1564,7 +1571,7 @@ def main(argv=None):
         "dropped_exact_duplicates": int(n_dedup),
         "dropped_unresolved_labels": n_unresolved,
         "dropped_rare_labels": {"labels": len(rare), "examples": rare[:40]},
-        "golden_needs_manual_excluded": int(stats["golden_needs_manual"]),
+        "golden_needs_manual_kept": int(stats["golden_needs_manual"]),
         "golden_rows_without_intent_label": int(stats["golden_no_intent"]),
         "golden_shared_rows": int(stats["golden_shared"]),
         "golden_per_skill_rows": int(stats["golden_per_skill"]),

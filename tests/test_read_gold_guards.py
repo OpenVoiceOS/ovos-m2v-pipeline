@@ -51,16 +51,26 @@ def test_a_blank_unlabelled_row_counts_as_a_row_without_an_utterance(tmp_path):
     assert "no_intent" not in cell
 
 
-def test_a_needs_manual_blank_row_counts_as_needs_manual(tmp_path):
+def test_a_needs_manual_blank_row_is_dropped_for_its_blank_utterance(tmp_path):
+    """The flag is counted and never drops a row; the blank utterance does."""
     rows, stats, cell = _read(tmp_path, [
         {"utterance": "   ", "intent_label": None, "lang": "en-US",
          "needs_manual": True}])
     assert rows == []
     assert stats["gold_needs_manual"] == 1
-    assert stats["gold_without_utterance"] == 0
+    assert stats["gold_without_utterance"] == 1
     assert stats["gold_asserts_a_dialog_not_an_intent"] == 0
     assert cell["needs_manual"] == 1
-    assert "no_utterance" not in cell
+    assert cell["no_utterance"] == 1
+
+
+def test_a_needs_manual_row_is_kept_with_its_flag(tmp_path):
+    rows, stats, cell = _read(tmp_path, [
+        {"utterance": "hello there", "intent_label": "hello.intent",
+         "lang": "en-US", "needs_manual": True}])
+    assert [(r["utterance"], r["needs_manual"]) for r in rows] == [
+        ("hello there", True)]
+    assert stats["gold_needs_manual"] == 1 and cell["out"] == 1
 
 
 def test_a_non_string_utterance_is_counted_and_does_not_raise(tmp_path):

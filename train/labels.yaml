@@ -6,18 +6,20 @@
 # deletes the signal it exists to raise. So the floor is a list.
 #
 # `baseline` is the label set of the last published corpus, v6.1, read from
-# the published dataset. `removed` names every label the pins in
-# sources.yaml drop against that set, with the reason it left and the label
-# its phrasings went to. `added` names every label they add. The builder
-# derives --min-labels as 232 minus the removals plus the additions, and
-# refuses a loss that is not listed here. No floor is typed by hand.
+# the published dataset. `removed` names every label the skills' dev heads
+# drop against that set, with the reason it left and the label its phrasings
+# went to. `added` names every label they add. The builder derives
+# --min-labels as 232 minus the removals plus the additions, and refuses a
+# loss that is not listed here. No floor is typed by hand.
 #
-# The ledger may lead the pins: an entry is written the day the change is
-# read in a skill, and the pin that carries it into the corpus moves later.
-# A listed removal that has not happened yet is reported, not refused.
+# The builder reads every skill at its dev head, so an entry is due the moment
+# the change merges in the skill. An entry may be written while the change is
+# still under review: a listed removal that has not happened yet is reported,
+# not refused.
 #
-# Measured 2026-09-28 against every skill_ref at its current head: 232
-# baseline labels, 20 removed, 14 added, 226 trained.
+# days_between is in neither list: ovos-skill-date-time#412 added it after
+# v6.1 and #466 folded it into time_until, a baseline label, so at the dev
+# head the label set is the baseline's for that pair.
 version: 1
 baseline:
   corpus: v6.1
@@ -261,9 +263,12 @@ removed:
     name; the phrasings did not change (ovos-skill-cmd#94)
   merged_into: ovos-skill-cmd.openvoiceos:run_script_command
 - label: ovos-skill-color-picker.krisgesling:request-color
-  reason: the OVOS-INTENT-2 2 rename wave gave the resource an underscored base
-    name; the phrasings did not change (ovos-skill-color-picker#59)
-  merged_into: ovos-skill-color-picker.krisgesling:request_color
+  reason: the OVOS-INTENT-2 2 rename wave renamed it request_color
+    (ovos-skill-color-picker#59), and ovos-skill-color-picker#50 then folded
+    request_color into request_color_by_name in every locale. Every line of
+    request_color.intent is in request_color_by_name.intent, with the slot
+    renamed to {color}
+  merged_into: ovos-skill-color-picker.krisgesling:request_color_by_name
 - label: ovos-skill-color-picker.krisgesling:request-color-by-hex
   reason: the OVOS-INTENT-2 2 rename wave gave the resource an underscored base
     name; the phrasings did not change (ovos-skill-color-picker#59)
@@ -366,12 +371,15 @@ removed:
     the same weather_condition.intent. It is a second label and not a second
     intent: two files, one meaning, and neither one ever reached a handler'
   merged_into: ovos-skill-weather.openvoiceos:weather_condition
+- label: ovos-skill-weather.openvoiceos:is_hot_or_cold
+  reason: ovos-skill-weather#316 folded is_hot_or_cold into temperature in every
+    locale. temperature.intent holds every line of the former is_hot_or_cold.intent,
+    handle_temperature answers both kinds of question, and the gold rows carry the
+    temperature label
+  merged_into: ovos-skill-weather.openvoiceos:temperature
 added:
 - label: ovos-skill-cmd.openvoiceos:run_script_command
   reason: ovos-skill-cmd#94 renamed ovos-skill-cmd.openvoiceos:RunScriptCommandIntent
-    to this compliant base name. The phrasings are the same ones under a new label
-- label: ovos-skill-color-picker.krisgesling:request_color
-  reason: ovos-skill-color-picker#59 renamed ovos-skill-color-picker.krisgesling:request-color
     to this compliant base name. The phrasings are the same ones under a new label
 - label: ovos-skill-color-picker.krisgesling:request_color_by_hex
   reason: ovos-skill-color-picker#59 renamed ovos-skill-color-picker.krisgesling:request-color-by-hex
@@ -406,6 +414,3 @@ added:
 - label: ovos-skill-volume.openvoiceos:volume_unmute
   reason: ovos-skill-volume#165 renamed ovos-skill-volume.openvoiceos:volume.unmute
     to this compliant base name. The phrasings are the same ones under a new label
-- label: ovos-skill-date-time.openvoiceos:days_between
-  reason: 'a new intent: ovos-skill-date-time#412 added days_between for the number
-    of days between two dates'
