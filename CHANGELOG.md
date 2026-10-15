@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.33.3a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.33.3a2) (2026-10-15)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.33.3a1...0.33.3a2)
+
+**Merged pull requests:**
+
+- ci: post the live-test comment only on same-repo PRs [\#316](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/316) ([JarbasAl](https://github.com/JarbasAl))
+- fix: an identical re-registration leaves the prototype store alone [\#307](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/307) ([goldyfruit](https://github.com/goldyfruit))
+- fix: read the prototype store under its lock [\#290](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/290) ([goldyfruit](https://github.com/goldyfruit))
+
+## [0.33.3a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.33.3a1) (2026-10-15)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.33.2a1...0.33.3a1)
+
+**Merged pull requests:**
+
+- fix: read a symlinked skill resource as the file it points at [\#313](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/313) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.33.2a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.33.2a1) (2026-10-15)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.33.1a1...0.33.2a1)
@@ -326,10 +344,6 @@
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.18.1a1...0.19.0a1)
 
-**Merged pull requests:**
-
-- feat: bridge the ovos-skill-alerts intent renames [\#210](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/210) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
-
 ## [0.18.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.18.1a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.18.0a1...0.18.1a1)
@@ -366,25 +380,13 @@
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.15.0a1...0.15.1a1)
 
-**Merged pull requests:**
-
-- fix: the corpus publish prunes a locale the build did not stage [\#209](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/209) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
-
 ## [0.15.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.15.0a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.14.1a1...0.15.0a1)
 
-**Merged pull requests:**
-
-- feat: census that refuses a corpus with an untrainable gold label [\#208](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/208) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
-
 ## [0.14.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.14.1a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.14.0a3...0.14.1a1)
-
-**Merged pull requests:**
-
-- fix: resolve a corpus skill id to the id the entry point declares [\#207](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/207) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
 
 ## [0.14.0a3](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.14.0a3) (2026-09-18)
 
