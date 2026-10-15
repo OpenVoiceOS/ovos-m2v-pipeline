@@ -176,14 +176,13 @@ def _build_fixture_registry(tmp_path: Path, fixture_intents: dict):
         "skill_refs": {"refs": refs},
         "git_sources": [],
     }
-    labels, by_skill_fold, intents_by_skill = bd.build_registry(cfg, ws)
-    return labels
+    return bd.build_registry(cfg, ws)
 
 
 def test_positive_control_registry_contains_a_known_label(tmp_path):
     """Sanity check the fixture-registry builder itself: a label the fixture
     obviously carries must come back, or every result below is worthless."""
-    labels = _build_fixture_registry(
+    labels, _, _ = _build_fixture_registry(
         tmp_path, {"a_skill.openvoiceos": {"known.intent"}})
     assert "a_skill.openvoiceos:known.intent" in labels
 
@@ -196,12 +195,66 @@ def test_every_aliased_skill_has_a_frozen_registration_set():
 
 
 def test_every_skill_alias_resolves_at_the_pinned_revision(tmp_path):
-    labels = _build_fixture_registry(tmp_path, PINNED_REGISTRATIONS)
+    labels, _, _ = _build_fixture_registry(tmp_path, PINNED_REGISTRATIONS)
     checked = sorted(SKILL_ALIASES.items())
     failing = [(k, v) for k, v in checked if v not in labels]
     assert not failing, (
         f"{len(failing)}/{len(checked)} LABEL_ALIASES values do not resolve "
         f"at the pinned revision they claim to: {failing}")
+
+
+LEDGER = Path(__file__).resolve().parents[1] / "train" / "labels.yaml"
+
+#: Corpus spellings older than any ledger label that must reach the same
+#: survivor as the ledger entry they predate. The localize export keys on
+#: file names; the older exports carry the Adapt intent name.
+OLD_SPELLINGS = {
+    "ovos-skill-alerts.openvoiceos:CreateAlarmAlt": "ovos-skill-alerts.openvoiceos:create_alarm",
+}
+
+#: Ledger removals this builder sends somewhere else. `INTENT_ALIASES` maps
+#: the corpora's `volume.mute` to `volume.mute.toggle`, which resolves to
+#: `volume_mute_toggle`; the ledger, read from the skill's own files, names
+#: `volume_mute`. Which intent the corpus rows mean is a separate question
+#: from the folds this test guards.
+LEDGER_EXCEPTIONS = {"ovos-skill-volume.openvoiceos:volume.mute"}
+
+
+def _folds_to_check() -> dict:
+    """Every label the ledger removes from a skill with a frozen registration
+    set, with the label its phrasings went to. A removal whose label the pin
+    still registers has not happened yet and is left out."""
+    import yaml
+    ledger = yaml.safe_load(LEDGER.read_text(encoding="utf-8"))
+    folds = {}
+    for entry in ledger["removed"]:
+        label, target = entry["label"], entry.get("merged_into")
+        skill, _, intent = label.partition(":")
+        if not target or skill not in PINNED_REGISTRATIONS:
+            continue
+        if intent in PINNED_REGISTRATIONS[skill] or label in LEDGER_EXCEPTIONS:
+            continue
+        folds[label] = target
+    return {**folds, **OLD_SPELLINGS}
+
+
+def test_every_folded_label_reaches_its_survivor_at_the_pinned_revision(tmp_path):
+    """A corpus row under a label the skill folded away must train the label
+    it folded into. Without an alias the row resolves to nothing and drops
+    as `unknown-intent`, and no other check notices, because the alias that
+    is missing has no right-hand side to test."""
+    registry = _build_fixture_registry(tmp_path, PINNED_REGISTRATIONS)
+    folds = _folds_to_check()
+    assert "ovos-skill-alerts.openvoiceos:create_reminder_recurring" in folds
+    wrong = {}
+    for label, target in sorted(folds.items()):
+        skill, _, intent = label.partition(":")
+        got = bd.resolve_label(bd.make_label(skill, intent), *registry, {})
+        if got[0] != target:
+            wrong[label] = {"want": target, "got": got}
+    assert not wrong, (
+        f"{len(wrong)}/{len(folds)} folded labels do not reach their survivor "
+        f"at the pinned revision: {wrong}")
 
 
 def _sources_refs() -> dict:
