@@ -90,7 +90,7 @@ class TestRenameTable(unittest.TestCase):
 
     def test_date_time_renames_are_listed(self):
         dated = {k for k in RENAMED_LABELS if k.startswith("ovos-skill-date-time.openvoiceos:")}
-        self.assertEqual(len(dated), 13)
+        self.assertEqual(len(dated), 14)
 
     def test_confucius_quotes_rename_is_listed(self):
         self.assertEqual(
@@ -103,7 +103,7 @@ class TestRenameTable(unittest.TestCase):
         self.assertEqual(chained, set())
 
 
-def test_builder_files_pre_rename_rows_under_the_new_label():
+def _builder():
     pytest.importorskip("pandas")
     pytest.importorskip("yaml")
     pytest.importorskip("ovos_spec_tools")
@@ -113,9 +113,51 @@ def test_builder_files_pre_rename_rows_under_the_new_label():
     spec = importlib.util.spec_from_file_location("build_dataset_under_test", path)
     builder = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(builder)
-    assert builder.make_label("ovos-skill-date-time", "what.time.is.it") == NEW
-    # an older spelling that INTENT_ALIASES folds into the dotted name
-    assert builder.make_label("ovos-skill-date-time", "handle_show_time") == NEW
+    return builder
+
+
+def _resolve(builder, label, registered):
+    """``resolve_label`` against a registry holding exactly *registered*."""
+    by_skill = {}
+    for name in registered:
+        skill, _, intent = name.partition(":")
+        by_skill.setdefault(skill, set()).add(intent)
+    by_fold = {builder.fold_skill(skill): [skill] for skill in by_skill}
+    return builder.resolve_label(label, set(registered), by_fold, by_skill, {})
+
+
+def test_builder_files_pre_rename_rows_under_the_new_label():
+    builder = _builder()
+    for intent in ("what.time.is.it",
+                   # an older spelling that INTENT_ALIASES folds into the dotted name
+                   "handle_show_time"):
+        label = builder.make_label("ovos-skill-date-time", intent)
+        assert _resolve(builder, label, {NEW})[0] == NEW, intent
+
+
+DATE = "ovos-skill-date-time.openvoiceos:current_date"
+DAY = "ovos-skill-date-time.openvoiceos:what_day_is_it"
+
+
+@pytest.mark.parametrize("intent", ["current_date", "what.date.is.it",
+                                    "handle_query_date_simple"])
+def test_builder_follows_the_fold_only_where_the_pin_made_it(intent):
+    """date-time#466 folded current_date into what_day_is_it. A pin before it
+    registers both, and its current_date rows keep their label; a pin after
+    it registers only the survivor, and the rows move there."""
+    builder = _builder()
+    label = builder.make_label("ovos-skill-date-time", intent)
+    assert _resolve(builder, label, {DATE, DAY})[0] == DATE
+    assert _resolve(builder, label, {DAY})[0] == DAY
+
+
+def test_builder_leaves_a_rename_alone_when_the_pin_lacks_both_names():
+    """A pin that registers neither name has nothing to rename to, so the
+    label must not move to the survivor it does not register."""
+    builder = _builder()
+    label = builder.make_label("ovos-skill-date-time", "current_date")
+    other = {"ovos-skill-date-time.openvoiceos:what_year_is_it"}
+    assert _resolve(builder, label, other)[0] != DAY
 
 
 def test_days_in_history_rename_is_listed():

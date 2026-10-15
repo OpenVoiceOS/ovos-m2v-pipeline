@@ -250,9 +250,7 @@ def norm_skill(skill_id: str) -> str:
 
 def make_label(skill_id: str, intent: str) -> str:
     label = f"{norm_skill(skill_id)}:{norm_intent(intent)}"
-    label = LABEL_ALIASES.get(label, label)
-    # a skill renamed the intent file: train the name it registers now
-    return RENAMED_LABELS.get(label, label)
+    return LABEL_ALIASES.get(label, label)
 
 
 def family_of(label: str) -> str:
@@ -596,6 +594,11 @@ def resolve_label(label: str, registry, by_skill_fold, intents_by_skill, aliases
     """``(canonical_label, how)``; ``how`` is None when the label is exact."""
     if label in registry:
         return label, None
+    # a skill renamed or folded the intent: train the name the pin registers,
+    # as the runtime routes it (see ovos_m2v_pipeline/renames.py)
+    renamed = RENAMED_LABELS.get(label)
+    if renamed in registry:
+        return renamed, "renamed"
     skill_id, _, intent = label.partition(":")
     resolved_skill = reduce_skill_id(skill_id, by_skill_fold, aliases)
     if resolved_skill is None:
@@ -1451,6 +1454,7 @@ def main(argv=None):
 
     df["family"] = df["label"].map(family_of)
     df["skill_id"] = df["label"].str.split(":").str[0]
+    df["intent"] = df["label"].str.split(":", n=1).str[1]
     df = df.sort_values(["label", "lang", "utterance"], kind="mergesort").reset_index(drop=True)
 
     # ---- one (utterance, lang) must denote exactly one label

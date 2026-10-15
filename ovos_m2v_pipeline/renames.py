@@ -12,6 +12,11 @@ It is read twice:
 * by ``train/build_dataset.py``, so corpus rows filed under the old spelling
   train the new label.
 
+Both apply an entry only where the skill registers the new name and not the
+old one. A fold whose survivor already existed beside it, such as
+``current_date`` into ``what_day_is_it``, therefore leaves a skill revision
+that still registers both alone.
+
 Keys and values are full ``<skill_id>:<intent_name>`` labels, as the skill
 registers them on the bus (see ``docs/labels.md``). The module has no imports,
 so the builder can read it without the pipeline's runtime dependencies.
@@ -40,6 +45,9 @@ RENAMED_LABELS = {
     "ovos-skill-date-time.openvoiceos:what.time.will.it.be": "ovos-skill-date-time.openvoiceos:what_time_will_it_be",
     "ovos-skill-date-time.openvoiceos:what.weekday.is.it": "ovos-skill-date-time.openvoiceos:what_weekday_is_it",
     "ovos-skill-date-time.openvoiceos:what.year.is.it": "ovos-skill-date-time.openvoiceos:what_year_is_it",
+    # ovos-skill-date-time#466: current_date folded into what_day_is_it, whose
+    # intent file holds every line of both.
+    "ovos-skill-date-time.openvoiceos:current_date": "ovos-skill-date-time.openvoiceos:what_day_is_it",
     # ovos-skill-confucius-quotes: resource base names made OVOS-INTENT-2 §2
     # compliant (lowercase letters, digits and underscores).
     "ovos-skill-confucius-quotes.openvoiceos:ConfuciusQuote": "ovos-skill-confucius-quotes.openvoiceos:confucius_quote",
@@ -59,7 +67,11 @@ RENAMED_LABELS = {
     "ovos-skill-alerts.openvoiceos:ChangeRepeat": "ovos-skill-alerts.openvoiceos:change_repeat",
     "ovos-skill-alerts.openvoiceos:ChangeUntil": "ovos-skill-alerts.openvoiceos:change_until",
     "ovos-skill-alerts.openvoiceos:CreateAlarm": "ovos-skill-alerts.openvoiceos:create_alarm",
-    "ovos-skill-alerts.openvoiceos:CreateAlarmAlt": "ovos-skill-alerts.openvoiceos:create_alarm_alt",
+    # CreateAlarmAlt was renamed create_alarm_alt, which ovos-skill-alerts#270
+    # then folded into create_alarm. The lookup is one step, so both spellings
+    # name the survivor.
+    "ovos-skill-alerts.openvoiceos:CreateAlarmAlt": "ovos-skill-alerts.openvoiceos:create_alarm",
+    "ovos-skill-alerts.openvoiceos:create_alarm_alt": "ovos-skill-alerts.openvoiceos:create_alarm",
     "ovos-skill-alerts.openvoiceos:CreateEvent": "ovos-skill-alerts.openvoiceos:create_event",
     "ovos-skill-alerts.openvoiceos:CreateList": "ovos-skill-alerts.openvoiceos:create_list",
     "ovos-skill-alerts.openvoiceos:CreateReminder": "ovos-skill-alerts.openvoiceos:create_reminder",
@@ -70,6 +82,9 @@ RENAMED_LABELS = {
     "ovos-skill-alerts.openvoiceos:QueryListNames": "ovos-skill-alerts.openvoiceos:query_list_names",
     "ovos-skill-alerts.openvoiceos:RescheduleAlert": "ovos-skill-alerts.openvoiceos:reschedule_alert",
     "ovos-skill-alerts.openvoiceos:TimerStatus": "ovos-skill-alerts.openvoiceos:timer_status",
+    # ovos-skill-alerts#385: create_reminder_recurring folded into
+    # create_reminder in every locale.
+    "ovos-skill-alerts.openvoiceos:create_reminder_recurring": "ovos-skill-alerts.openvoiceos:create_reminder",
     # ovos-skill-wikipedia: WikiMore.intent renamed to wiki_more.intent
     # (OVOS-INTENT-2 §2); the duplicate copies of both were removed.
     "ovos-skill-wikipedia.openvoiceos:WikiMore": "ovos-skill-wikipedia.openvoiceos:wiki_more",
