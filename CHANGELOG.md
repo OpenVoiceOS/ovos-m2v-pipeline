@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.33.4a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.33.4a1) (2026-10-15)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.33.3a4...0.33.4a1)
+
+**Merged pull requests:**
+
+- fix: sample numbers that agree with the noun after a number slot [\#317](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/317) ([JarbasAl](https://github.com/JarbasAl))
+- perf: apply a dual-emitted intent registration once [\#309](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/309) ([goldyfruit](https://github.com/goldyfruit))
+
 ## [0.33.3a4](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.33.3a4) (2026-10-15)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.33.3a3...0.33.3a4)
@@ -359,10 +368,6 @@
 ## [0.18.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.18.0a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.17.0a1...0.18.0a1)
-
-**Merged pull requests:**
-
-- feat: locale parity census, as a publish gate [\#218](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/218) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
 
 ## [0.17.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.17.0a1) (2026-09-18)
 
