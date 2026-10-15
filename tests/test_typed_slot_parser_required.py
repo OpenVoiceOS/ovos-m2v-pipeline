@@ -134,7 +134,8 @@ def test_a_language_gap_is_reported_and_not_refused(
         ("fi-FI", "wake"): "herätä minut {number:offset} minuutin päästä\n"})
     real = ts.values_for
     monkeypatch.setattr(bfs.typed_slots, "values_for",
-                        lambda t, lang: () if lang == "fi-FI" else real(t, lang))
+                        lambda t, lang, *rest: () if lang == "fi-FI"
+                        else real(t, lang, *rest))
     monkeypatch.setattr(sys, "argv", list(argv))
     assert bfs.main() == 0, capsys.readouterr().err
     manifest = json.loads((tmp_path / "out" / "manifest.json").read_text())
