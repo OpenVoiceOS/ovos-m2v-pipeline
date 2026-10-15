@@ -67,11 +67,16 @@ jobs:
             echo "COMMENT_EOF"
           } >> "$GITHUB_OUTPUT"
       - name: Post / update PR comment
-        if: always() && github.event_name == 'pull_request'
+        # A fork PR's token is read-only and cannot comment; its report goes
+        # to the job summary instead.
+        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         uses: marocchino/sticky-pull-request-comment@v3.0.5
         with:
           header: live-fixture-test
           message: ${{ steps.report.outputs.body }}
+      - name: Write report to job summary
+        if: always()
+        run: cat "${{ github.workspace }}/live_test_report.md" >> "$GITHUB_STEP_SUMMARY"
       - name: Fail job if live test failed
         if: steps.live_test.outcome == 'failure'
         run: exit 1
