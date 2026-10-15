@@ -4,16 +4,14 @@
 fits a classifier on it. You only need it to produce a custom model; the
 [pre-trained models](models.md) already cover the standard OVOS skill corpus.
 
-The Adapt-to-`.intent` refactors and the unification wave that merged the
-weather condition intents, the alerts create and list families, and the
-volume levels are merged in the revisions `sources.yaml` pins, so `train.py`
-runs against those pins. A classifier's label head is frozen at fit time: the
-day a skill renames or folds an intent again, its pin has to be refreshed and
-the model refit before that skill's labels are trusted.
+Every skill is read at its `dev` branch head, resolved when a build starts.
+A classifier's label head is frozen at fit time: the day a skill renames or
+folds an intent, the corpus picks the change up on its next build, and the
+model has to be refit before that skill's labels are trusted.
 
 ```
 train/
-├── sources.yaml        # every source, pinned to an immutable revision
+├── sources.yaml        # every source: a repository and its branch
 ├── build_dataset.py    # resolve, normalise, dedup, split, write the manifest
 ├── train.py            # fit a classifier on the built corpus
 ├── distill.py          # distill a Sentence Transformer into a Model2Vec base
@@ -28,23 +26,26 @@ changing anything in `sources.yaml`.
 ## Reproducing end to end
 
 The builder reads git sources from local clones, so it needs a workspace with
-the OVOS repos checked out; a pinned revision the clone does not carry is a
-hard error, not a fallback to the branch tip. The Hugging Face sources are
-downloaded, pinned revision by pinned revision, through the shared cache. So
-the builder fetches only what a pin names, and a pin that has moved fails the
-build rather than quietly changing the corpus.
+the OVOS repos checked out. When a build starts it fetches each clone's
+branch (`dev` unless the entry in `sources.yaml` names another) from
+`origin` and reads the repository at that head; a branch that does not exist
+stops the build. Every commit it resolved is written to `manifest.json` under
+`source_refs`, and `train/build_from_skills.py --from-manifest
+<manifest.json>` rebuilds a corpus at exactly those commits. `--no-fetch`
+reads the clone's remote-tracking ref without fetching. The Hugging Face
+sources are frozen exports and keep a dataset revision.
 
 ```bash
 python -m venv .venv && . .venv/bin/activate
 pip install pandas pyarrow pyyaml huggingface_hub scikit-learn model2vec
 
-# 1. count what the pinned revisions currently yield, writing nothing
+# 1. count what the branch heads currently yield, writing nothing
 python train/build_dataset.py --dry-run --workspace ~/AgentWorkspaces
 
 # 2. build it
 python train/build_dataset.py --workspace ~/AgentWorkspaces --out train/dataset
 
-# 3. fit against the pinned revisions
+# 3. fit
 python train/train.py --dataset train/dataset --base-model minishlab/potion-base-32M
 
 # 3b. or export prototype-mode centroids from the same corpus
@@ -96,7 +97,7 @@ Step 2 writes `train.parquet`, `test.parquet`, their JSONL twins,
 `labels.json`, and `manifest.json`. The manifest records the row counts per
 source, label, language and family, every drop the filters made, the case
 duplicates that were collapsed, the revisions actually used, and the sha256 of
-each output. Two runs from the same pins produce the same shas.
+each output. Two runs at the same commits produce the same shas.
 
 Each row carries `lang`, `label`, `utterance`, `source`, `skill_id` and
 `family`. `source` is the provenance tag — `golden:` rows come from a skill's
@@ -108,24 +109,14 @@ model was actually trained on.
 
 ## Regenerating after skills merge
 
-When skill repos move, refresh their pins. Either edit `skill_refs` in
-`sources.yaml`, or pass a generated list:
-
-```bash
-for d in ~/AgentWorkspaces/ovos/skills/ovos-skill-*; do
-  echo "$(basename $d) $(git -C $d rev-parse origin/dev)"
-done > skill-refs.txt
-
-python train/build_dataset.py --skill-ref-list skill-refs.txt --dry-run
-```
-
-Diff the new manifest against the old one. A label count that moved, rows
+Nothing is refreshed by hand: the next build reads every skill at its new
+head. Diff the new manifest against the old one. A label count that moved, rows
 shifted by an alias, or a new entry in the rare-label list all mean the corpus
 changed shape and the model has to be refit.
 
-The pins are also the label vocabulary: the builder reads each pinned repo's
-entry point and registered intents and drops any corpus label those refs do
-not attest. `unresolved_labels` in the manifest is where an unpinned or
+The listed skills are also the label vocabulary: the builder reads each
+repo's entry point and registered intents and drops any corpus label they do
+not attest. `unresolved_labels` in the manifest is where an unlisted or
 archived skill shows up. Adding a skill to `skill_refs` is how you add its
 intents to the vocabulary.
 
@@ -133,7 +124,14 @@ intents to the vocabulary.
 
 The eval side of the corpus has one source: the golden files the skills
 themselves ship, `test/end2end/golden_utterances*.jsonl`, read at the same
-`skill_refs` pin the train side reads the skill's resources at.
+commit the train side reads the skill's resources at.
+
+A gold row marked `needs_manual` is a test row like any other. Miro's ruling
+is that every gold sentence needs a human review because a model wrote it,
+so the flag is a conscious decision and never drops a row or blocks a gate.
+Each test row carries `needs_manual` (true or false) so a consumer can
+filter, and the manifest counts the flagged rows per language under
+`test_rows_needs_manual_per_language`.
 `train/build_eval.py` builds it:
 
     python train/build_eval.py --workspace ~/AgentWorkspaces --out staging/eval \
@@ -177,7 +175,7 @@ summary the corpus comes from the ovos-localize classification export and the
 lang-support tracker CSVs, the legacy GitLocalize export, the OCP music query
 templates, the common-query and weather intent corpora, an LLM-augmented
 balancing set, the locale intent files of the OCP, common-query, persona and
-stop pipelines, and the golden end-to-end corpora of the pinned skills.
+stop pipelines, and the golden end-to-end corpora of the listed skills.
 
 ## Semantic evaluation set
 

@@ -20,11 +20,11 @@ the corpus will not contain, and the reason it will not.
     python train/typed_slot_census.py --workspace ~/AgentWorkspaces
 
 By default the skills are the ones the build reads: every `skill_refs` entry
-of `train/sources.yaml`, at the revision it pins. A census taken over a
-directory glob at `origin/dev` instead describes a different corpus than the
-one that ships -- 13 of the 64 pinned skills live outside the old
-`ovos/skills/ovos-skill-*` glob, and a pinned skill's head is not its pin.
-`--glob` still takes that sweep, for a look at the fleet as it stands now.
+of `train/sources.yaml`, at the branch head the clone's remote-tracking ref
+holds (nothing is fetched). A census over a directory glob describes a
+different set of skills than the one that ships -- 13 of the 64 listed skills
+live outside the old `ovos/skills/ovos-skill-*` glob. `--glob` still takes
+that sweep, for a look at the fleet as it stands now.
 
 Exit status is 0 always: this is a census, not a gate. The gate is
 `tests/test_typed_slot_rows.py`, which fails when a placeholder survives.
@@ -109,7 +109,7 @@ def main(argv=None):
                                                  / "sources.yaml"))
     parser.add_argument("--glob", default=None,
                         help="sweep this glob at origin/dev instead of the "
-                             "pinned skill_refs")
+                             "listed skill_refs")
     parser.add_argument("--json", dest="as_json", action="store_true")
     args = parser.parse_args(argv)
 
@@ -119,10 +119,14 @@ def main(argv=None):
                   if (p / ".git").exists()}
     else:
         import yaml
-        refs = yaml.safe_load(Path(args.sources).read_text(
-            encoding="utf-8"))["skill_refs"]["refs"]
-        pinned = {ws / key: rev for key, rev in sorted(refs.items())
-                  if (ws / key / ".git").exists()}
+        import source_refs
+        cfg = yaml.safe_load(Path(args.sources).read_text(encoding="utf-8"))
+        cfg["skill_refs"]["repos"] = [
+            item for item in cfg["skill_refs"].get("repos") or []
+            if (ws / (item if isinstance(item, str) else item["path"]) / ".git").exists()]
+        source_refs.resolve(cfg, ws, fetch=False, git_sources=False)
+        pinned = {ws / key: rev for key, rev in sorted(cfg["skill_refs"]["refs"].items())
+                  if rev}
     repos = list(pinned)
     per_skill = {}
     langs = set()

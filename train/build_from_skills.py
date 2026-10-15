@@ -69,6 +69,7 @@ import typed_slots
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import skill_labels  # noqa: E402
+import source_refs  # noqa: E402
 from build_eval import read_gold  # noqa: E402  (the one gold reader)
 
 #: A locale directory: an ISO subtag, optionally with a script and a region.
@@ -378,7 +379,10 @@ def fill(template: str, hints: dict, keywords: dict, stats: collections.Counter,
         # placeholder teaches a surface the runtime never produces. A type
         # with no generator for this language drops the sentence rather than
         # filling it with another language's words.
-        typed_here = {n: slot_types[n] for n in slots if n in slot_types}
+        # Sorted: `slots` is a set, so its order follows the hash seed, and a
+        # template with two typed slots would fill them in a different order
+        # on every run, writing the same rows in a different order.
+        typed_here = {n: slot_types[n] for n in sorted(slots) if n in slot_types}
         if typed_here:
             # The word after a number slot can fix which numbers fit it
             # ("za 3 minuty", "za 5 minut"), so the sampler is told what it is.
@@ -670,7 +674,7 @@ def load_label_ledger(path: Path) -> dict:
     resource was deleted by mistake, and the only repair a bare count offers
     is to lower the floor, which deletes the signal the floor exists to
     raise. The ledger replaces the count with a list. It holds the label set
-    of the last published corpus, every label the current pins remove from
+    of the last published corpus, every label the skills' heads remove from
     that set with the reason it left, and every label they add. The floor is
     derived from those three numbers and never typed.
 
@@ -726,14 +730,13 @@ def load_label_ledger(path: Path) -> dict:
 def check_label_ledger(ledger: dict, labels_trained: set) -> dict:
     """Compare the built label set against the ledger, name by name.
 
-    The ledger may lead the pins: an entry is written when the change is
-    read, and the pin that carries it moves later. So a removal that has not
-    happened yet and an addition that has not arrived yet are reported and
+    The ledger may lead the heads: an entry may be written while the change
+    is under review. So a removal that has not happened yet and an addition that has not arrived yet are reported and
     are not failures. A loss nobody wrote down is the failure, because it is
     the one a count would have hidden.
 
     The floor is the size of the expected label set, and that set is built
-    by name from the changes that HAVE taken effect at these pins: a listed
+    by name from the changes that HAVE taken effect at these heads: a listed
     removal counts only once its label is gone, a listed addition only once
     its label is here. A floor derived from the whole ledger instead would
     count a listed addition that has not arrived and so raise the bar the
@@ -772,6 +775,16 @@ def main() -> int:
     ap.add_argument("--workspace", default=None)
     ap.add_argument("--out", required=True)
     ap.add_argument("--dry-run", action="store_true")
+    # Every skill is read at its branch head, resolved when the build starts
+    # and recorded in manifest.json under source_refs. --from-manifest reads
+    # each skill at the commit an earlier manifest recorded instead, which is
+    # how a published corpus is rebuilt byte for byte.
+    ap.add_argument("--from-manifest", default=None,
+                    help="manifest.json of an earlier build: read every skill "
+                         "at the commit it recorded instead of its branch head")
+    ap.add_argument("--no-fetch", dest="fetch", action="store_false",
+                    help="resolve each branch from the clone's own "
+                         "remote-tracking ref instead of fetching it first")
     # Floors rather than an equality: the corpus grows as skills gain
     # resources, and it must never quietly shrink. The number moves the
     # moment the expansion step starts discarding templates again, which is
@@ -780,8 +793,8 @@ def main() -> int:
     # The label floor is not typed. It is the size of the expected label
     # set, built by name from train/labels.yaml: the label set of the last
     # published corpus, minus the listed removals that have taken effect at
-    # these pins, plus the listed additions that have arrived. The ledger
-    # may lead the pins, so a change it lists but the pins do not carry yet
+    # these heads, plus the listed additions that have arrived. The ledger
+    # may lead the heads, so a change it lists but the heads do not carry yet
     # moves the floor by nothing. A loss the ledger does not list fails the
     # build whatever the count says, so the floor can no longer be satisfied
     # by a hand-lowered number, and a loss can no longer hide inside a net
@@ -819,6 +832,10 @@ def main() -> int:
 
     cfg = yaml.safe_load(Path(args.sources).read_text(encoding="utf-8"))
     ws = Path(args.workspace or cfg["workspace"]).expanduser()
+    recorded = (source_refs.recorded_refs(Path(args.from_manifest))
+                if args.from_manifest else None)
+    resolved = source_refs.resolve(cfg, ws, fetch=args.fetch, recorded=recorded,
+                                   git_sources=False)
     refs = cfg["skill_refs"]["refs"]
 
     stats = collections.Counter()
@@ -826,6 +843,7 @@ def main() -> int:
     labels_trained, labels_scored = set(), set()
     labels_with_templates = set()
     no_gold, no_resources = [], []
+    gold_without_intents = {}
     violations = set()
     dropped_templates = []
 
@@ -852,7 +870,7 @@ def main() -> int:
         with deduped_path.open("w", encoding="utf-8") as raw:
             for key, rev in sorted(refs.items()):
                 repo, repo_name = ws / key, key.rsplit("/", 1)[-1]
-                if not repo.is_dir():
+                if rev is None or not repo.is_dir():
                     stats["skill_missing_clone"] += 1
                     continue
                 templates, hints, keywords = read_skill(
@@ -893,6 +911,15 @@ def main() -> int:
                 gold = read_gold(repo, rev, repo_name, stats)
                 if not gold:
                     no_gold.append(repo_name)
+                if gold and not templates:
+                    # A skill that ships no .intent resource registers no
+                    # intent, so its gold rows cannot name one: a fallback
+                    # skill's rows name the dialog branch it speaks
+                    # (fallback-unknown's question, who_is, why_is). No
+                    # model can be trained toward such a label, so the rows
+                    # are counted here and kept out of the test side.
+                    gold_without_intents[repo_name] = len(gold)
+                    gold = []
                 for row in gold:
                     test.append(row)
                     labels_scored.add(row["label"])
@@ -1000,9 +1027,17 @@ def main() -> int:
                   f"by typing a smaller number.", file=sys.stderr)
             return 1
 
+        needs_manual = collections.Counter(r["lang"] for r in test
+                                           if r["needs_manual"])
         report = {
             "train_rows": len(train),
             "test_rows": len(test),
+            # Miro's ruling: every gold sentence is model-written, so every one
+            # needs a human review, and needs_manual is a conscious decision
+            # rather than a defect. A row carrying it is a test row like any
+            # other; the flag travels with the row so a consumer can filter.
+            "test_rows_needs_manual": sum(needs_manual.values()),
+            "test_rows_needs_manual_per_language": dict(sorted(needs_manual.items())),
             "labels_trained": len(labels_trained),
             "labels_scored": len(labels_scored & labels_trained),
             "labels_never_scored": len(labels_trained - labels_scored),
@@ -1062,9 +1097,12 @@ def main() -> int:
                 "every gold sentence in this fleet was written by a model, so the "
                 "machine_generated field is unreliable wherever it claims False "
                 "and is not read; needs_manual marks a row somebody meant a human "
-                "to check, and whether that check happened is unrecorded"),
+                "to check, and whether that check happened is unrecorded. Rows "
+                "carrying it are kept and scored, with the flag on the row"),
             "skills_without_gold": sorted(no_gold),
             "skills_without_locale_resources": sorted(no_resources),
+            "gold_rows_from_a_skill_with_no_intent_resource":
+                dict(sorted(gold_without_intents.items())),
             "noncompliant_base_names": len(violations),
             "noncompliant_base_names_detail": sorted(violations),
             "label_function": "train/skill_labels.py (no spelling fallback)",
@@ -1072,6 +1110,7 @@ def main() -> int:
             "gold_labels_starved_of_slot_examples": starved,
             "gold_labels_no_skill_supports": unsupported,
             "stats": dict(stats),
+            "source_refs": resolved,
         }
         print(json.dumps({k: v for k, v in report.items()
                           if not isinstance(v, list)}, indent=2))

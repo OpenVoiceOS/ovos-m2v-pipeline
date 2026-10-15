@@ -47,7 +47,7 @@ resolve to `<repo-name>.<author>`, but the repo name is not always the one you
 expect: `ovos-skill-wallpapers` declares `skill-ovos-wallpapers.openvoiceos`,
 because its `setup.py` derives the id from the GitHub URL. Guessing the id
 from a corpus spelling is how 62k wallpaper rows ended up under a skill id the
-runtime never registers. The builder reads the entry point at the pinned
+runtime never registers. The builder reads the entry point at the resolved
 revision instead: see below.
 
 ## Families
@@ -87,7 +87,7 @@ how the plugin already names the umbrellas in `_SPECIAL_LABELS`:
   `ovos_persona/locale/<lang>/` (`ask.intent`, `summon.intent`,
   `list_personas.intent`, …)
 
-Each list is read from the pinned plugin revision at build time, not written
+Each list is read from the plugin at its branch head at build time, not written
 down here. This page names them so a reader can check the two agree.
 
 ### The three special labels
@@ -160,9 +160,9 @@ topics they resolve to. The plugin performs that mapping at match time.
 
 ## The registry is the ground truth
 
-The pinned refs in `sources.yaml` are not just provenance. For every skill in
-`skill_refs` and every pipeline plugin, the builder reads, at that exact
-revision, the skill id its entry point declares and the intent names it
+The repositories `sources.yaml` lists are not just provenance. For every
+skill in `skill_refs` and every pipeline plugin, the builder reads, at the
+branch head it resolved when the build started, the skill id its entry point declares and the intent names it
 registers: the names passed to `IntentBuilder`, the names declared by
 `@intent_handler("name.intent")`, and the stems of the `.intent` resources it
 ships. Test directories are excluded, in skills and in plugins alike. A
@@ -192,8 +192,8 @@ Dropping is the point. A class the runtime cannot produce is a class the
 plugin will never accept a match for, so training it only steals probability
 mass from labels that matter. The unresolved list is the review surface: it is
 where an archived skill shows up (the home-assistant skill repos are archived,
-so their rows go), where a community plugin that is not in the pinned set
-shows up, and where a genuinely missing pin would show up.
+so their rows go), where a community plugin that is not in the listed set
+shows up, and where a genuinely missing skill would show up.
 
 Alias tables are deliberately small. They cover only what a registry lookup
 cannot express: a label one corpus files under the wrong skill entirely, and
@@ -270,8 +270,12 @@ registration, so keeping them entirely out of training throws away the
 highest-quality supervision in the corpus. Every row keeps a `source` column
 naming its origin, so a golden-only slice can still be scored on its own.
 
-Rows marked `needs_manual` are excluded. Rows with no `intent_label` are
-excluded too: the fallback skill's corpus asserts a dialog, not an intent.
+Rows marked `needs_manual` are kept. Every gold sentence in the fleet is
+model-written, and Miro's ruling is that every one needs a human review, so
+the flag is a conscious decision rather than a defect: it never drops a row
+or blocks a gate. The test split carries it on every row. Rows with no
+`intent_label` are excluded: the fallback skill's corpus asserts a dialog,
+not an intent.
 
 ## The train/test split
 
@@ -299,19 +303,17 @@ The Adapt-to-`.intent` refactors rename intents across the default skills, and
 a later wave will merge the weather condition intents, the alerts create and
 list families, and the volume levels. Both change the label set.
 
-The procedure is the same either way, and it is why the source manifest pins
-every revision:
+The procedure is the same either way:
 
-1. Land the skill-side change.
-2. Update that skill's pin in `train/sources.yaml`, or pass a regenerated
-   `--skill-ref-list`.
-3. For a rename with no corpus-side rows yet under the new name, add the old
+1. Land the skill-side change on the skill's `dev` branch; the next build
+   reads it.
+2. For a rename with no corpus-side rows yet under the new name, add the old
    label to the intent-alias table so historical rows keep contributing. For a
    merge, alias every merged spelling to the surviving one.
-4. Re-run the builder and read the manifest diff: the label count, the rows
+3. Re-run the builder and read the manifest diff: the label count, the rows
    moved by aliasing, and the rare-label list say whether the merge landed as
    intended.
-5. Retrain. A renamed intent is a new class, and there is no way to patch a
+4. Retrain. A renamed intent is a new class, and there is no way to patch a
    frozen label head.
 
 An alias entry is a statement that two names denote one runtime intent. It is
@@ -348,25 +350,23 @@ number at all. And the only repair a number offers is a smaller number.
 
 * `baseline` is the label set of the last published corpus, all 232 names of
   v6.1, read from the published dataset.
-* `removed` names every label the pins in `train/sources.yaml` drop against
-  that set. Each entry carries the reason it left and `merged_into`, the
+* `removed` names every label the skills' dev heads drop against that set. Each entry carries the reason it left and `merged_into`, the
   label its phrasings went to, or `merged_into: null` when there is none.
-* `added` names every label the pins add, with the reason.
+* `added` names every label the dev heads add, with the reason.
 
 The builder derives `--min-labels` as the size of the expected label set.
 It builds that set by name: the baseline, minus the listed removals that
-have taken effect at these pins, plus the listed additions that have
+have taken effect at these heads, plus the listed additions that have
 arrived. Nobody types it. `--min-labels` remains as an override that can
 only make the floor stricter: a value below the derived one is refused with
 the reason. The refusal reads the built corpus, so it arrives with the other
 gates and not at the command line.
 
-A change the ledger lists but the pins do not carry yet moves the floor by
-nothing. This is what makes the next paragraph true. A floor derived from
-the whole ledger instead would count a listed addition that has not arrived
-and raise the bar before the label that raises it exists, so a re-pin that
-carried the removals and not the additions would fail a build this file
-calls safe.
+A change the ledger lists but the heads do not carry yet moves the floor by
+nothing. A floor derived from the whole ledger instead would count a listed
+addition that has not arrived and raise the bar before the label that raises
+it exists, so a build that carried the removals and not the additions would
+fail although this file calls it safe.
 
 Two checks then read the finished label set name by name, and the manifest
 records both under `label_ledger`:
@@ -377,9 +377,8 @@ records both under `label_ledger`:
   fold that moves phrasings into a label the corpus does not carry has moved
   them into nothing.
 
-The ledger is allowed to lead the pins. An entry is written the day the
-change is read in a skill; the pin that carries it into the corpus moves
-later. So a listed removal that has not happened yet, and a listed addition
+The ledger is allowed to lead the heads. An entry may be written while the
+change is still under review in the skill. So a listed removal that has not happened yet, and a listed addition
 that has not arrived yet, are reported in the manifest and are not failures.
 The manifest names them under `listed_removals_not_yet_applied` and
 `listed_additions_not_yet_arrived`, and carries the whole-ledger figure as
@@ -408,7 +407,7 @@ This costs rows, and the cost is the point: those rows were sentences in no
 language. A corpus that reports a language it can only produce by borrowing
 another language's words overstates its coverage.
 
-At the pins this change takes the corpus from 424,270 rows in 42 languages to
+Measured when it was introduced, this rule takes the corpus from 424,270 rows in 42 languages to
 385,931 rows in 23 languages. No label is lost: 221 before and 221 after.
 
 Most of the cost is not where the language count suggests. Of the 38,339 rows

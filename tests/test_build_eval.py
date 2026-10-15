@@ -24,7 +24,7 @@ def _repo(root, files):
         path = root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
-    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    subprocess.run(["git", "init", "-q", "-b", "dev"], cwd=root, check=True)
     subprocess.run(["git", "add", "-A"], cwd=root, check=True)
     subprocess.run(["git", "-c", "user.email=t@t.invalid", "-c", "user.name=t",
                     "commit", "-q", "-m", "skill"], cwd=root, check=True)
@@ -34,7 +34,7 @@ def _repo(root, files):
 
 def _workspace(tmp_path):
     ws = tmp_path / "ws"
-    sha = _repo(ws / "ovos" / "ovos-skill-demo", {
+    _repo(ws / "ovos" / "ovos-skill-demo", {
         "setup.py": SETUP,
         "test/end2end/golden_utterances.jsonl": "\n".join([
             json.dumps({"utterance": "hello there", "intent_label": "hello.intent"}),
@@ -48,7 +48,7 @@ def _workspace(tmp_path):
     })
     sources = tmp_path / "sources.yaml"
     sources.write_text(yaml.safe_dump({
-        "workspace": str(ws), "skill_refs": {"refs": {"ovos/ovos-skill-demo": sha}}}))
+        "workspace": str(ws), "skill_refs": {"repos": ["ovos/ovos-skill-demo"]}}))
     return sources
 
 
@@ -58,10 +58,10 @@ def test_a_skill_with_no_golden_file_is_in_the_census(tmp_path):
     build never looked at (review of #219: 21 of 64 skill_refs absent)."""
     sources = _workspace(tmp_path)
     ws = tmp_path / "ws"
-    sha = _repo(ws / "ovos" / "ovos-skill-nogold", {"setup.py": SETUP.replace("demo", "nogold"),
-                                                      "README.md": "no golden file\n"})
+    _repo(ws / "ovos" / "ovos-skill-nogold", {"setup.py": SETUP.replace("demo", "nogold"),
+                                              "README.md": "no golden file\n"})
     cfg = yaml.safe_load(sources.read_text())
-    cfg["skill_refs"]["refs"]["ovos/ovos-skill-nogold"] = sha
+    cfg["skill_refs"]["repos"].append("ovos/ovos-skill-nogold")
     sources.write_text(yaml.safe_dump(cfg))
     out = tmp_path / "eval"
     assert build_eval.main(["--sources", str(sources), "--out", str(out)]) == 0
@@ -70,7 +70,7 @@ def test_a_skill_with_no_golden_file_is_in_the_census(tmp_path):
     assert census["ovos-skill-nogold"] == {"-": {"in": 0, "out": 0, "no_gold_file": 1}}
     assert "no_gold_file" not in json.dumps(census["ovos-skill-demo"])
     manifest = json.loads((out / "manifest.json").read_text())
-    assert manifest["test_rows"] == 2
+    assert manifest["test_rows"] == 3
 
 
 def test_rows_land_per_locale_with_a_census(tmp_path):
@@ -80,15 +80,19 @@ def test_rows_land_per_locale_with_a_census(tmp_path):
     assert rc == 0
     en = [json.loads(l) for l in (out / "en-US" / "test.jsonl").read_text().splitlines()]
     pt = [json.loads(l) for l in (out / "pt-PT" / "test.jsonl").read_text().splitlines()]
-    assert [r["label"] for r in en] == ["ovos-skill-demo.openvoiceos:hello"]
+    # The needs_manual row is a test row like any other, flag carried.
+    assert [(r["utterance"], r["needs_manual"]) for r in en] == [
+        ("hello there", False), ("skip me", True)]
+    assert {r["label"] for r in en} == {"ovos-skill-demo.openvoiceos:hello"}
     assert pt[0]["utterance"] == "olá" and pt[0]["lang"] == "pt-PT"
     census = json.loads((out / "census.json").read_text())
     cell = census["ovos-skill-demo"]["en-US"]
-    assert cell["in"] == 4 and cell["out"] == 1
+    assert cell["in"] == 4 and cell["out"] == 2
     assert cell["duplicate"] == 1 and cell["needs_manual"] == 1 and cell["no_intent"] == 1
     assert census["ovos-skill-demo"]["?"]["unparsable"] == 1
     manifest = json.loads((out / "manifest.json").read_text())
-    assert manifest["test_rows"] == 2 and manifest["languages_test"] == 2
+    assert manifest["test_rows"] == 3 and manifest["languages_test"] == 2
+    assert manifest["test_rows_needs_manual_per_language"] == {"en-US": 1}
     assert manifest["label_function"] == "train/skill_labels.py"
 
 

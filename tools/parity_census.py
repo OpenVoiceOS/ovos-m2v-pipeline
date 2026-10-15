@@ -37,7 +37,8 @@ Typed slots need no special case here: `declared_slots` maps `{type:name}`
 to `name` for us (OVOS-INTENT-1 §5.6).
 
     python tools/parity_census.py --workspace ~/AgentWorkspaces
-    python tools/parity_census.py --workspace ~/AgentWorkspaces --at-pins
+    python tools/parity_census.py --workspace ~/AgentWorkspaces \
+        --from-manifest corpus/manifest.json
 
 A gap an OPEN pull request already fills is reported as **in flight**, in its
 own column, and is not counted as missing. The census reads `origin/dev`, and
@@ -52,10 +53,10 @@ at a time and the waiting branches are this lane's own work. Such a pair reads
 `--no-branch-signal` skips this reading. No network call pays for it, so a
 branch this clone never fetched is not seen.
 
-Without `--at-pins` every skill is read at `origin/dev`, which measures the
-fleet as it stands, and each skill's sha is printed. With `--at-pins` the
-revisions in `train/sources.yaml` are read instead, which measures the tree
-the published corpus was built from.
+Without `--from-manifest` every skill is read at `origin/dev`, which measures
+the fleet as it stands, and each skill's sha is printed. With it, each skill
+is read at the commit a corpus build recorded in its manifest, which measures
+the tree that corpus was built from.
 
 The count is taken against the clones on disk, and the report says so: the
 first line names the listing (`<workspace>/<glob>`). A skill the workspace
@@ -725,15 +726,11 @@ def census_one(repo: Path, rev: str, in_flight: dict | None = None,
     }
 
 
-def pinned_revisions(sources: Path) -> dict[str, str]:
-    """``{repo name: revision}`` from train/sources.yaml, read as text."""
-    import re
-    text = sources.read_text(encoding="utf-8")
-    out = {}
-    for match in re.finditer(r"^\s+([\w./-]*ovos-skill-[\w-]+):\s*([0-9a-f]{7,40})\s*$",
-                             text, re.M):
-        out[match.group(1).rsplit("/", 1)[-1]] = match.group(2)
-    return out
+def recorded_revisions(manifest: Path) -> dict[str, str]:
+    """``{repo name: commit}`` a corpus build recorded in its manifest."""
+    refs = json.loads(manifest.read_text(encoding="utf-8"))["source_refs"]["skill_refs"]
+    return {path.rsplit("/", 1)[-1]: rec["sha"]
+            for path, rec in refs.items() if rec.get("sha")}
 
 
 def fleet_from_org(org: str) -> tuple[list[str], int]:
@@ -802,11 +799,9 @@ def main(argv=None):
                         help="directory holding the ovos-skill-* clones")
     parser.add_argument("--glob", default="ovos/skills/ovos-skill-*",
                         help="where the clones are, relative to the workspace")
-    parser.add_argument("--at-pins", action="store_true",
-                        help="read each skill at its train/sources.yaml revision "
-                             "instead of origin/dev")
-    parser.add_argument("--sources", default=None,
-                        help="path to train/sources.yaml, for --at-pins")
+    parser.add_argument("--from-manifest", default=None,
+                        help="corpus manifest.json: read each skill at the "
+                             "commit that build recorded instead of origin/dev")
     parser.add_argument("--org", default=None,
                         help="GitHub organisation whose ovos-skill-* listing "
                              "the clones are checked against (needs gh)")
@@ -850,10 +845,8 @@ def main(argv=None):
         fleet = fleet_from_file(Path(args.fleet).expanduser())
 
     pins = {}
-    if args.at_pins:
-        if not args.sources:
-            raise SystemExit("[census] --at-pins needs --sources")
-        pins = pinned_revisions(Path(args.sources).expanduser())
+    if args.from_manifest:
+        pins = recorded_revisions(Path(args.from_manifest).expanduser())
 
     cache, cache_path = {}, None
     if args.pr_cache:
@@ -864,7 +857,7 @@ def main(argv=None):
     results, skipped, pr_notes = [], [], []
     branch_notes, moved_by_branch = [], 0
     for repo in repos:
-        rev = pins.get(repo.name, "") if args.at_pins else ""
+        rev = pins.get(repo.name, "")
         if not rev:
             # Not every skill calls its default branch dev; the census must
             # not drop a repository over the name of its branch.
@@ -934,7 +927,7 @@ def main(argv=None):
         "branch_signal_fetched": bool(args.fetch_branches),
         "branch_signal_not_read": branch_notes,
         "pairs_moved_by_a_branch": moved_by_branch,
-        "read_at": "train/sources.yaml pins" if args.at_pins else "origin/dev",
+        "read_at": f"{args.from_manifest} source_refs" if args.from_manifest else "origin/dev",
         "fleet": None,
         "skills": results,
     }

@@ -1,9 +1,12 @@
-# Pinned source manifest for train/build_dataset.py.
+# Source list for train/build_from_skills.py and train/build_dataset.py.
 #
-# Every entry names an immutable revision. The builder fails loudly when a
-# revision cannot be resolved, so a moved branch can never silently change the
-# corpus. Bump a revision here, re-run the builder, and the manifest it writes
-# records exactly which revisions produced the outputs.
+# Every git source names a repository and a branch, never a commit. A build
+# reads each one at its branch head, resolved once when the build starts, and
+# records every commit it resolved in its manifest.json (`source_refs`), so
+# the manifest is what reproduces a build: `build_from_skills.py
+# --from-manifest <manifest.json>` reads each skill at the recorded commit.
+# The branch is `dev` unless an entry names another one. Hugging Face sources
+# keep a dataset revision: they are frozen exports with no branch.
 
 version: 2
 
@@ -16,7 +19,6 @@ git_sources:
     kind: localize_jsonl
     repo: https://github.com/OpenVoiceOS/ovos-localize
     path: ovos/web/ovos-localize
-    revision: 35c0405a7eddad24957300629ccd29389fbb2c76
     files: "data/datasets/classification/*.jsonl"
     license: "Apache-2.0 (OVOS skill locale files, community translations)"
     columns:
@@ -35,7 +37,6 @@ git_sources:
     kind: tracker_csv
     repo: https://github.com/OpenVoiceOS/lang-support-tracker
     path: ovos/tools/lang-support-tracker
-    revision: 92ac8cd2f99605b50c754824d5377dee2fff681c
     files: "skills/intents_{lang}.csv"
     langs: [ca, da, de, en, es, eu, fr, gl, it, nl, pt]
     license: "Apache-2.0"
@@ -54,7 +55,6 @@ git_sources:
     pipeline_id: ocp
     repo: https://github.com/OpenVoiceOS/ovos-ocp-pipeline-plugin
     path: ovos/plugins/pipeline/ovos-ocp-pipeline-plugin
-    revision: cc61e31e1f2c4f2c030fd6d95be77a6c2578a1cd
     files: "**/locale/*/*.intent"
     license: "Apache-2.0"
 
@@ -64,7 +64,6 @@ git_sources:
     pipeline_id: common_query
     repo: https://github.com/OpenVoiceOS/ovos-common-query-pipeline-plugin
     path: ovos/plugins/pipeline/ovos-common-query-pipeline-plugin
-    revision: 6444c24e18ed088c25f9316ce59bacee679793f7
     files: "**/locale/*/*.intent"
     license: "Apache-2.0"
     extra_intents: [common_query]
@@ -81,7 +80,6 @@ git_sources:
     pipeline_id: persona
     repo: https://github.com/OpenVoiceOS/ovos-persona
     path: ovos/plugins/pipeline/ovos-persona
-    revision: 1137322a528db08d60f49e8a84ef22953b72247f
     files: "**/locale/*/*.intent"
     license: "Apache-2.0"
 
@@ -91,7 +89,6 @@ git_sources:
     pipeline_id: stop
     repo: https://github.com/OpenVoiceOS/ovos-core
     path: ovos/core/ovos-core
-    revision: a40742a942369e81e4d14f0bd35a96e016554f95
     files: "ovos_core/intent_services/locale/*/*.intent"
     license: "Apache-2.0"
     notes: >
@@ -104,8 +101,8 @@ git_sources:
     family: common_reading
     pipeline_id: common_reading
     repo: https://github.com/andlo/ovos-common-reading-pipeline-plugin
+    branch: main
     path: ovos/plugins/pipeline/ovos-common-reading-pipeline-plugin
-    revision: c20125a3fdac50dc7810165d161920097be3ace6
     files: "locale/*/*.intent"
     license: "GPL-3.0-or-later"
     notes: >
@@ -193,86 +190,79 @@ golden:
     files: "test/end2end/golden_utterances*.jsonl"
     lang_from_filename: true
     default_lang: en-US
-  exclude:
-    needs_manual: true
 
-# Pinned skill refs, workspace-relative. These are the GROUND TRUTH for the
+# Skill repositories, workspace-relative. These are the GROUND TRUTH for the
 # label vocabulary: the builder reads each repo's entry point and its
-# registered intents at this exact revision, and drops any corpus label the
-# refs do not attest. Regenerate after the Adapt->.intent PRs merge with
-# `--skill-ref-list <file>`, one `<repo-path> <sha>` pair per line.
+# registered intents at its branch head, and drops any corpus label they do
+# not attest. The game skills and skill-musicassistant have no dev branch,
+# so their entries name the branch they do have.
 skill_refs:
-  refs:
-    ovos/ovos-skill-bandcamp: 54e617e51e6cd51abbeac86ac407ce479c533bbe
-    ovos/ovos-skill-news: ecacedec6719ef1a7d3bb5cab51e02541b3f17e4
-    ovos/ovos-skill-pyradios: 41f4dbe0b72dbbd8e2c773e429f7615ac88175e1
-    ovos/ovos-skill-somafm: 57f0926ade8c53f2898dcd42f09fa36e752ab38f
-    ovos/ovos-skill-soundcloud: d2580103cf729a88997000d57b88f7038b6f7ccd
-    ovos/ovos-skill-spotify: 844bad2e4951c5c6f3b40284672aed1293057c39
-    ovos/ovos-skill-tunein: 373ebbaaa2a19da53def90d10dd1eabdbeccded3
-    ovos/ovos-skill-youtube: d34620b0782c65921ab84376b8364e58da95ba70
-    ovos/ovos-skill-youtube-music: 0812227128ee80ebec502acce7b2924f5ec0cf66
-    ovos/plugins/agents/ovos-skill-ddg: 85d15d1c5d999bafa88c03a36a6b742eba354f23
-    ovos/skills/adult/ovos-skill-hello-world: e50d075acaa9fefd9061e1e80285dc01e403e294
-    ovos/skills/ovos-skill-alerts: df609d6c794e7636bdb079329676194bd2b2e081
-    ovos/skills/ovos-skill-application-launcher: fb7d4d71ed7e72cdaa0a4d18070ac4701e147a57
-    ovos/skills/ovos-skill-audio-recording: 36077063110c3daa0cdf26b330849b7a59f3ffbf
-    ovos/skills/ovos-skill-boot-finished: e6b56c1a2d0d0a64e1f9c7ffee86dace956fa90a
-    ovos/skills/ovos-skill-camera: 08ffb05df48b0cccc175024de44a4f79cc9cd1ea
-    ovos/skills/ovos-skill-cave-adventure-game: 83286c197185134aa6e47578a5758c2860427835
-    ovos/skills/ovos-skill-cmd: 0f2cd6eed846e92b4638a77338fd3790a2b1174e
-    ovos/skills/ovos-skill-color-picker: f8a1c4b4081430dd7287b47bbc7a184470cf9e0e
-    ovos/skills/ovos-skill-confucius-quotes: b009ce3a57d46cd81924c435043054e977dfe7f7
-    ovos/skills/ovos-skill-count: 680bcb89dfd885144b5c36b4b9269fbe58ff55df
-    # date-time is held at this sha on purpose. It is not stale. dev is three
-    # commits ahead, and the gap holds #318, which fills the 18 offset.entity
-    # files that held only comment lines. ovos-skill-date-time#320 replaces
-    # those files with the typed slot {number:offset}, so a move to the dev
-    # head puts a large block of offset rows into the corpus that the next
-    # build removes again. Move this pin when the typed-slot conversion lands.
-    ovos/skills/ovos-skill-date-time: 57b097ebc6feece468acba69ea683a422d62148e
-    ovos/skills/ovos-skill-days-in-history: ef8e18d28bc5e91dd058c38664cde0cae50fb492
-    ovos/skills/ovos-skill-diagnostics: 1e18795a2a6dde05b0e8d83061aba4d3eb704723
-    ovos/skills/ovos-skill-dictation: 1271f92e4ed78f7019749e8b3574c33b66118176
-    ovos/skills/ovos-skill-easter-eggs: 31bbb6a5aaef647de5aed0c6643d37b2504da66c
-    ovos/skills/ovos-skill-fallback-unknown: 775e7762f976c72d2d3e750d1e026bff9d394506
-    ovos/skills/ovos-skill-fuster-quotes: 745fc429a161f3da94c84a8b98539a185d639721
-    ovos/skills/ovos-skill-ggwave: 682764d9200ad3f28e225d593d288b6157231656
-    ovos/skills/ovos-skill-hhgg-game: 2d0e7973ef61a9488cdfec69c82ccbba79a3a75a
-    ovos/skills/ovos-skill-homescreen: 0b177acac5b4af55fb0a40baaf2ce8348dd45b59
-    ovos/skills/ovos-skill-icanhazdadjokes: c8ef66dc4755910eac1c2c95b87d215543d83cf6
-    ovos/skills/ovos-skill-ip: 3a2152f9053ac7225c09893fc45078ee5e5e38f1
-    ovos/skills/ovos-skill-iss-location: 0a369e2086f0c9529c653f469ca62247ee93dc9f
-    ovos/skills/ovos-skill-laugh: 217ade9c9afa56813aac14bbcec38dd7899cb62c
-    ovos/skills/ovos-skill-mark1-ctrl: 781b9aa4e526138189818a81667d4a48da61c6da
-    ovos/skills/ovos-skill-moon-game: 78a483d0db68e850d4ce14e07d09bf5805af2d09
-    ovos/skills/ovos-skill-moviemaster: 78cc113738ad39ff2704d77008f43f90191de380
-    ovos/skills/ovos-skill-naptime: 8d35e0670861740c5f4dc997e53c7a479a94d494
-    ovos/skills/ovos-skill-number-facts: 415a34ed1004791e0f24838e5fecb0aca108e4f3
-    ovos/skills/ovos-skill-parrot: 59fe1b6e7e3edd2e574ab69bc8324fb41bb94bc6
-    ovos/skills/ovos-skill-personal: c8bed315506808e9965a2356512cb3f7f22fbb03
-    ovos/skills/ovos-skill-planet-fall-game: 294d2324a0b2cad2743432644bca4827b3dc4f28
-    ovos/skills/ovos-skill-pokepedia: f20146b11d8410b2065108c92ed262349b0a3ec7
-    ovos/skills/ovos-skill-randomness: 2351c454f79403718165bfcc972075657eff147f
-    ovos/skills/ovos-skill-screenshot: bf64698b42f786f56f2ce1dd00d0af982b314173
-    ovos/skills/ovos-skill-speedtest: d1c7b0bc21b0de51833f128a1600c2aa39d5e6cd
-    ovos/skills/ovos-skill-spelling: 2cc09ae4dbce2d4352db9cb531120e569734752d
-    ovos/skills/ovos-skill-starcross-game: dbdf43f6118e98a411440789f901c704f861a7fa
-    ovos/skills/ovos-skill-station-fall-game: 4438ac80985b0bffaad4a7fb55537a29dd3ae141
-    ovos/skills/ovos-skill-volume: 0a9887656765a44c62a4a2af2ebba64f6bfcb834
-    ovos/skills/ovos-skill-wallpapers: 39a8955cd78d55cab680161f9e9816fb56a7dfbc
-    ovos/skills/ovos-skill-weather: fb87032b6bd9fcea2856e510cfae5a31d98635aa
-    ovos/skills/ovos-skill-white-house-adventure: f64f4128cabeebeb978ab3954f00f11a9d02ee14
-    ovos/skills/ovos-skill-wikihow: ff99bdf4f84eadea8b68c9d26793b44c9bb0f721
-    ovos/skills/ovos-skill-wikipedia: 9da7a4637bb4743fa7df603f0959ee5fed1ed8a9
-    ovos/skills/ovos-skill-wolfie: 306c524d7125c672f8085b76c746025df8980a43
-    ovos/skills/ovos-skill-word-of-the-day: 1745cc6b467de4abffaf35fcc117f281dbd64891
-    ovos/skills/ovos-skill-wordnet: 1846a4248c75ab582205fe5d1a73730e9f5e3b39
-    ovos/skills/ovos-skill-zork0-game: 6ae8df93e1f3f92e908bc7f538f0013eea927c4c
-    ovos/skills/ovos-skill-zork2-game: 240e1d32ed138f182b270c6f04be195fb1973d7c
-    ovos/skills/ovos-skill-zork3-game: cee1fa2ff8c4038e7ef990a2d0e449f618da8272
-    vendor/skill-meal-plan: 85a38cdece1e417e75e1bbf252a0a3a272d14269
-    vendor/skill-musicassistant: ebd7456bb0bb39db4121dfe7174fcab92f6e981c
+  branch: dev
+  repos:
+    - ovos/ovos-skill-bandcamp
+    - ovos/ovos-skill-news
+    - ovos/ovos-skill-pyradios
+    - ovos/ovos-skill-somafm
+    - ovos/ovos-skill-soundcloud
+    - ovos/ovos-skill-spotify
+    - ovos/ovos-skill-tunein
+    - ovos/ovos-skill-youtube
+    - ovos/ovos-skill-youtube-music
+    - ovos/plugins/agents/ovos-skill-ddg
+    - ovos/skills/adult/ovos-skill-hello-world
+    - ovos/skills/ovos-skill-alerts
+    - ovos/skills/ovos-skill-application-launcher
+    - ovos/skills/ovos-skill-audio-recording
+    - ovos/skills/ovos-skill-boot-finished
+    - ovos/skills/ovos-skill-camera
+    - {path: ovos/skills/ovos-skill-cave-adventure-game, branch: master}
+    - ovos/skills/ovos-skill-cmd
+    - ovos/skills/ovos-skill-color-picker
+    - ovos/skills/ovos-skill-confucius-quotes
+    - ovos/skills/ovos-skill-count
+    - ovos/skills/ovos-skill-date-time
+    - ovos/skills/ovos-skill-days-in-history
+    - ovos/skills/ovos-skill-diagnostics
+    - ovos/skills/ovos-skill-dictation
+    - ovos/skills/ovos-skill-easter-eggs
+    - ovos/skills/ovos-skill-fallback-unknown
+    - ovos/skills/ovos-skill-fuster-quotes
+    - ovos/skills/ovos-skill-ggwave
+    - {path: ovos/skills/ovos-skill-hhgg-game, branch: master}
+    - ovos/skills/ovos-skill-homescreen
+    - ovos/skills/ovos-skill-icanhazdadjokes
+    - ovos/skills/ovos-skill-ip
+    - ovos/skills/ovos-skill-iss-location
+    - ovos/skills/ovos-skill-laugh
+    - ovos/skills/ovos-skill-mark1-ctrl
+    - ovos/skills/ovos-skill-moon-game
+    - ovos/skills/ovos-skill-moviemaster
+    - ovos/skills/ovos-skill-naptime
+    - ovos/skills/ovos-skill-number-facts
+    - ovos/skills/ovos-skill-parrot
+    - ovos/skills/ovos-skill-personal
+    - {path: ovos/skills/ovos-skill-planet-fall-game, branch: master}
+    - ovos/skills/ovos-skill-pokepedia
+    - ovos/skills/ovos-skill-randomness
+    - ovos/skills/ovos-skill-screenshot
+    - ovos/skills/ovos-skill-speedtest
+    - ovos/skills/ovos-skill-spelling
+    - {path: ovos/skills/ovos-skill-starcross-game, branch: master}
+    - {path: ovos/skills/ovos-skill-station-fall-game, branch: master}
+    - ovos/skills/ovos-skill-volume
+    - ovos/skills/ovos-skill-wallpapers
+    - ovos/skills/ovos-skill-weather
+    - {path: ovos/skills/ovos-skill-white-house-adventure, branch: master}
+    - ovos/skills/ovos-skill-wikihow
+    - ovos/skills/ovos-skill-wikipedia
+    - ovos/skills/ovos-skill-wolfie
+    - ovos/skills/ovos-skill-word-of-the-day
+    - ovos/skills/ovos-skill-wordnet
+    - {path: ovos/skills/ovos-skill-zork0-game, branch: master}
+    - {path: ovos/skills/ovos-skill-zork2-game, branch: master}
+    - {path: ovos/skills/ovos-skill-zork3-game, branch: master}
+    - vendor/skill-meal-plan
+    - {path: vendor/skill-musicassistant, branch: main}
 
 # Skill-id spellings older corpora use for a pipeline. Resolved to the
 # pipeline id before the registry lookup, since folding cannot bridge them.
