@@ -238,7 +238,7 @@ def clear_shared_models() -> None:
         _SHARED_MODEL_LOADS = 0
 
 
-def _resolve_model_id(config: Dict, lang: str) -> str:
+def _resolve_model_id(config: Dict, lang: str) -> Union[str, Dict[str, str]]:
     """Resolve the Model2Vec repo id to load for *lang*.
 
     Resolution order (highest priority first):
@@ -247,7 +247,8 @@ def _resolve_model_id(config: Dict, lang: str) -> str:
        from before this per-language roster existed.
     2. ``config["models"]`` -- a ``{locale_or_lang: repo_id}`` map, matched
        first against the full locale (``"pt-BR"``) then against the primary
-       subtag (``"pt"``); keys are matched case-insensitively.
+       subtag (``"pt"``); keys are matched case-insensitively. A value may
+       also be ``{"model": repo_id, "subfolder": folder}``, returned as is.
     3. `DEFAULT_MODELS`, matched against the primary subtag.
     4. `DEFAULT_MULTILINGUAL`.
 
@@ -1245,6 +1246,8 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         to load, e.g. ``"int8"`` or ``"fp16"`` for the smaller copies a repo
         ships beside the default one; ``""`` is the root. Only that folder's
         model files are downloaded; unset, only the files at the repo root are.
+        A ``models`` entry of the form ``{"model": ..., "subfolder": ...}``
+        sets the folder for its language and takes precedence over this key.
 
     ``low_tier`` : str, default ``"prototype"`` (classifier mode only)
         Which engine answers ``ovos-m2v-pipeline-low``. ``"prototype"``:
@@ -1286,9 +1289,14 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         super().__init__(bus, config)
         lang = Configuration().get("lang", "en-us")
         model_path = _resolve_model_id(self.config, lang)
+        subfolder = self.config.get("subfolder")
+        if isinstance(model_path, dict):
+            # a `models` entry naming its own folder, such as one language's cut of a repo
+            if model_path.get("subfolder") is not None:
+                subfolder = model_path["subfolder"]
+            model_path = model_path.get("model")
         if not model_path:
             raise FileNotFoundError("'model' not set in configuration for ovos_m2v_pipeline")
-        subfolder = self.config.get("subfolder")
         #: `subfolder` came from `INT8_DEFAULT_REPOS`, not from the config
         self._int8_default: bool = (subfolder is None and self.config.get("revision") is None
                                     and model_path in INT8_DEFAULT_REPOS)

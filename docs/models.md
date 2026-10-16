@@ -31,8 +31,32 @@ the float32 root. To pick a folder:
 ```
 
 `subfolder` applies to every model the plugin loads, so set it only when
-each of them has that folder. Both repositories carry `fp16` and `int8`.
+each of them has that folder; a `models` entry with its own `subfolder`
+overrides it for that language. Both repositories carry `fp16` and `int8`.
 The English models are measured in classifier mode only.
+
+For devices with little memory, such as a Raspberry Pi, the multilingual
+repository also holds one folder per language: `pt`, `es`, `ca`, `da`, `de`,
+`nl`, `sv`, `gl` and `eu`. Each is an int8 copy of the multilingual model with
+its vocabulary cut to that language, 2.4 to 13 MB against 148 MB for `int8`,
+and scores within about one point of the full model on that language's gold
+rows (the model card has the table). A `models` entry names the folder for
+its language. The plugin loads one model, chosen by the install's `lang`, so
+every utterance that install hears goes through that folder, whatever its
+language; a cut folder can misread words of another language, such as an
+English request on a Spanish install:
+
+```json
+{
+  "intents": {
+    "ovos-m2v-pipeline": {
+      "models": {
+        "pt": {"model": "OpenVoiceOS/ovos-m2v-intents-multilingual", "subfolder": "pt"}
+      }
+    }
+  }
+}
+```
 
 Check each repo's model card on Hugging Face for its exact size, language
 list and accuracy.
