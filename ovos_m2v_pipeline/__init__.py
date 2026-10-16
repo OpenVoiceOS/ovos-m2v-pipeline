@@ -115,6 +115,12 @@ DEFAULT_MODELS: Dict[str, str] = {}
 #: (and without a `config["models"]` override) -- i.e. every language.
 DEFAULT_MULTILINGUAL = "OpenVoiceOS/ovos-m2v-intents-multilingual"
 
+#: Repos whose current revision ships an ``int8/`` copy that scores as its
+#: float32 root. Unless `config["subfolder"]` is set (``""`` loads the root)
+#: or a `config["revision"]` pins a commit, these load from ``int8/``; a
+#: cached snapshot without that folder, used offline, loads its root.
+INT8_DEFAULT_REPOS = frozenset({DEFAULT_MULTILINGUAL, "OpenVoiceOS/ovos-m2v-intents-en"})
+
 #: The files of one model folder: every layout model2vec loads (its own and
 #: the sentence-transformers ones), plus the classifier head and the label
 #: manifest. A Hub repo can carry several models (the default at the root,
@@ -1233,11 +1239,12 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         Hub model to, passed through to ``from_pretrained``. Unset loads
         whatever revision the Hub currently resolves as latest.
 
-    ``subfolder`` : str, optional (default: ``None``)
+    ``subfolder`` : str, optional (default: ``"int8"`` for the repos in
+        `INT8_DEFAULT_REPOS` with no ``revision`` set, else ``None``)
         Folder of the ``model`` repo (or local directory) holding the model
         to load, e.g. ``"int8"`` or ``"fp16"`` for the smaller copies a repo
-        ships beside the default one. Only that folder's model files are
-        downloaded; unset, only the files at the repo root are.
+        ships beside the default one; ``""`` is the root. Only that folder's
+        model files are downloaded; unset, only the files at the repo root are.
 
     ``low_tier`` : str, default ``"prototype"`` (classifier mode only)
         Which engine answers ``ovos-m2v-pipeline-low``. ``"prototype"``:
@@ -1281,8 +1288,14 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         model_path = _resolve_model_id(self.config, lang)
         if not model_path:
             raise FileNotFoundError("'model' not set in configuration for ovos_m2v_pipeline")
-        #: `config["subfolder"]` without surrounding slashes, `None` when unset
-        self._subfolder: Optional[str] = (self.config.get("subfolder") or "").strip("/") or None
+        subfolder = self.config.get("subfolder")
+        #: `subfolder` came from `INT8_DEFAULT_REPOS`, not from the config
+        self._int8_default: bool = (subfolder is None and self.config.get("revision") is None
+                                    and model_path in INT8_DEFAULT_REPOS)
+        if self._int8_default:
+            subfolder = "int8"
+        #: the folder to load, without surrounding slashes; `None` for the root
+        self._subfolder: Optional[str] = (subfolder or "").strip("/") or None
 
         self.intents: set = set()
         self.ignore_labels: List[str] = self.config.get("ignore_intents") or []
@@ -1291,6 +1304,9 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         #: Consumed by `_apply_special_label_map` to turn a raw model label
         #: into `(skill_id, canonical_label)`.
         manifest = _load_labels_manifest(model_path, self._subfolder)
+        if not manifest and self._int8_default:
+            # int8/labels.json is the root's, and only the root may be cached yet
+            manifest = _load_labels_manifest(model_path, None)
         manifest_map = {k: v for k, v in manifest.items() if k != "valid_labels"}
         user_map = self.config.get("label_map") or {}
         self.label_map: Dict[str, Any] = {**_SPECIAL_LABEL_MAP, **manifest_map, **user_map}
@@ -1505,8 +1521,15 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                         f"model to run a different one.")
                 if "revision" in self.config and "revision" not in proto_cfg:
                     proto_cfg["revision"] = self.config["revision"]
-                if self._subfolder and "subfolder" not in proto_cfg:
-                    proto_cfg["subfolder"] = self._subfolder
+                discarded = proto_cfg.pop("subfolder", None)
+                if discarded is not None and (discarded.strip("/") or None) != self._subfolder:
+                    LOG.warning(
+                        f"low_prototype.subfolder {discarded!r} is discarded: the "
+                        f"-low prototype stage always loads this plugin's own "
+                        f"folder, {self._subfolder or ''!r}.")
+                if not self._int8_default:
+                    # left unset, the stage takes the same int8 default and its offline fallback
+                    proto_cfg["subfolder"] = self._subfolder or ""
                 proto_cfg["ignore_intents"] = sorted(
                     set(proto_cfg.get("ignore_intents") or []) | set(self.ignore_labels))
                 self._low_prototype = Model2VecPrototypePipeline(self.bus, proto_cfg)
@@ -1632,10 +1655,12 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         can't be reached (offline, network error) this falls back to
         whatever snapshot is already cached, logging which one.
         """
-        subfolder = self._subfolder
         if Path(model_path).exists():
+            subfolder = self._subfolder
+
             return str(Path(model_path) / subfolder) if subfolder else model_path
         revision = self.config.get("revision")
+        subfolder = self._subfolder
         allow_patterns = _model_allow_patterns(subfolder)
         import huggingface_hub
         import huggingface_hub.constants
@@ -1643,20 +1668,18 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         import requests
         pin = f" @ {revision}" if revision else ""
         if huggingface_hub.constants.HF_HUB_OFFLINE:
-            resolved = huggingface_hub.snapshot_download(
-                model_path, repo_type="model", revision=revision,
-                allow_patterns=allow_patterns, local_files_only=True)
+            resolved = self._cached_snapshot(model_path, revision)
             LOG.warning(f"HF_HUB_OFFLINE is set; using cached snapshot "
                         f"'{resolved}' for '{model_path}'{pin} without "
                         f"checking the Hub")
-            return str(Path(resolved) / subfolder) if subfolder else resolved
+            return self._snapshot_folder(model_path, resolved)
         if revision is None:
             current = self._cached_snapshot_if_current(model_path)
             if current is not None:
                 LOG.info(f"Resolved Model2Vec model '{model_path}' to "
                          f"cached snapshot '{current}' (Hub confirmed "
                          f"current)")
-                return str(Path(current) / subfolder) if subfolder else current
+                return self._snapshot_folder(model_path, current)
         try:
             resolved = huggingface_hub.snapshot_download(
                 model_path, repo_type="model", revision=revision,
@@ -1664,14 +1687,48 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         except (huggingface_hub.utils.HfHubHTTPError,
                 huggingface_hub.utils.HFValidationError,
                 ConnectionError, requests.exceptions.RequestException):
-            resolved = huggingface_hub.snapshot_download(
-                model_path, repo_type="model", revision=revision,
-                allow_patterns=allow_patterns, local_files_only=True)
+            resolved = self._cached_snapshot(model_path, revision)
             LOG.warning(f"Hub unreachable resolving '{model_path}'{pin}; "
                         f"using cached snapshot '{resolved}'")
         LOG.info(f"Resolved Model2Vec model '{model_path}' to snapshot "
                  f"'{resolved}'")
-        return str(Path(resolved) / subfolder) if subfolder else resolved
+        return self._snapshot_folder(model_path, resolved)
+
+    def _cached_snapshot(self, model_path: str, revision: Optional[str]) -> str:
+        """The cached snapshot of ``model_path``, without the Hub. With the
+        default ``int8`` folder missing from the cache, the cached root."""
+        import huggingface_hub
+        try:
+            return huggingface_hub.snapshot_download(
+                model_path, repo_type="model", revision=revision, local_files_only=True,
+                allow_patterns=_model_allow_patterns(self._subfolder))
+        except huggingface_hub.errors.LocalEntryNotFoundError:
+            if not (self._int8_default and self._subfolder):
+                raise
+        snapshot = huggingface_hub.snapshot_download(
+            model_path, repo_type="model", revision=revision, local_files_only=True,
+            allow_patterns=_model_allow_patterns(None))
+        self._use_root(model_path, snapshot)
+        return snapshot
+
+    def _use_root(self, model_path: str, snapshot: str) -> None:
+        LOG.warning(f"Snapshot '{snapshot}' of '{model_path}' has no "
+                    f"'{self._subfolder}/' copy cached; loading its root")
+        self._subfolder = None
+        if hasattr(self, "_model_id"):
+            self._model_id = model_path
+
+    def _snapshot_folder(self, model_path: str, snapshot: str) -> str:
+        """The folder of ``snapshot`` to load. A default ``int8`` folder that
+        a cached snapshot lacks (cached before the folder was published,
+        then resolved offline) falls back to the root."""
+        if not self._subfolder:
+            return snapshot
+        folder = Path(snapshot) / self._subfolder
+        if self._int8_default and not (folder / "model.safetensors").exists():
+            self._use_root(model_path, snapshot)
+            return snapshot
+        return str(folder)
 
     def _load_model_now(self) -> None:
         """Load ``self.model`` and drain any buffered prototype registrations.
