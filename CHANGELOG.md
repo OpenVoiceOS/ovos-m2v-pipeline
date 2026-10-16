@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.36.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.36.0a1) (2026-10-16)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.35.0a2...0.36.0a1)
+
+**Merged pull requests:**
+
+- feat: load the int8 copy of the published models by default [\#335](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/335) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.35.0a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.35.0a2) (2026-10-16)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.35.0a1...0.35.0a2)
