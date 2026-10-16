@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.36.0a3](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.36.0a3) (2026-10-16)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.36.0a2...0.36.0a3)
+
+**Merged pull requests:**
+
+- docs: name the release that reads a folder from a models entry [\#339](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/339) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.36.0a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.36.0a2) (2026-10-16)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.36.0a1...0.36.0a2)
