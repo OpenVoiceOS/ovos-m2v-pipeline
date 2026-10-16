@@ -6,7 +6,7 @@ prototype plugin). The table lists every key the code reads.
 
 The `model` key of the classifier section is the one key both plugins read. A
 prototype section that sets neither `model` nor `models` takes `model`,
-`models` and `revision` from the classifier section. Both plugins then share
+`models`, `revision` and `subfolder` from the classifier section. Both plugins then share
 one model in memory: the prototype plugin embeds with the trained
 classifier's own embedding, and the classifier head is the only extra
 weight. Set `model` in the prototype section only to run a second model.
@@ -18,6 +18,7 @@ weight. Set `model` in the prototype section only to run a second model.
 | `model` | `str` | unset, resolves per language (see [models.md](models.md)) | Hugging Face repo ID or local path to load. |
 | `models` | `dict[str, str]` | `{}` | Per-language override, `{locale_or_lang: repo_id}`. Skipped when `model` is set. |
 | `revision` | `str` | unset | Git revision of the `model` repo to pin. Ignored for a local path. |
+| `subfolder` | `str` | unset | Folder of the `model` repo or local directory holding the model to load, such as `int8` or `fp16`. Only that folder's model files are downloaded; unset, only the files at the repo root are. `labels.json` is read from the same folder. The folder must hold a model2vec model; a repo's `onnx/` folder is for ONNX runtimes and does not load here. |
 | `mode` | `str` | `"classifier"` | `"classifier"` or `"prototype"`. Forced to `"prototype"` when the plugin loads as `ovos-m2v-prototype-pipeline`. |
 | `conf_high` | `float` | `0.7` classifier, `0.85` prototype | Minimum score for `match_high`. |
 | `conf_medium` | `float` | `0.5` classifier, `0.7` prototype | Minimum score for `match_medium`. |
