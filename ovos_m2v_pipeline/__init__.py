@@ -107,13 +107,8 @@ _SPECIAL_LABEL_MAP: Dict[str, Tuple[str, str]] = {
 
 #: Built-in per-language default model, keyed by primary lang subtag
 #: (e.g. ``"en"`` from ``"en-US"``). Empty: `DEFAULT_MULTILINGUAL` is the
-#: default for every language. `OpenVoiceOS/ovos-m2v-intents-en` scores
-#: worse than the multilingual model on paraphrase / prototype-mode
-#: dispatch ranking (e.g. "lights on now" failing to match prototypes
-#: trained on "turn on the lights") despite a comparable held-out
-#: accuracy, so it is not wired in as anyone's default; it remains
-#: selectable via `config["models"]` for size-constrained deployments
-#: that can accept that trade-off.
+#: default for every language. `OpenVoiceOS/ovos-m2v-intents-en` is an
+#: English-only alternative, selectable via `config["models"]`.
 DEFAULT_MODELS: Dict[str, str] = {}
 
 #: Default model for every language without a `DEFAULT_MODELS` entry

@@ -41,14 +41,11 @@ Fixed in 0.9.2a1: the snapshot resolution runs inside the loader's retry path, s
   a different model per language without setting `model` outright; it is
   matched against the full locale first, then the primary language subtag,
   and is only consulted when `model` is unset.
-  `OpenVoiceOS/ovos-m2v-intents-en` is a smaller (16 MB), English-only
-  model from the same roster; it is not the default (nor wired into any
-  built-in per-language table) purely to keep that table small, since its
-  held-out accuracy is comparable to the multilingual model. It remains
-  available via `model` or `models["en"]` for deployments where the
-  smaller footprint is worth trading off broader language coverage.
-  Both models are frozen at dataset manifest `c6831002…` (pipeline commit
-  `173c1fe`) and will be refit after the Adapt → `.intent` refactors merge.
+  `OpenVoiceOS/ovos-m2v-intents-en` is an English-only model; it is not
+  the default (nor wired into any built-in per-language table) and is
+  available via `model` or `models["en"]`. Both repositories are trained
+  on `OpenVoiceOS/ovos-intents` `v7-preview2`; their model cards name the
+  revision of each earlier model.
 - `valid_labels` is no longer consulted in prototype mode. It is an
   allow-list drawn from a model manifest's frozen training vocabulary, and
   prototype labels are registered at runtime rather than trained into the
