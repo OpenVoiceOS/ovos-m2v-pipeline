@@ -18,6 +18,12 @@ import requests
 from ovos_bus_client.message import Message  # noqa: F401  (import parity with sibling tests)
 from ovos_utils.fakebus import FakeBus
 
+ROOT_MODEL_FILES = ["0_StaticEmbedding/model.safetensors",
+                    "0_StaticEmbedding/tokenizer.json", "README.md",
+                    "config.json", "config_sentence_transformers.json",
+                    "head.safetensors", "labels.json", "model.safetensors",
+                    "modules.json", "pipeline.skops", "tokenizer.json"]
+
 
 def _make_pipeline(config):
     from ovos_m2v_pipeline import Model2VecIntentPipeline
@@ -40,7 +46,8 @@ class TestResolveModelRevision(unittest.TestCase):
             result = pipeline._resolve_model_revision("OpenVoiceOS/fake-repo")
         mock_cached.assert_called_once_with("OpenVoiceOS/fake-repo")
         mock_dl.assert_called_once_with(
-            "OpenVoiceOS/fake-repo", repo_type="model", revision=None)
+            "OpenVoiceOS/fake-repo", repo_type="model", revision=None,
+            allow_patterns=ROOT_MODEL_FILES)
         self.assertEqual(result, "/cache/fake-repo/snapshots/deadbeef")
 
     def test_revision_pinned_is_passed_through(self):
@@ -53,7 +60,8 @@ class TestResolveModelRevision(unittest.TestCase):
             result = pipeline._resolve_model_revision("OpenVoiceOS/fake-repo")
         mock_cached.assert_not_called()  # pinned commits are immutable, no probe needed
         mock_dl.assert_called_once_with(
-            "OpenVoiceOS/fake-repo", repo_type="model", revision="v5")
+            "OpenVoiceOS/fake-repo", repo_type="model", revision="v5",
+            allow_patterns=ROOT_MODEL_FILES)
         self.assertEqual(result, "/cache/fake-repo/snapshots/v5")
 
     def test_local_directory_is_returned_unchanged(self):
@@ -129,7 +137,8 @@ class TestCachedSnapshotIfCurrent(unittest.TestCase):
             result = pipeline._cached_snapshot_if_current("OpenVoiceOS/fake-repo")
 
         mock_dl.assert_called_once_with(
-            "OpenVoiceOS/fake-repo", repo_type="model", local_files_only=True)
+            "OpenVoiceOS/fake-repo", repo_type="model", local_files_only=True,
+            allow_patterns=ROOT_MODEL_FILES)
         mock_api.return_value.model_info.assert_called_once_with(
             "OpenVoiceOS/fake-repo", timeout=5.0)
         self.assertEqual(result, "/cache/fake-repo/snapshots/abc123")
@@ -167,7 +176,8 @@ class TestCachedSnapshotIfCurrent(unittest.TestCase):
             result = pipeline._cached_snapshot_if_current("OpenVoiceOS/fake-repo")
 
         mock_dl.assert_called_once_with(
-            "OpenVoiceOS/fake-repo", repo_type="model", local_files_only=True)
+            "OpenVoiceOS/fake-repo", repo_type="model", local_files_only=True,
+            allow_patterns=ROOT_MODEL_FILES)
         self.assertEqual(result, "/cache/fake-repo/snapshots/abc123")
         mock_log.warning.assert_called_once()
         self.assertIn("/cache/fake-repo/snapshots/abc123",
