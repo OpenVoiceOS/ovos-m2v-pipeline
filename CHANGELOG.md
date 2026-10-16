@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.35.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.35.0a1) (2026-10-16)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.34.0a1...0.35.0a1)
+
+**Merged pull requests:**
+
+- feat: subfolder config and folder-scoped model downloads [\#331](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/331) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.34.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.34.0a1) (2026-10-15)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.33.7a1...0.34.0a1)
