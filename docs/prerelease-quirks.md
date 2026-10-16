@@ -3,7 +3,7 @@
 Behavior changes since the last stable release, newest first. This file is
 reset at each stable release.
 
-## 0.37.0a1
+## 0.36.0a2
 
 - A `models` entry can name the folder its language loads:
   `{"pt": {"model": "OpenVoiceOS/ovos-m2v-intents-multilingual", "subfolder": "pt"}}`.
