@@ -18,7 +18,7 @@ weight. Set `model` in the prototype section only to run a second model.
 | `model` | `str` | unset, resolves per language (see [models.md](models.md)) | Hugging Face repo ID or local path to load. |
 | `models` | `dict[str, str]` | `{}` | Per-language override, `{locale_or_lang: repo_id}`. Skipped when `model` is set. |
 | `revision` | `str` | unset | Git revision of the `model` repo to pin. Ignored for a local path. |
-| `subfolder` | `str` | unset | Folder of the model repo or local directory the plugin loads (from `model`, `models` or the default) holding the model, such as `int8` or `fp16`. Only that folder's model files are downloaded; unset, only the files at the repo root are. `labels.json` is read from the same folder. The folder must hold a model2vec model; a repo's `onnx/` folder is for ONNX runtimes and does not load here. |
+| `subfolder` | `str` | `"int8"` for `OpenVoiceOS/ovos-m2v-intents-multilingual` and `OpenVoiceOS/ovos-m2v-intents-en` when no `revision` is set, else unset | Folder of the model repo or local directory the plugin loads (from `model`, `models` or the default) holding the model, such as `int8` or `fp16`. `""` loads the repo root. Only that folder's model files are downloaded; unset, only the files at the repo root are. `labels.json` is read from the same folder. The folder must hold a model2vec model; a repo's `onnx/` folder is for ONNX runtimes and does not load here. |
 | `mode` | `str` | `"classifier"` | `"classifier"` or `"prototype"`. Forced to `"prototype"` when the plugin loads as `ovos-m2v-prototype-pipeline`. |
 | `conf_high` | `float` | `0.7` classifier, `0.85` prototype | Minimum score for `match_high`. |
 | `conf_medium` | `float` | `0.5` classifier, `0.7` prototype | Minimum score for `match_medium`. |

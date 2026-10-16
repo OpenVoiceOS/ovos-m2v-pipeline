@@ -14,7 +14,10 @@ with `fp16`, `int8` and `onnx` copies beside it, and `potion-base-8M`,
 `potion-base-4M` and `potion-base-2M` folders down to 8 MB. Its model card
 lists each one's gold accuracy on English next to the multilingual
 model's. It is not the default for any language; opt in with
-`models["en"]` (or `model`), and pick a folder with `subfolder`:
+`models["en"]` (or `model`). Both repositories load their `int8` copy
+unless `subfolder` names another folder (`""` for the root) or `revision`
+pins a commit; the int8 copies score within a few tenths of a point of
+the float32 root. To pick a folder:
 
 ```json
 {
