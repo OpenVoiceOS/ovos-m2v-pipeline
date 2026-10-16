@@ -1,85 +1,79 @@
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/TigreGotico/ovos-m2v-pipeline)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/OpenVoiceOS/ovos-m2v-pipeline)
 
 # OVOS Model2Vec Intent Pipeline
 
-An intent matching pipeline for [OpenVoiceOS (OVOS)](https://openvoiceos.org), powered by the Model2Vec model for intent classification.
+An intent-matching pipeline plugin for [OpenVoiceOS](https://openvoiceos.org),
+built on [Model2Vec](https://github.com/MinishLab/model2vec) static
+embeddings. It classifies an utterance against the intents that loaded
+skills registered at runtime, either through a pre-trained classifier head
+or through the skills' own example utterances with no training step. Use it
+as a semantic fallback behind exact matchers such as Adapt and padacioso.
 
-This plugin uses a pretrained [Model2Vec](https://github.com/MinishLab/model2vec) model to classify natural language utterances into intent labels registered with the system (Adapt, Padatious, and plugin-specific labels). It only considers intents from loaded skills and ignores any labels from unregistered intents. This pipeline is ideal for use cases where other deterministic engines fail to provide a high-confidence match.
-
----
-
-## ✨ Features
-
-* ✅ Powered by Model2Vec for high-quality intent classification
-* ✅ Plug-and-play integration with OVOS pipelines
-* ✅ Model2Vec trained on [GitLocalize](https://gitlocalize.com/users/OpenVoiceOS) exports
-* ✅ English models in various sizes, distilled from [Potion](https://huggingface.co/collections/minishlab/potion-6721e0abd4ea41881417f062)
-* ✅ Multilingual model, distilled from [LaBSE](https://huggingface.co/minishlab/M2V_multilingual_output)
-* ✅ Syncs Adapt and Padatious intents dynamically at runtime
-* ✅ Only considers intents from loaded skills, ignoring unregistered labels
-
-> 💡 english models size ranges from 8MB to 150MB, the multilingual model (default) is over 500MB
-
----
-
-## 📦 Installation
-
-You can install the plugin via `pip`:
+## Install
 
 ```bash
-pip install ovos-m2v-pipeline
+uv pip install --prerelease=allow ovos-m2v-pipeline
 ```
 
----
-
-## ⚙️ Configuration
-
-In your `mycroft.conf`:
+## Configure
 
 ```json
 {
   "intents": {
     "ovos-m2v-pipeline": {
-      "model": "Jarbas/ovos-model2vec-intents-LaBSE",
-      "conf_high": 0.7,
-      "conf_medium": 0.5,
-      "conf_low": 0.15,
-      "ignore_intents": []
-    }
+      "model": "OpenVoiceOS/ovos-m2v-intents-multilingual"
+    },
+    "pipeline": [
+      "ovos-padacioso-pipeline-plugin-high",
+      "ovos-m2v-pipeline-high",
+      "ovos-m2v-prototype-pipeline-medium"
+    ]
   }
 }
 ```
 
-* `model`: Path to your pretrained Model2Vec model or huggingface repo.
-* `conf_xxx`: Minimum confidence threshold for intent matching.
-* `ignore_intents`: List of intents to ignore during matching.
+`intents.pipeline` replaces the whole pipeline list, not only its m2v
+entries; see [the pipeline order](docs/ovos_pipeline.md#place-padacioso-before-the-classifier)
+for where the other plugins a deployment installs belong in it.
 
-> ⚠️  The Model2Vec model is pretrained based on GitLocalize exports and **cannot learn new skills** dynamically.
+`ovos-padacioso-pipeline-plugin-high` runs first: a frozen classifier only
+answers with a label it was trained on, so an exact template line of a
+skill it never saw is claimed earlier, and correctly, by an exact matcher.
+See [the pipeline order](docs/ovos_pipeline.md#place-padacioso-before-the-classifier)
+for the full reasoning.
 
----
+## Tiers
 
-## 🧠 Usage
+| Entry-point suffix | Method | Answers from |
+|---|---|---|
+| `-high` | `match_high()` | the trained head, or the skill's own examples for the standalone prototype plugin |
+| `-medium` | `match_medium()` | same, at a lower threshold |
+| `-low` | `match_low()` | the skill's own examples by default (`low_tier: "prototype"`) |
 
-The `Model2VecIntentPipeline` class integrates with the OVOS intent system. It:
+## Documentation
 
-1. Receives an utterance (text).
-2. Predicts intent labels using the pretrained Model2Vec model.
-3. Filters out intents that are not part of the loaded skills.
-4. Returns a match for the highest-confidence intent from the list of valid intents.
+| Page | Covers |
+|---|---|
+| [Configuration](docs/configuration.md) | Every config key, its default and its type |
+| [OVOS Pipeline Plugin](docs/ovos_pipeline.md) | Entry points, tiers, modes, caching |
+| [Models](docs/models.md) | Published model ids and picking one |
+| [Training](docs/training.md) | Building the corpus and fitting a model |
+| [Label scheme](docs/labels.md) | Label format, families, dedup and renames |
+| [Pre-release quirks](docs/prerelease-quirks.md) | Behaviour changes by pre-release version, reset at each stable release |
 
+Training your own model starts at [Training](docs/training.md).
 
----
+## License
 
-## 🧪 Tips
+Apache 2.0. See [LICENSE](LICENSE).
 
-* Tune `min_conf` to control the confidence threshold for intent matching.
-* Use the `ignore_intents` list to filter out specific problematic intent from predictions.
-* Syncing of Adapt and Padatious intents is done automatically at runtime via the OVOS message bus.
+## Credits
 
-> 💡 pre-trained models available in this huggingface collection [ovos-model2vec-intents](https://huggingface.co/collections/Jarbas/ovos-model2vec-intents-681c478aecb9979e659b17f8)
+First built by [TigreGótico](https://tigregotico.pt) for
+[OpenVoiceOS](https://openvoiceos.org) under the
+[ILENIA](https://proyectoilenia.es) project, and extended through the
+[NGI0 Commons Fund](https://nlnet.nl/commonsfund).
 
----
+<img src="./ilenia.png" width="128"/>
 
-## 🛡 License
-
-This project is licensed under the [Apache 2.0 License](LICENSE).
+[![NGI0 Commons Fund](./ngi.png)](https://nlnet.nl/project/OpenVoiceOS)

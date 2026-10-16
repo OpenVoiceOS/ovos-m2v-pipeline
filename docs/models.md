@@ -1,55 +1,75 @@
-# Pre-trained Models
+# Models
 
-All models are published on Hugging Face in the [ovos-model2vec-intents](https://huggingface.co/collections/Jarbas/ovos-model2vec-intents-681c478aecb9979e659b17f8) collection.
+## Classifier models
 
-They are trained on OVOS skill intent examples from [GitLocalize](https://gitlocalize.com/users/OpenVoiceOS) and the `ovos_intent_examples` / `music_queries_templates` datasets.
+`OpenVoiceOS/ovos-m2v-intents-multilingual` is the default for every
+language with no `models` override. It is a `StaticModelPipeline`: an
+embedding model plus a trained classifier head, distilled from a
+multilingual base and fit on the OVOS skill intent corpus (see
+[Training](training.md)).
 
----
+`OpenVoiceOS/ovos-m2v-intents-en` is an English-only alternative. It holds
+one model per potion English base: potion-base-32M at the root (126 MB),
+with `fp16`, `int8` and `onnx` copies beside it, and `potion-base-8M`,
+`potion-base-4M` and `potion-base-2M` folders down to 8 MB. Its model card
+lists each one's gold accuracy on English next to the multilingual
+model's. It is not the default for any language; opt in with
+`models["en"]` (or `model`). Both repositories load their `int8` copy
+unless `subfolder` names another folder (`""` for the root) or `revision`
+pins a commit; the int8 copies score within a few tenths of a point of
+the float32 root. To pick a folder:
 
-## Multilingual Model (Default)
+```json
+{
+  "intents": {
+    "ovos-m2v-pipeline": {
+      "models": {"en": "OpenVoiceOS/ovos-m2v-intents-en"},
+      "subfolder": "int8"
+    }
+  }
+}
+```
 
-| Model | Base | Languages | Approx. Size |
-|-------|------|-----------|-------------|
-| `Jarbas/ovos-model2vec-intents-LaBSE` | `minishlab/M2V_multilingual_output` (distilled from LaBSE) | en, pt, eu, es, gl, nl, fr, de, ca, it, da | ~500 MB |
+`subfolder` applies to every model the plugin loads, so set it only when
+each of them has that folder; a `models` entry with its own `subfolder`
+overrides it for that language. Both repositories carry `fp16` and `int8`.
+The English models are measured in classifier mode only.
 
-### Benchmark
+For devices with little memory, such as a Raspberry Pi, the multilingual
+repository also holds one folder per language: `pt`, `es`, `ca`, `da`, `de`,
+`nl`, `sv`, `gl` and `eu`. Each is an int8 copy of the multilingual model with
+its vocabulary cut to that language, 2.4 to 13 MB against 148 MB for `int8`,
+and scores within about one point of the full model on that language's gold
+rows (the model card has the table). A `models` entry names the folder for
+its language. The plugin loads one model, chosen by the install's `lang`, so
+every utterance that install hears goes through that folder, whatever its
+language; a cut folder can misread words of another language, such as an
+English request on a Spanish install:
 
-| Language | Accuracy | F1 Score |
-|----------|----------|----------|
-| multilingual | 0.9916 | 0.9911 |
+```json
+{
+  "intents": {
+    "ovos-m2v-pipeline": {
+      "models": {
+        "pt": {"model": "OpenVoiceOS/ovos-m2v-intents-multilingual", "subfolder": "pt"}
+      }
+    }
+  }
+}
+```
 
----
+Check each repo's model card on Hugging Face for its exact size, language
+list and accuracy.
 
-## English Models
+## Prototype mode
 
-Distilled from the [Potion](https://huggingface.co/collections/minishlab/potion-6721e0abd4ea41881417f062) family of English static models.
+Prototype mode needs no classifier head: any Model2Vec `StaticModel` works
+as the embedding backbone, including the base a classifier model was
+distilled from. `train/distill.py` lists the base models this repo
+distills; a base's own model card names its source Sentence Transformer and
+language coverage.
 
-| Hugging Face Repo | Base Model | Approx. Size | Accuracy | F1 Score |
-|-------------------|-----------|-------------|----------|----------|
-| `Jarbas/ovos-model2vec-intents-potion-base-2M` | `minishlab/potion-base-2M` | ~8 MB | 0.9233 | 0.9127 |
-| `Jarbas/ovos-model2vec-intents-potion-base-4M` | `minishlab/potion-base-4M` | ~16 MB | 0.9129 | 0.9076 |
-| `Jarbas/ovos-model2vec-intents-potion-base-8M` | `minishlab/potion-base-8M` | ~32 MB | 0.9303 | 0.9255 |
-| `Jarbas/ovos-model2vec-intents-potion-base-32M` | `minishlab/potion-base-32M` | ~128 MB | 0.9338 | 0.9302 |
-| `Jarbas/ovos-model2vec-intents-potion-retrieval-32M` | `minishlab/potion-retrieval-32M` | ~128 MB | 0.9408 | 0.9352 |
-
-> Benchmarks were measured on a 10% held-out split of the English training data.
-
----
-
-## Choosing a Model
-
-| Use case | Recommendation |
-|----------|----------------|
-| Multilingual OVOS instance | Default multilingual (`LaBSE`-based) |
-| English-only, resource-constrained | `potion-base-2M` (~8 MB, loads in ~130 ms) |
-| English-only, best accuracy | `potion-retrieval-32M` |
-| English-only, balanced | `potion-base-8M` or `potion-base-32M` |
-
----
-
-## Using a Custom Model
-
-Point `model` at any local directory or Hugging Face repo that contains a `StaticModelPipeline` checkpoint:
+## Pointing at another model
 
 ```json
 {
@@ -61,4 +81,11 @@ Point `model` at any local directory or Hugging Face repo that contains a `Stati
 }
 ```
 
-See [Training](training.md) to produce your own model.
+`model` accepts a Hugging Face repo id or a local directory holding a
+`StaticModelPipeline` checkpoint (classifier mode) or a bare `StaticModel`
+(prototype mode). `models` sets a different `model` per language. See
+[Configuration](configuration.md) for both keys, and
+[Training](training.md) to produce a model of your own.
+
+---
+[← Configuration](configuration.md) · [Home](../README.md) · [Training →](training.md)
