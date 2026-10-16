@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.36.0a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.36.0a2) (2026-10-16)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.36.0a1...0.36.0a2)
+
+**Merged pull requests:**
+
+- feat: let a models entry name the folder its language loads [\#337](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/337) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.36.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.36.0a1) (2026-10-16)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.35.0a2...0.36.0a1)
@@ -368,10 +376,6 @@
 ## [0.23.3a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.23.3a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.23.2a1...0.23.3a1)
-
-**Merged pull requests:**
-
-- fix: re-pin the six renamed skills so the corpus trains the new labels [\#234](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/234) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
 
 ## [0.23.2a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.23.2a1) (2026-09-18)
 
