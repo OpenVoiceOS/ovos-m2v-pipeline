@@ -55,6 +55,37 @@ class TestInt8Default(unittest.TestCase):
     def test_null_revision_is_unset(self):
         self.assertEqual(_subfolder({"revision": None}), "int8")
 
+    def test_models_entry_names_its_language_folder(self):
+        entry = {"model": MULTI, "subfolder": "pt"}
+        self.assertEqual(_subfolder({"models": {"pt": entry}}, "pt-PT"), "pt")
+        self.assertEqual(_subfolder({"models": {"pt": entry}, "subfolder": "fp16"}, "pt-BR"), "pt")
+        # another language keeps the repo default
+        self.assertEqual(_subfolder({"models": {"pt": entry}}, "es-ES"), "int8")
+
+    def test_models_entry_without_folder_takes_the_default(self):
+        self.assertEqual(_subfolder({"models": {"pt": {"model": MULTI}}}, "pt-PT"), "int8")
+        self.assertEqual(_subfolder({"models": {"pt": {"model": MULTI}}, "subfolder": "fp16"}, "pt-PT"), "fp16")
+        self.assertEqual(_subfolder({"models": {"pt": {"model": MULTI, "subfolder": None}}, "subfolder": "fp16"}, "pt-PT"), "fp16")
+
+    def test_models_entry_loads_its_repo(self):
+        from ovos_m2v_pipeline import Model2VecIntentPipeline
+        with patch("ovos_m2v_pipeline.StaticModelPipeline"), \
+             patch("ovos_m2v_pipeline._load_labels_manifest", return_value={}), \
+             patch("ovos_m2v_pipeline.Configuration", return_value={"lang": "pt-PT"}):
+            pipe = Model2VecIntentPipeline(bus=FakeBus(), config={"models": {"pt": {"model": EN, "subfolder": "x"}}})
+        self.assertEqual(pipe._model_path, EN)
+        self.assertEqual(pipe._subfolder, "x")
+
+    def test_prototype_plugin_takes_the_classifier_language_folder(self):
+        from ovos_m2v_pipeline import Model2VecPrototypePipeline
+        intents = {"intents": {"ovos-m2v-pipeline": {"models": {"pt": {"model": MULTI, "subfolder": "pt"}}}},
+                   "lang": "pt-PT"}
+        with patch("ovos_m2v_pipeline.StaticModelPipeline"), \
+             patch("ovos_m2v_pipeline._load_labels_manifest", return_value={}), \
+             patch("ovos_m2v_pipeline.Configuration", return_value=intents):
+            pipe = Model2VecPrototypePipeline(bus=FakeBus(), config={})
+        self.assertEqual(pipe._subfolder, "pt")
+
     def test_low_prototype_subfolder_follows_the_classifier(self):
         self.assertEqual(_subfolder({"low_prototype": {"subfolder": "fp16"}}), "int8")
         self.assertIsNone(_subfolder({"subfolder": "", "low_prototype": {"subfolder": "int8"}}))
