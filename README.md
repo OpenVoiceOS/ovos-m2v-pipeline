@@ -59,6 +59,10 @@ for the full reasoning.
 | [Models](docs/models.md) | Published model ids and picking one |
 | [Training](docs/training.md) | Building the corpus and fitting a model |
 | [Label scheme](docs/labels.md) | Label format, families, dedup and renames |
+| [Hierarchical prototype store](docs/hierarchical_store.md) | Two-stage, domain-routed prototype matching |
+| [Hierarchical trained classifier](docs/hierarchical_classifier.md) | Two-stage, domain-routed trained matching |
+| [Domain trained classifier](docs/domain_classifier.md) | One trained head per domain, global argmax |
+| [Benchmark](docs/benchmark.md) | The engine comparison in `benchmark/compare.py` |
 | [Pre-release quirks](docs/prerelease-quirks.md) | Behaviour changes by pre-release version, reset at each stable release |
 
 Training your own model starts at [Training](docs/training.md).
