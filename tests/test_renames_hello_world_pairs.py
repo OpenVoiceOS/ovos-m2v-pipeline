@@ -1,7 +1,7 @@
 """The hello-world renames must be bridged, one pair per intent label.
 
 `ovos-skill-hello-world#140` renames its four intents to OVOS-INTENT-2 §2
-names. A model trained before the rename emits the old labels, so each
+names, and `#167` folds hello_world_intent into greetings. A model trained before the rename emits the old labels, so each
 gets a pair until a model trained on the new names is published. The two
 `.voc` and two `.dialog` files the same commit renamed get no pair: no
 model emits them as a label.
@@ -13,7 +13,8 @@ from ovos_m2v_pipeline.renames import RENAMED_LABELS
 SKILL = "ovos-skill-hello-world.openvoiceos"
 PAIRS = {
     "Greetings": "greetings",
-    "HelloWorldIntent": "hello_world_intent",
+    "HelloWorldIntent": "greetings",
+    "hello_world_intent": "greetings",
     "HowAreYou": "how_are_you",
     "ThankYouIntent": "thank_you_intent",
 }

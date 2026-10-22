@@ -38,19 +38,26 @@ RENAMED_LABELS = {
     # compliant (lowercase letters, digits and underscores).
     "ovos-skill-speedtest.openvoiceos:SpeedtestIntent": "ovos-skill-speedtest.openvoiceos:speedtest_intent",
     "ovos-skill-date-time.openvoiceos:weekday.for.date": "ovos-skill-date-time.openvoiceos:weekday_for_date",
-    "ovos-skill-date-time.openvoiceos:weekday.matches.date": "ovos-skill-date-time.openvoiceos:weekday_matches_date",
     "ovos-skill-date-time.openvoiceos:what.day.is.it": "ovos-skill-date-time.openvoiceos:what_day_is_it",
     "ovos-skill-date-time.openvoiceos:what.month.is.it": "ovos-skill-date-time.openvoiceos:what_month_is_it",
     "ovos-skill-date-time.openvoiceos:what.time.is.it": "ovos-skill-date-time.openvoiceos:what_time_is_it",
     "ovos-skill-date-time.openvoiceos:what.time.will.it.be": "ovos-skill-date-time.openvoiceos:what_time_will_it_be",
-    "ovos-skill-date-time.openvoiceos:what.weekday.is.it": "ovos-skill-date-time.openvoiceos:what_weekday_is_it",
     "ovos-skill-date-time.openvoiceos:what.year.is.it": "ovos-skill-date-time.openvoiceos:what_year_is_it",
     # ovos-skill-date-time#466: current_date folded into what_day_is_it, whose
     # intent file holds every line of both.
     "ovos-skill-date-time.openvoiceos:current_date": "ovos-skill-date-time.openvoiceos:what_day_is_it",
+    # ovos-skill-date-time#476: weekday_matches_date and what_weekday_is_it
+    # folded into weekday_for_date. Every spelling of the three names the
+    # survivor.
+    "ovos-skill-date-time.openvoiceos:weekday.matches.date": "ovos-skill-date-time.openvoiceos:weekday_for_date",
+    "ovos-skill-date-time.openvoiceos:weekday_matches_date": "ovos-skill-date-time.openvoiceos:weekday_for_date",
+    "ovos-skill-date-time.openvoiceos:what.weekday.is.it": "ovos-skill-date-time.openvoiceos:weekday_for_date",
+    "ovos-skill-date-time.openvoiceos:what_weekday_is_it": "ovos-skill-date-time.openvoiceos:weekday_for_date",
     # ovos-skill-confucius-quotes: resource base names made OVOS-INTENT-2 §2
     # compliant (lowercase letters, digits and underscores).
     "ovos-skill-confucius-quotes.openvoiceos:ConfuciusQuote": "ovos-skill-confucius-quotes.openvoiceos:confucius_quote",
+    # ovos-skill-icanhazdadjokes#186: search_joke folded into joke.
+    "ovos-skill-icanhazdadjokes.openvoiceos:search_joke": "ovos-skill-icanhazdadjokes.openvoiceos:joke",
     # ovos-skill-ip: resource base names made OVOS-INTENT-2 §2 compliant
     # (lowercase letters, digits and underscores).
     "ovos-skill-ip.openvoiceos:IPIntent": "ovos-skill-ip.openvoiceos:ip",
@@ -97,7 +104,10 @@ RENAMED_LABELS = {
     # ovos-skill-hello-world#140: resource base names made OVOS-INTENT-2 §2
     # compliant. The two .voc and two .dialog files it renamed get no pair.
     "ovos-skill-hello-world.openvoiceos:Greetings": "ovos-skill-hello-world.openvoiceos:greetings",
-    "ovos-skill-hello-world.openvoiceos:HelloWorldIntent": "ovos-skill-hello-world.openvoiceos:hello_world_intent",
+    # ovos-skill-hello-world#167: hello_world_intent folded into greetings.
+    # Both spellings name the survivor.
+    "ovos-skill-hello-world.openvoiceos:HelloWorldIntent": "ovos-skill-hello-world.openvoiceos:greetings",
+    "ovos-skill-hello-world.openvoiceos:hello_world_intent": "ovos-skill-hello-world.openvoiceos:greetings",
     "ovos-skill-hello-world.openvoiceos:HowAreYou": "ovos-skill-hello-world.openvoiceos:how_are_you",
     "ovos-skill-hello-world.openvoiceos:ThankYouIntent": "ovos-skill-hello-world.openvoiceos:thank_you_intent",
 }

@@ -90,7 +90,7 @@ class TestRenameTable(unittest.TestCase):
 
     def test_date_time_renames_are_listed(self):
         dated = {k for k in RENAMED_LABELS if k.startswith("ovos-skill-date-time.openvoiceos:")}
-        self.assertEqual(len(dated), 14)
+        self.assertEqual(len(dated), 16)
 
     def test_confucius_quotes_rename_is_listed(self):
         self.assertEqual(

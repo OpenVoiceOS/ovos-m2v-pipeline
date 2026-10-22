@@ -71,17 +71,26 @@ def _by_skill() -> dict:
 
 def _verdict(skill_id, pairs, registered):
     """None when the head is consistent with the bridge, else the refusal."""
-    # Several old names can fold into one new name, so the sets are compared,
-    # not their sizes. Before a fold merges, its target may already be a
-    # label of its own, so an unmerged head is told by its old names alone.
-    wanted_new = {new for _, new in pairs}
-    wanted_old = {old for old, _ in pairs}
+    # Several old names can fold into one new name. A fold's survivor exists
+    # before and after the fold merges, so the fold cannot tell a merged head
+    # from an unmerged one: it only needs its survivor, or one of its old
+    # names, to be registered. The other pairs are plain renames.
+    olds_of = {}
+    for old, new in pairs:
+        olds_of.setdefault(new, set()).add(old)
+    for survivor, olds in olds_of.items():
+        if len(olds) > 1 and survivor not in registered and not olds & registered:
+            return (f"{skill_id}: the head registers neither the survivor "
+                    f"{survivor} nor any of {sorted(olds)}")
+    renames = [(old, new) for old, new in pairs if len(olds_of[new]) == 1]
+    wanted_new = {new for _, new in renames}
+    wanted_old = {old for old, _ in renames}
     news = wanted_new & registered
     olds = wanted_old & registered
     if (news == wanted_new and not olds) or olds == wanted_old:
         return None
     return (f"{skill_id}: the head registers new {sorted(news)} and old "
-            f"{sorted(olds)} of {len(pairs)} bridged names")
+            f"{sorted(olds)} of {len(renames)} bridged names")
 
 
 @pytest.mark.parametrize("skill_id", sorted(_by_skill()))
@@ -123,3 +132,30 @@ def test_a_rename_that_has_not_merged_is_allowed():
 def test_a_fold_of_several_names_into_one_is_a_completed_rename():
     pairs = [("create_alarm_alt", "create_alarm"), ("CreateAlarm", "create_alarm")]
     assert _verdict("x", pairs, {"create_alarm"}) is None
+
+
+def test_a_fold_is_allowed_before_and_after_it_merges():
+    """A fold beside plain renames: the folded name may or may not be gone."""
+    pairs = [
+        ("Greetings", "greetings"),
+        ("HelloWorldIntent", "greetings"),
+        ("hello_world_intent", "greetings"),
+        ("HowAreYou", "how_are_you"),
+    ]
+    assert _verdict("x", pairs, {"greetings", "hello_world_intent", "how_are_you"}) is None
+    assert _verdict("x", pairs, {"greetings", "how_are_you"}) is None
+
+
+def test_a_fold_beside_a_half_done_rename_is_refused():
+    pairs = [
+        ("hello_world_intent", "greetings"),
+        ("HelloWorldIntent", "greetings"),
+        ("HowAreYou", "how_are_you"),
+        ("ThankYouIntent", "thank_you_intent"),
+    ]
+    assert _verdict("x", pairs, {"greetings", "how_are_you", "ThankYouIntent"}) is not None
+
+
+def test_a_fold_whose_survivor_and_old_names_are_all_gone_is_refused():
+    pairs = [("hello_world_intent", "greetings"), ("HelloWorldIntent", "greetings")]
+    assert _verdict("x", pairs, {"how_are_you"}) is not None
