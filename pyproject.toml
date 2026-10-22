@@ -21,7 +21,7 @@ classifiers = [
 dependencies = [
     # opm.pipeline entrypoints + the bus-client 2.x e2e stack need modern opm;
     # the prerelease floor lets the resolver pick it without --pre.
-    "ovos-plugin-manager>=2.3.0a1,<3.0.0",
+    "ovos-plugin-manager>=2.3.0a1",
     "ovos-bus-client>=2.5.1a1,<3.0.0",
     "ovos-config",
     "ovos-utils>=0.3.4,<1.0.0",
