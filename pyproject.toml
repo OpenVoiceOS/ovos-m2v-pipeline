@@ -86,6 +86,9 @@ ovos-m2v-prototypes = "ovos_m2v_pipeline.cli:main"
 ovos-m2v-pipeline = "ovos_m2v_pipeline:Model2VecIntentPipeline"
 ovos-m2v-prototype-pipeline = "ovos_m2v_pipeline:Model2VecPrototypePipeline"
 
+[project.entry-points."opm.embeddings.text"]
+ovos-m2v-embeddings-plugin = "ovos_m2v_pipeline.embeddings:Model2VecEmbeddings"
+
 [tool.setuptools]
 packages = ["ovos_m2v_pipeline"]
 include-package-data = true
