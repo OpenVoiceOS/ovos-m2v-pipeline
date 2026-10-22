@@ -57,6 +57,7 @@ for the full reasoning.
 | [Configuration](docs/configuration.md) | Every config key, its default and its type |
 | [OVOS Pipeline Plugin](docs/ovos_pipeline.md) | Entry points, tiers, modes, caching |
 | [Models](docs/models.md) | Published model ids and picking one |
+| [Text embeddings](docs/embeddings.md) | The text embeddings plugin and its config |
 | [Training](docs/training.md) | Building the corpus and fitting a model |
 | [Label scheme](docs/labels.md) | Label format, families, dedup and renames |
 | [Pre-release quirks](docs/prerelease-quirks.md) | Behaviour changes by pre-release version, reset at each stable release |
