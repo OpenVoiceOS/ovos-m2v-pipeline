@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.37.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.37.0a1) (2026-10-22)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.36.1a1...0.37.0a1)
+
+**Merged pull requests:**
+
+- feat: model2vec text embeddings plugin [\#343](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/343) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.36.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.36.1a1) (2026-10-22)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.36.0a3...0.36.1a1)
@@ -372,10 +380,6 @@
 ## [0.23.5a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.23.5a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.23.4a1...0.23.5a1)
-
-**Merged pull requests:**
-
-- fix: pin the six gold skills past their gold fixes, floors at the v6.1 values [\#240](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/240) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
 
 ## [0.23.4a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.23.4a1) (2026-09-18)
 
