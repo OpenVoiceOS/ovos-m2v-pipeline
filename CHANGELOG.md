@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.36.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.36.1a1) (2026-10-22)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.36.0a3...0.36.1a1)
+
+**Merged pull requests:**
+
+- fix: bridge the intents that three skills fold into one [\#341](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/341) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.36.0a3](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.36.0a3) (2026-10-16)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.36.0a2...0.36.0a3)
@@ -361,10 +369,6 @@
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.23.5a1...0.24.0a1)
 
-**Merged pull requests:**
-
-- feat: fill a declared typed slot from the typed-slot map [\#237](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/237) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
-
 ## [0.23.5a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.23.5a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.23.4a1...0.23.5a1)
@@ -376,10 +380,6 @@
 ## [0.23.4a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.23.4a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.23.3a1...0.23.4a1)
-
-**Merged pull requests:**
-
-- fix\(typed\_slots\): sample the language type from ovos-lang-parser [\#238](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/238) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
 
 ## [0.23.3a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.23.3a1) (2026-09-18)
 
