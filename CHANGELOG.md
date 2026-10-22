@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.37.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.37.1a1) (2026-10-22)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.37.0a1...0.37.1a1)
+
+**Merged pull requests:**
+
+- fix\(deps\): accept ovos-plugin-manager 3 [\#345](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/345) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.37.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.37.0a1) (2026-10-22)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.36.1a1...0.37.0a1)
@@ -368,10 +376,6 @@
 ## [0.24.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.24.1a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.24.0a1...0.24.1a1)
-
-**Merged pull requests:**
-
-- fix: keep self.intents a set after the startup manifest pull [\#241](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/241) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
 
 ## [0.24.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.24.0a1) (2026-09-18)
 
