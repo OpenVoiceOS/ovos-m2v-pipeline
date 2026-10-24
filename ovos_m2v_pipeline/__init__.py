@@ -2859,7 +2859,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             self._intent4_warn(topic, message, "no valid entity sample remains")
             return
         (self.entities.setdefault(skill_id, {})
-             .setdefault(standardize_lang(lang), {})[name.lower()]) = list(values)
+             .setdefault(standardize_lang(lang), {})[name.lower()]) = sorted(values)
         LOG.debug(f"Model2Vec: registered INTENT-4 entity '{name}' ({len(values)} values)")
 
     def _handle_intent4_deregister_intent(self, message: Message) -> None:
