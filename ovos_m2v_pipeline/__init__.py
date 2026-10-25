@@ -70,17 +70,15 @@ _SPECIAL_LABELS = {"ocp:play", "common_query:common_query", "stop:stop"}
 #: modes score on different scales: classifier mode returns a softmax
 #: probability, prototype mode a raw cosine similarity between L2-normalised
 #: sentence embeddings. On the cosine scale almost every utterance sits
-#: above 0.15 against *some* stored prototype, and a third sit above 0.5, so
-#: the classifier's thresholds make the prototype stage claim utterances it
-#: holds no prototype for. Measured on the v6 model with a store built from a
-#: skill's own ``.intent`` files (T-1621): of 216 utterances whose label the
-#: store did NOT hold, the nearest foreign prototype scored >= 0.15 for 215,
-#: >= 0.5 for 67, >= 0.65 for 17, >= 0.7 for 11 and >= 0.85 for 2; of 155
-#: correctly ranked in-skill gold rows, 149 scored >= 0.65, 143 >= 0.7 and
-#: 79 >= 0.85. An explicit ``conf_*`` key overrides these in either mode.
+#: above 0.15 against *some* stored prototype, so the classifier's thresholds
+#: make the prototype stage claim utterances it holds no prototype for.
+#: The prototype tiers belong to the cosine scale of the default model,
+#: ``OpenVoiceOS/ovos-m2v-intents-multilingual`` (int8, d7d35650f2); another
+#: model or revision needs its own ``conf_*`` keys. An explicit key overrides
+#: these in either mode.
 DEFAULT_CONF: Dict[str, Dict[str, float]] = {
     "classifier": {"conf_high": 0.7, "conf_medium": 0.5, "conf_low": 0.15},
-    "prototype": {"conf_high": 0.85, "conf_medium": 0.7, "conf_low": 0.65},
+    "prototype": {"conf_high": 0.85, "conf_medium": 0.7, "conf_low": 0.56},
 }
 
 # Map each special label to a substring that must appear in `session.pipeline`
@@ -1232,7 +1230,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
 
     The two score scales are not comparable, so the confidence tiers default
     differently per mode (``DEFAULT_CONF``): 0.7 / 0.5 / 0.15 for a softmax
-    probability, 0.85 / 0.7 / 0.65 for a cosine. A configured ``conf_high``,
+    probability, 0.85 / 0.7 / 0.56 for a cosine. A configured ``conf_high``,
     ``conf_medium`` or ``conf_low`` overrides the default in either mode.
 
     ``revision`` : str, optional (default: ``None``)

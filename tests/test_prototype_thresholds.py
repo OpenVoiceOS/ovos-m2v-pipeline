@@ -3,10 +3,13 @@ confidence tiers must not default to the classifier's 0.7 / 0.5 / 0.15.
 
 The store holds one label. The query sits at a known cosine from that
 label's only prototype, so each tier's claim is decided by the default
-threshold alone. Before the fix ``match_medium`` claimed at cosine 0.6 and
-``match_low`` at 0.3 (0.6 >= 0.5, 0.3 >= 0.15); a store that holds no
-prototype for the utterance's real label always has *some* nearest label,
-so those claims were misroutes.
+threshold alone. With the classifier's defaults ``match_medium`` claimed at
+cosine 0.55 and ``match_low`` at 0.3 (0.55 >= 0.5, 0.3 >= 0.15); a store
+that holds no prototype for the utterance's real label always has *some*
+nearest label, so those claims were misroutes.
+
+The prototype tiers belong to the default model's cosine scale (see
+``DEFAULT_CONF``); the test at 0.58 pins the low tier of that scale.
 """
 import math
 import unittest
@@ -50,7 +53,7 @@ class TestPrototypeDefaults(unittest.TestCase):
         self.assertEqual(DEFAULT_CONF["classifier"],
                          {"conf_high": 0.7, "conf_medium": 0.5, "conf_low": 0.15})
         self.assertEqual(DEFAULT_CONF["prototype"],
-                         {"conf_high": 0.85, "conf_medium": 0.7, "conf_low": 0.65})
+                         {"conf_high": 0.85, "conf_medium": 0.7, "conf_low": 0.56})
         clf = _make_pipeline()
         self.assertEqual(clf._min_conf("conf_high"), 0.7)
         self.assertEqual(clf._min_conf("conf_medium"), 0.5)
@@ -58,21 +61,33 @@ class TestPrototypeDefaults(unittest.TestCase):
         proto = _make_prototype_pipeline()
         self.assertEqual(proto._min_conf("conf_high"), 0.85)
         self.assertEqual(proto._min_conf("conf_medium"), 0.7)
-        self.assertEqual(proto._min_conf("conf_low"), 0.65)
+        self.assertEqual(proto._min_conf("conf_low"), 0.56)
 
-    def test_medium_does_not_claim_at_cosine_0_6(self):
-        # fail-before: 0.6 >= the classifier's 0.5 default claimed this
-        p = _pipeline(cosine=0.6)
+    def test_nothing_claims_at_cosine_0_55(self):
+        # 0.55 >= the classifier's 0.5 default would claim this
+        p = _pipeline(cosine=0.55)
         self.assertIsNone(p.match_medium(["q"], "en-US", _msg()))
         self.assertIsNone(p.match_high(["q"], "en-US", _msg()))
         self.assertIsNone(p.match_low(["q"], "en-US", _msg()))
 
-    def test_low_claims_at_cosine_0_68(self):
-        p = _pipeline(cosine=0.68)
+    def test_low_claims_at_cosine_0_58(self):
+        p = _pipeline(cosine=0.58)
         self.assertIsNone(p.match_medium(["q"], "en-US", _msg()))
         match = p.match_low(["q"], "en-US", _msg())
         self.assertIsNotNone(match)
         self.assertEqual(match.match_type, LABEL)
+
+    def test_medium_claims_at_cosine_0_72(self):
+        p = _pipeline(cosine=0.72)
+        self.assertIsNone(p.match_high(["q"], "en-US", _msg()))
+        match = p.match_medium(["q"], "en-US", _msg())
+        self.assertIsNotNone(match)
+        self.assertEqual(match.match_type, LABEL)
+
+    def test_medium_does_not_claim_at_cosine_0_68(self):
+        p = _pipeline(cosine=0.68)
+        self.assertIsNone(p.match_medium(["q"], "en-US", _msg()))
+        self.assertIsNotNone(p.match_low(["q"], "en-US", _msg()))
 
     def test_low_does_not_claim_at_cosine_0_3(self):
         # fail-before: 0.3 >= the classifier's 0.15 default claimed this
@@ -89,8 +104,10 @@ class TestPrototypeDefaults(unittest.TestCase):
     def test_configured_threshold_still_wins(self):
         # an explicit conf_medium keeps the old behaviour for a deployment
         # that tuned it
-        p = _pipeline(config={"conf_medium": 0.5}, cosine=0.6)
+        p = _pipeline(config={"conf_medium": 0.5}, cosine=0.55)
         self.assertIsNotNone(p.match_medium(["q"], "en-US", _msg()))
+        p = _pipeline(config={"conf_low": 0.65}, cosine=0.6)
+        self.assertIsNone(p.match_low(["q"], "en-US", _msg()))
 
 
 if __name__ == "__main__":

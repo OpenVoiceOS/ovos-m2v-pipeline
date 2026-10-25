@@ -22,7 +22,7 @@ weight. Set `model` in the prototype section only to run a second model.
 | `mode` | `str` | `"classifier"` | `"classifier"` or `"prototype"`. Forced to `"prototype"` when the plugin loads as `ovos-m2v-prototype-pipeline`. |
 | `conf_high` | `float` | `0.7` classifier, `0.85` prototype | Minimum score for `match_high`. |
 | `conf_medium` | `float` | `0.5` classifier, `0.7` prototype | Minimum score for `match_medium`. |
-| `conf_low` | `float` | `0.15` classifier, `0.65` prototype | Minimum score for `match_low`. |
+| `conf_low` | `float` | `0.15` classifier, `0.56` prototype | Minimum score for `match_low`. |
 | `ignore_intents` | `list[str]` | `[]` | Canonical labels to always discard, after `label_map`. |
 | `label_map` | `dict[str, str or [str, str]]` | `{}` | Maps a raw model label to a canonical `skill_id:intent` label. Merges over the built-in OCP/common-query/stop remaps and any `labels.json` the model ships. |
 | `valid_labels` | `list[str]` | unset | Allow-list of raw model labels, checked before `label_map`. Classifier mode only; a prototype store is its own allow-list. |
