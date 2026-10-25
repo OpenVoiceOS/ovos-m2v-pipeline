@@ -2614,10 +2614,9 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             self._intent4_warn(topic, message, "samples expand to zero non-empty templates")
             raise _RegistrationRejected()
         # entity values referenced by this template's slots: part of the
-        # cache key because they feed `_expand_entities` above, but they
-        # come from a `set` upstream (`_handle_intent4_register_entity`) so
-        # their list order is unstable across runs -- compute_cache_key()
-        # sorts them before hashing.
+        # cache key because they feed `_expand_entities` above.
+        # compute_cache_key() sorts them before hashing, so the key does not
+        # depend on the order the producer stored them in.
         slots = {slot for s in samples for slot in _SLOT_RE.findall(s)}
         entity_values = self._entity_values(skill_id, slots, reg_lang)
         cache_key = self._prototype_cache_key(list(samples), entity_values, lang=reg_lang)
@@ -2859,7 +2858,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             self._intent4_warn(topic, message, "no valid entity sample remains")
             return
         (self.entities.setdefault(skill_id, {})
-             .setdefault(standardize_lang(lang), {})[name.lower()]) = list(values)
+             .setdefault(standardize_lang(lang), {})[name.lower()]) = sorted(values)
         LOG.debug(f"Model2Vec: registered INTENT-4 entity '{name}' ({len(values)} values)")
 
     def _handle_intent4_deregister_intent(self, message: Message) -> None:

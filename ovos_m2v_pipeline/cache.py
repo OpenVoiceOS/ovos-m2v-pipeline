@@ -63,12 +63,10 @@ def compute_cache_key(
 ) -> str:
     """Hash the inputs of a prototype registration into a cache key.
 
-    ``raw_samples`` are sorted before hashing: they are the pre-expansion
-    template lines, which are already stable, but ``entity_values`` (the
-    live-registered entity value sets, sourced from a ``set`` upstream) are
-    NOT stable in iteration order across runs -- sorting both here is what
-    makes the key reproducible across restarts for otherwise-identical
-    inputs.
+    ``raw_samples`` (the pre-expansion template lines) and ``entity_values``
+    (the live-registered entity values) are sorted before hashing, so the
+    key depends only on their contents and not on the order the caller
+    passes them in.
 
     ``lang`` is the registration's BCP-47 tag (``None`` for a caller that
     does not partition by language). It is folded into the hash -- on top
