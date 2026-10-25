@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.37.2a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.37.2a1) (2026-10-25)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.37.1a1...0.37.2a1)
+
+**Merged pull requests:**
+
+- fix: store entity values in sorted order [\#347](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/347) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.37.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.37.1a1) (2026-10-22)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.37.0a1...0.37.1a1)
@@ -352,10 +360,6 @@
 ## [0.26.0a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.26.0a2) (2026-09-19)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.26.0a1...0.26.0a2)
-
-**Merged pull requests:**
-
-- test: the entry-point id test builds its repository in tmp\_path [\#243](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/243) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
 
 ## [0.26.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.26.0a1) (2026-09-18)
 
