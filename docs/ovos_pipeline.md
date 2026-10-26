@@ -45,7 +45,7 @@ Classifier scores are softmax probabilities that sum to 1 across all labels.
 Prototype scores are cosine similarities between L2-normalised embeddings.
 The two scales are not comparable, so each mode has its own `conf_high` /
 `conf_medium` / `conf_low` default (0.7 / 0.5 / 0.15 for classifier, 0.85 /
-0.7 / 0.65 for prototype). A configured `conf_*` key overrides the default in
+0.7 / 0.56 for prototype). A configured `conf_*` key overrides the default in
 either mode.
 
 ## A label the model lacks
