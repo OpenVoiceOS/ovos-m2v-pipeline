@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.37.3a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.37.3a1) (2026-10-26)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.37.2a1...0.37.3a1)
+
+**Merged pull requests:**
+
+- fix\(prototype\): calibrate the low prototype tier to the default model's cosine scale [\#349](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/349) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.37.2a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.37.2a1) (2026-10-25)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.37.1a1...0.37.2a1)
@@ -372,10 +380,6 @@
 ## [0.25.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.25.0a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.24.1a1...0.25.0a1)
-
-**Merged pull requests:**
-
-- feat: pick the typed-slot entry after the template's anchor word [\#246](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/246) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
 
 ## [0.24.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.24.1a1) (2026-09-18)
 
