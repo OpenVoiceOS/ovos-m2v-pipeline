@@ -638,6 +638,17 @@ class TestIntent4Blacklist(unittest.TestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0][1], "music.skill:play_music")
 
+    def test_blacklist_phrase_occurs_in_unspaced_text(self):
+        # OVOS-INTENT-2 §4.3: each Han character is a word, so a phrase
+        # occurs inside an unspaced utterance and next to Latin text
+        p = _make_prototype_pipeline()
+        self._register(p, samples=["播放音乐"], blacklist=["预告片", "trailer"],
+                       lang="zh-CN")
+        self._pin_query_vector(p)
+        self.assertEqual(len(list(p._match("播放音乐", lang="zh-CN"))), 1)
+        self.assertEqual(list(p._match("播放预告片的音乐", lang="zh-CN")), [])
+        self.assertEqual(list(p._match("播放trailer音乐", lang="zh-CN")), [])
+
     def test_session_blacklisted_intent_dropped(self):
         p = _make_prototype_pipeline()
         self._register(p, samples=["play music"])

@@ -19,7 +19,7 @@ from ovos_bus_client.session import DEFAULT_SESSION_ID, SessionManager
 from ovos_config.config import Configuration
 from ovos_plugin_manager.templates.pipeline import IntentHandlerMatch, ConfidenceMatcherPipeline
 from ovos_config.locations import get_xdg_data_save_path
-from ovos_spec_tools import SpecMessage
+from ovos_spec_tools import SpecMessage, split_unspaced
 from ovos_spec_tools.intent_topics import RESERVED_INTENT_NAMES
 from ovos_spec_tools.context import gate_satisfied, context_slot_candidates
 from ovos_spec_tools.language import closest_lang, standardize_lang
@@ -2986,12 +2986,14 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
 
         OVOS-INTENT-2 §4.3: a phrase occurs when its words appear in the
         utterance as a contiguous sequence of whole words, compared in
-        ``_word_sequence`` form. A label's phrases come from the registration
+        ``_word_sequence`` form with each character of an unspaced script
+        (Han, kana, Thai and the others ``split_unspaced`` names) as a word
+        of its own. A label's phrases come from the registration
         language closest to *lang*, chosen as the prototype store chooses a
         label's partition, plus any registration that named no language.
         With no *lang*, the phrases of every language apply.
         """
-        words = f" {_word_sequence(utterance)} "
+        words = f" {split_unspaced(_word_sequence(utterance))} "
         excluded: List[str] = []
         # bus handlers register on other threads while this runs: read copies
         for label, by_lang in list(self.excluded_keywords.items()):
@@ -3006,7 +3008,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                 closest = closest_lang(lang, tagged)
                 if closest is not None:
                     phrases += by_lang[closest]
-            if any(f" {p} " in words for p in phrases):
+            if any(f" {split_unspaced(p)} " in words for p in phrases):
                 excluded.append(label)
         return excluded
 
