@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.37.6a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.37.6a1) (2026-10-28)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.37.5a1...0.37.6a1)
+
+**Merged pull requests:**
+
+- fix: embed prototype text in the form the query is scored in [\#355](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/355) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.37.5a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.37.5a1) (2026-10-28)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.37.4a1...0.37.5a1)
@@ -320,10 +328,6 @@
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.28.1a1...0.28.2a1)
 
-**Merged pull requests:**
-
-- fix: the parity census names the listing it counted and what it did not see [\#252](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/252) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
-
 ## [0.28.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.28.1a1) (2026-09-24)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.28.0a1...0.28.1a1)
@@ -376,10 +380,6 @@
 ## [0.27.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.27.0a1) (2026-09-19)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.26.0a2...0.27.0a1)
-
-**Merged pull requests:**
-
-- feat: one embedding model per process, and the -low tier runs prototype mode [\#251](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/251) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
 
 ## [0.26.0a2](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.26.0a2) (2026-09-19)
 
