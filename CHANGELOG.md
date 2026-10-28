@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.37.5a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.37.5a1) (2026-10-28)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.37.4a1...0.37.5a1)
+
+**Merged pull requests:**
+
+- fix: embed a free slot's frame, not its placeholder, in prototype mode [\#352](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/352) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.37.4a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.37.4a1) (2026-10-28)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.37.3a1...0.37.4a1)
