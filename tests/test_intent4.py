@@ -1032,9 +1032,7 @@ class TestPadatiousLegacyEntityExpansion(unittest.TestCase):
         # two entity values -> two filled prototypes, no literal placeholder
         n = (labels == "paint.skill:paint_it").sum()
         self.assertEqual(n, 2)
-        self.assertNotIn("I like {color}", encoded_sentences)
-        self.assertIn("I like red", encoded_sentences)
-        self.assertIn("I like blue", encoded_sentences)
+        self.assertEqual(sorted(encoded_sentences), ["i like blue", "i like red"])
 
     def test_legacy_registration_cache_key_includes_entity_values(self):
         """The cache key computed by the legacy handler itself (not just
@@ -1697,6 +1695,4 @@ class TestTemplateRegistrationWithoutLang(unittest.TestCase):
                   "lang": "en-US", "samples": ["I like {color}"]},
             context={"skill_id": "paint.skill"}))
         self.assertIn("paint.skill:paint_it", p.intents)
-        self.assertNotIn("I like {color}", encoded)
-        self.assertIn("I like red", encoded)
-        self.assertIn("I like blue", encoded)
+        self.assertEqual(sorted(encoded), ["i like blue", "i like red"])
