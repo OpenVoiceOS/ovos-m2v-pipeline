@@ -106,3 +106,23 @@ def expand_entities(samples: Iterable[str],
                 filled = filled.replace("{" + slot + "}", val, 1)
             out.append(filled.strip())
     return out
+
+
+def drop_free_slots(samples: Iterable[str]) -> List[str]:
+    """The prototype text of each sample from :func:`expand_entities`.
+
+    A slot with no entity values is free text (OVOS-INTENT-4 §7), so the
+    placeholder ``expand_entities`` leaves in place is not a word anybody
+    says. It is removed and the whitespace collapsed: ``"say {sentence}"``
+    is embedded as ``"say"``. A sample that holds nothing but free slots
+    leaves no words to embed and is left out.
+
+    The corpus builder keeps calling ``expand_entities`` alone, because it
+    drops a row by the placeholder that is still in it.
+    """
+    out: List[str] = []
+    for sample in samples:
+        text = " ".join(SLOT_RE.sub(" ", sample).split())
+        if text:
+            out.append(text)
+    return out

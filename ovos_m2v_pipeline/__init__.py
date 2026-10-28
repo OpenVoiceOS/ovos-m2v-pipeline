@@ -42,6 +42,7 @@ from ovos_m2v_pipeline.strategies import (
 from ovos_m2v_pipeline.slots import (
     SLOT_RE as _SLOT_RE,
     MAX_ENTITY_EXPANSIONS,
+    drop_free_slots,
     expand_entities,
 )
 
@@ -2214,7 +2215,8 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                 self._model_id, self._model2vec_version,
                 {"k": self._prototype_k,
                  "strategy": self._prototype_strategy.value,
-                 "max_expansions": MAX_ENTITY_EXPANSIONS},
+                 "max_expansions": MAX_ENTITY_EXPANSIONS,
+                 "free_slots": "dropped"},
                 raw_samples, entity_values, lang=lang,
             )
         except Exception as exc:
@@ -2339,13 +2341,14 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         # later entity registration).
         slots = {slot for s in raw_samples for slot in _SLOT_RE.findall(s)}
         # The same rule as the INTENT-4 template topic: with no ``lang`` the
-        # entity fill runs against ``{}`` and embeds the literal ``{slot}``,
-        # the outcome ``TestPadatiousLegacyEntityExpansion`` exists to
-        # prevent. Only a registration that declares a slot is affected.
+        # entity fill runs against ``{}`` and an entity slot is embedded as
+        # if it were free, the outcome ``TestPadatiousLegacyEntityExpansion``
+        # exists to prevent. Only a registration that declares a slot is affected.
         if slots and not reg_lang:
             LOG.warning(f"rejecting registration: missing lang {ctx}")
             raise _RegistrationRejected()
-        sentences = self._expand_entities(sentences, skill_id, reg_lang)
+        sentences = drop_free_slots(
+            self._expand_entities(sentences, skill_id, reg_lang))
         entity_values = self._entity_values(skill_id, slots, reg_lang)
         cache_key = self._prototype_cache_key(raw_samples, entity_values, lang=reg_lang)
         if (cache_key is not None
@@ -2533,8 +2536,8 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         # §6.3 is silent about a missing ``lang`` exactly as §7.2 is, and the
         # ruling behind the entity half covers this one. Without it
         # ``_expand_entities`` runs with ``lang=None``, ``_entities_for``
-        # answers ``{}``, and the ``{slot}`` is embedded as a literal
-        # prototype no utterance can match. Deriving the value from the
+        # answers ``{}``, and an entity slot is dropped as a free slot
+        # instead of filled from its values. Deriving the value from the
         # session would invent what the producer omitted, so the registration
         # is skipped and the WARN names the field, as on the entity topic.
         # Only a template that declares a slot is affected: with nothing to
@@ -2607,7 +2610,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                     f"lang={message.data.get('lang')!r} topic={topic}]")
             else:
                 expanded.extend(produced)
-        expanded = [s for s in (e.strip() for e in expanded) if s]
+        expanded = drop_free_slots(expanded)
         if not expanded:  # zero non-empty expansions -> malformed (§6.3)
             self._intent4_warn(topic, message, "samples expand to zero non-empty templates")
             raise _RegistrationRejected()

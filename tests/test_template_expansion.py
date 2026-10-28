@@ -96,8 +96,8 @@ class TestRegisterPadatious(unittest.TestCase):
         self.assertIn("test_skill:demo", pipeline.intents)
         pipeline.prototype_store.add.assert_called_once()
         sentences = pipeline.prototype_store.add.call_args[0][2]
-        self.assertIn("play {media}", sentences)
-        self.assertNotIn("play {Medien}", sentences)
+        # the free slot {media} has no entity: only its frame is embedded
+        self.assertEqual(sentences, ["play", "start", "begin", "UNUSED noise", "noise"])
         self.assertEqual(warn.call_count, len(MALFORMED))
         for call in warn.call_args_list:
             log = call[0][0]
@@ -166,8 +166,8 @@ class TestIntent4Registration(unittest.TestCase):
                 self._template_msg(MALFORMED + VALID))
         pipeline.prototype_store.add.assert_called_once()
         expanded = pipeline.prototype_store.add.call_args[0][2]
-        self.assertIn("play {media}", expanded)
-        self.assertNotIn("play {Medien}", expanded)
+        # the free slot {media} has no entity: only its frame is embedded
+        self.assertEqual(expanded, ["play", "start", "begin", "UNUSED noise", "noise"])
         self.assertEqual(warn.call_count, len(MALFORMED))
         for call in warn.call_args_list:
             log = call[0][0]
