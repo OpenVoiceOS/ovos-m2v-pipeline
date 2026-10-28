@@ -4,7 +4,6 @@ import json
 import re
 import threading
 import time
-import unicodedata
 from pathlib import Path
 
 import numpy as np
@@ -43,6 +42,7 @@ from ovos_m2v_pipeline.slots import (
     SLOT_RE as _SLOT_RE,
     MAX_ENTITY_EXPANSIONS,
     drop_free_slots,
+    word_sequence as _word_sequence,
     expand_entities,
 )
 
@@ -1170,23 +1170,6 @@ def _parse_intent_file(path: str, ctx: str = "") -> List[str]:
         return []
 
 
-def _word_sequence(text: str) -> str:
-    """*text* as lowercase word tokens joined by single spaces.
-
-    Every Unicode punctuation or symbol character, the apostrophe and the
-    hyphen included, ends a word: ``don't`` gives ``don t`` and
-    ``music-video`` gives ``music video``. OVOS-INTENT-1 §2 places this
-    normalization upstream; applying it here keeps raw ASR text comparable.
-
-    A blacklist phrase and an utterance both pass through here, so a phrase
-    occurs in an utterance exactly when ``f" {phrase} "`` is a substring of
-    ``f" {utterance} "``: a contiguous run of whole tokens (OVOS-INTENT-2 §4.3).
-    """
-    text = "".join(" " if unicodedata.category(c)[0] in "PS" else c
-                   for c in text.lower())
-    return " ".join(text.split())
-
-
 def _raw_intent_lines(path: str) -> List[str]:
     """Return the raw, pre-expansion non-comment lines of a Padatious
     ``.intent`` file, for prototype-cache key hashing (see
@@ -2216,7 +2199,8 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                 {"k": self._prototype_k,
                  "strategy": self._prototype_strategy.value,
                  "max_expansions": MAX_ENTITY_EXPANSIONS,
-                 "free_slots": "dropped"},
+                 "free_slots": "dropped",
+                 "text": "word_sequence"},
                 raw_samples, entity_values, lang=lang,
             )
         except Exception as exc:
@@ -3084,9 +3068,9 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             # resumes automatically once the deferred load completes.
             return
         if self.prototype_store is not None:
-            # The prototypes are the templates, authored in the OVOS-INTENT-1
-            # §2 normalized form, and the stock transformer chain does not
-            # lowercase, so a cased transcription is scored in that same form.
+            # Prototypes are embedded in ``word_sequence`` form and the stock
+            # transformer chain does not lowercase, so the query is put in
+            # that same form before it is scored.
             candidates = self._match_prototype(_word_sequence(utterance), message, lang)
         else:
             candidates = self._match_classifier(utterance, message)

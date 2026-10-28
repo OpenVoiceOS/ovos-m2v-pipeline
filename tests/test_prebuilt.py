@@ -449,7 +449,8 @@ class TestPrebuiltDimensionMismatch(unittest.TestCase):
                 "fake-embed-model", "0.9.0",
                 {"k": None, "strategy": "max_over_all",
                  "max_expansions": MAX_ENTITY_EXPANSIONS,
-                 "free_slots": "dropped"},
+                 "free_slots": "dropped",
+                 "text": "word_sequence"},
                 samples, lang="en-US",
             )
             export_store(store, tmp, model_id="fake-embed-model",
@@ -523,7 +524,8 @@ class TestPrebuiltIsNotAnAllowList(unittest.TestCase):
                              "fake-embed-model", "0.9.0",
                              {"k": None, "strategy": "max_over_all",
                               "max_expansions": MAX_ENTITY_EXPANSIONS,
-                              "free_slots": "dropped"},
+                              "free_slots": "dropped",
+                              "text": "word_sequence"},
                              ["nuke the reactor"], lang="en-US")})
 
             p1 = _make_pipeline(prebuilt_dir=tmp)
@@ -552,13 +554,15 @@ class TestPrebuiltIsNotAnAllowList(unittest.TestCase):
                     "fake-embed-model", "0.9.0",
                     {"k": None, "strategy": "max_over_all",
                      "max_expansions": MAX_ENTITY_EXPANSIONS,
-                     "free_slots": "dropped"},
+                     "free_slots": "dropped",
+                     "text": "word_sequence"},
                     live_samples, lang="en-US"),
                 "ghost-skill:stale": compute_cache_key(
                     "fake-embed-model", "0.9.0",
                     {"k": None, "strategy": "max_over_all",
                      "max_expansions": MAX_ENTITY_EXPANSIONS,
-                     "free_slots": "dropped"},
+                     "free_slots": "dropped",
+                     "text": "word_sequence"},
                     stale_samples, lang="en-US"),
             }
             export_store(store, tmp, model_id="fake-embed-model",
@@ -589,7 +593,8 @@ class TestPrebuiltIsNotAnAllowList(unittest.TestCase):
                 "fake-embed-model", "0.9.0",
                 {"k": None, "strategy": "max_over_all",
                  "max_expansions": MAX_ENTITY_EXPANSIONS,
-                 "free_slots": "dropped"},
+                 "free_slots": "dropped",
+                 "text": "word_sequence"},
                 samples, lang="en-US")
             export_store(store, tmp, model_id="fake-embed-model",
                          model2vec_version="0.9.0",

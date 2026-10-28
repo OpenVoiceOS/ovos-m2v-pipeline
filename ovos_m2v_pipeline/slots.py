@@ -7,6 +7,7 @@ a second implementation that can silently drift from it.
 """
 import itertools
 import re
+import unicodedata
 from typing import Dict, Iterable, List
 
 from ovos_utils.log import LOG
@@ -108,21 +109,42 @@ def expand_entities(samples: Iterable[str],
     return out
 
 
+def word_sequence(text: str) -> str:
+    """*text* as lowercase word tokens joined by single spaces.
+
+    Every Unicode punctuation or symbol character, the apostrophe and the
+    hyphen included, ends a word: ``don't`` gives ``don t`` and
+    ``music-video`` gives ``music video``. OVOS-INTENT-1 §2 places this
+    normalization upstream; applying it here keeps raw ASR text comparable.
+
+    A blacklist phrase and an utterance both pass through here, so a phrase
+    occurs in an utterance exactly when ``f" {phrase} "`` is a substring of
+    ``f" {utterance} "``: a contiguous run of whole tokens (OVOS-INTENT-2 §4.3).
+    """
+    text = "".join(" " if unicodedata.category(c)[0] in "PS" else c
+                   for c in text.lower())
+    return " ".join(text.split())
+
+
 def drop_free_slots(samples: Iterable[str]) -> List[str]:
     """The prototype text of each sample from :func:`expand_entities`.
 
     A slot with no entity values is free text (OVOS-INTENT-4 §7), so the
     placeholder ``expand_entities`` leaves in place is not a word anybody
-    says. It is removed and the whitespace collapsed: ``"say {sentence}"``
-    is embedded as ``"say"``. A sample that holds nothing but free slots
-    leaves no words to embed and is left out.
+    says. It is removed: ``"say {sentence}"`` is embedded as ``"say"``. A
+    sample that holds nothing but free slots leaves no words to embed and
+    is left out.
+
+    The text is put in :func:`word_sequence` form, the form the query is
+    scored in, so a template line written with capitals or punctuation
+    embeds the same as the utterance that says it.
 
     The corpus builder keeps calling ``expand_entities`` alone, because it
     drops a row by the placeholder that is still in it.
     """
     out: List[str] = []
     for sample in samples:
-        text = " ".join(SLOT_RE.sub(" ", sample).split())
+        text = word_sequence(SLOT_RE.sub(" ", sample))
         if text:
             out.append(text)
     return out
