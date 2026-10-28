@@ -3081,7 +3081,10 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             # resumes automatically once the deferred load completes.
             return
         if self.prototype_store is not None:
-            candidates = self._match_prototype(utterance, message, lang)
+            # The prototypes are the templates, authored in the OVOS-INTENT-1
+            # §2 normalized form, and the stock transformer chain does not
+            # lowercase, so a cased transcription is scored in that same form.
+            candidates = self._match_prototype(_word_sequence(utterance), message, lang)
         else:
             candidates = self._match_classifier(utterance, message)
         # OVOS-CONTEXT-1 §6/§6.1 context gate + OVOS-INTENT-4 §6.1 blacklist +
