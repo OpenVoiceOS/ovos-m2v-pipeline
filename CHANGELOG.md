@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.37.4a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.37.4a1) (2026-10-28)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.37.3a1...0.37.4a1)
+
+**Merged pull requests:**
+
+- fix: score a prototype-mode utterance in its normalized form [\#351](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/351) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.37.3a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.37.3a1) (2026-10-26)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.37.2a1...0.37.3a1)
@@ -372,10 +380,6 @@
 ## [0.26.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.26.0a1) (2026-09-18)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.25.0a1...0.26.0a1)
-
-**Merged pull requests:**
-
-- feat\(census\): report a gold label with no train row in the same locale [\#247](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/247) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
 
 ## [0.25.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.25.0a1) (2026-09-18)
 
