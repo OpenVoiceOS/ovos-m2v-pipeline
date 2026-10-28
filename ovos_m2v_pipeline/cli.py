@@ -48,11 +48,12 @@ def _build_from_skill_dir(
     Mirrors the expansion ``padatious:register_intent`` runs at registration
     time (``ovos_m2v_pipeline._parse_intent_file`` / ``_raw_intent_lines``),
     without needing a running OVOS instance or its entity registrations --
-    a ``{slot}`` placeholder in a template is left as literal text, so a
-    skill whose intents rely heavily on registered entities gets weaker
-    prototypes from this path than a live registration would; its cache key
-    will then simply miss on boot and the pipeline re-encodes normally,
-    exactly like any other registration-input change.
+    every ``{slot}`` placeholder is dropped as a free slot
+    (``ovos_m2v_pipeline.slots.drop_free_slots``), so a skill whose intents
+    rely heavily on registered entities gets weaker prototypes from this
+    path than a live registration would; its cache key will then simply
+    miss on boot and the pipeline re-encodes normally, exactly like any
+    other registration-input change.
     """
     import model2vec
     from model2vec import StaticModel
@@ -61,6 +62,7 @@ def _build_from_skill_dir(
         PrototypeIntentStore, _parse_intent_file, _raw_intent_lines,
         MAX_ENTITY_EXPANSIONS,
     )
+    from ovos_m2v_pipeline.slots import drop_free_slots
     from ovos_m2v_pipeline.cache import compute_cache_key
     from ovos_m2v_pipeline.strategies import PrototypeStrategy
 
@@ -87,14 +89,15 @@ def _build_from_skill_dir(
             intent_name = intent_file.stem
             label = f"{skill_id}:{intent_name}"
             raw_samples = _raw_intent_lines(str(intent_file))
-            sentences = _parse_intent_file(str(intent_file))
+            sentences = drop_free_slots(_parse_intent_file(str(intent_file)))
             if not sentences:
                 LOG.warning(f"skipping empty/malformed '{intent_file}'")
                 continue
             cache_key = compute_cache_key(
                 model_id, model2vec_version,
                 {"k": k, "strategy": strategy,
-                 "max_expansions": MAX_ENTITY_EXPANSIONS},
+                 "max_expansions": MAX_ENTITY_EXPANSIONS,
+                 "free_slots": "dropped"},
                 raw_samples, lang=one_lang,
             )
             store.add(model, label, sentences, k=k, cache_key=cache_key,
