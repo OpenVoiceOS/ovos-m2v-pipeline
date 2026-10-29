@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.37.7a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.37.7a1) (2026-10-29)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.37.6a1...0.37.7a1)
+
+**Merged pull requests:**
+
+- fix: a .blacklist phrase occurs in unspaced scripts [\#357](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/357) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.37.6a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.37.6a1) (2026-10-28)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.37.5a1...0.37.6a1)
@@ -375,7 +383,6 @@
 **Merged pull requests:**
 
 - fix: log a prototype label a person can read [\#258](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/258) ([goldyfruit](https://github.com/goldyfruit))
-- fix: an exact template line goes to the prototype stage, not the head [\#254](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/254) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
 
 ## [0.27.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.27.0a1) (2026-09-19)
 
