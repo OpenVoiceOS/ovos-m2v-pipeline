@@ -638,6 +638,17 @@ class TestIntent4Blacklist(unittest.TestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0][1], "music.skill:play_music")
 
+    def test_blacklist_phrase_occurs_in_unspaced_text(self):
+        # OVOS-INTENT-2 §4.3: each Han character is a word, so a phrase
+        # occurs inside an unspaced utterance and next to Latin text
+        p = _make_prototype_pipeline()
+        self._register(p, samples=["播放音乐"], blacklist=["预告片", "trailer"],
+                       lang="zh-CN")
+        self._pin_query_vector(p)
+        self.assertEqual(len(list(p._match("播放音乐", lang="zh-CN"))), 1)
+        self.assertEqual(list(p._match("播放预告片的音乐", lang="zh-CN")), [])
+        self.assertEqual(list(p._match("播放trailer音乐", lang="zh-CN")), [])
+
     def test_session_blacklisted_intent_dropped(self):
         p = _make_prototype_pipeline()
         self._register(p, samples=["play music"])
@@ -962,6 +973,20 @@ class TestRequiredKeywords(unittest.TestCase):
                 self.assertEqual(self._candidates(p, "wann wurde confucius geboren", "de-DE"),
                                  [self.QUOTE])
 
+    def test_a_keyword_occurs_in_unspaced_text(self):
+        """OVOS-INTENT-2 §4.3: each Han character is a word, so a Han
+        keyword occurs inside an unspaced utterance and a Latin keyword
+        occurs next to Han text."""
+        for mode, p in self._pipelines().items():
+            with self.subTest(mode=mode):
+                self._register(p, self.LIFESPAN, "zh-CN", ["孔子", "confucius"])
+                self._register(p, self.QUOTE, "zh-CN")
+                for utterance in ("孔子是哪年出生的", "confucius是哪年出生的"):
+                    self.assertEqual(self._candidates(p, utterance, "zh-CN"),
+                                     [self.LIFESPAN, self.QUOTE], utterance)
+                self.assertEqual(self._candidates(p, "爱因斯坦是哪年出生的", "zh-CN"),
+                                 [self.QUOTE])
+
     def test_a_language_without_required_keywords_has_no_requirement(self):
         """fr-FR registers no `.required`, so a French utterance naming
         nobody still matches, and never borrows the en-US or de-DE set."""
@@ -1187,9 +1212,7 @@ class TestPadatiousLegacyEntityExpansion(unittest.TestCase):
         # two entity values -> two filled prototypes, no literal placeholder
         n = (labels == "paint.skill:paint_it").sum()
         self.assertEqual(n, 2)
-        self.assertNotIn("I like {color}", encoded_sentences)
-        self.assertIn("I like red", encoded_sentences)
-        self.assertIn("I like blue", encoded_sentences)
+        self.assertEqual(sorted(encoded_sentences), ["i like blue", "i like red"])
 
     def test_legacy_registration_cache_key_includes_entity_values(self):
         """The cache key computed by the legacy handler itself (not just
@@ -1852,6 +1875,4 @@ class TestTemplateRegistrationWithoutLang(unittest.TestCase):
                   "lang": "en-US", "samples": ["I like {color}"]},
             context={"skill_id": "paint.skill"}))
         self.assertIn("paint.skill:paint_it", p.intents)
-        self.assertNotIn("I like {color}", encoded)
-        self.assertIn("I like red", encoded)
-        self.assertIn("I like blue", encoded)
+        self.assertEqual(sorted(encoded), ["i like blue", "i like red"])

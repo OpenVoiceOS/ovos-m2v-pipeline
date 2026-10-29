@@ -97,7 +97,8 @@ def _build_from_skill_dir(
                 model_id, model2vec_version,
                 {"k": k, "strategy": strategy,
                  "max_expansions": MAX_ENTITY_EXPANSIONS,
-                 "free_slots": "dropped"},
+                 "free_slots": "dropped",
+                 "text": "word_sequence"},
                 raw_samples, lang=one_lang,
             )
             store.add(model, label, sentences, k=k, cache_key=cache_key,

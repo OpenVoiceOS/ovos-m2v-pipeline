@@ -4,7 +4,6 @@ import json
 import re
 import threading
 import time
-import unicodedata
 from pathlib import Path
 
 import numpy as np
@@ -20,7 +19,7 @@ from ovos_bus_client.session import DEFAULT_SESSION_ID, SessionManager
 from ovos_config.config import Configuration
 from ovos_plugin_manager.templates.pipeline import IntentHandlerMatch, ConfidenceMatcherPipeline
 from ovos_config.locations import get_xdg_data_save_path
-from ovos_spec_tools import SpecMessage
+from ovos_spec_tools import SpecMessage, split_unspaced
 from ovos_spec_tools.intent_topics import RESERVED_INTENT_NAMES
 from ovos_spec_tools.context import gate_satisfied, context_slot_candidates
 from ovos_spec_tools.language import closest_lang, standardize_lang
@@ -43,6 +42,7 @@ from ovos_m2v_pipeline.slots import (
     SLOT_RE as _SLOT_RE,
     MAX_ENTITY_EXPANSIONS,
     drop_free_slots,
+    word_sequence as _word_sequence,
     expand_entities,
 )
 
@@ -1170,23 +1170,6 @@ def _parse_intent_file(path: str, ctx: str = "") -> List[str]:
         return []
 
 
-def _word_sequence(text: str) -> str:
-    """*text* as lowercase word tokens joined by single spaces.
-
-    Every Unicode punctuation or symbol character, the apostrophe and the
-    hyphen included, ends a word: ``don't`` gives ``don t`` and
-    ``music-video`` gives ``music video``. OVOS-INTENT-1 §2 places this
-    normalization upstream; applying it here keeps raw ASR text comparable.
-
-    A blacklist phrase and an utterance both pass through here, so a phrase
-    occurs in an utterance exactly when ``f" {phrase} "`` is a substring of
-    ``f" {utterance} "``: a contiguous run of whole tokens (OVOS-INTENT-2 §4.3).
-    """
-    text = "".join(" " if unicodedata.category(c)[0] in "PS" else c
-                   for c in text.lower())
-    return " ".join(text.split())
-
-
 def _raw_intent_lines(path: str) -> List[str]:
     """Return the raw, pre-expansion non-comment lines of a Padatious
     ``.intent`` file, for prototype-cache key hashing (see
@@ -2221,7 +2204,8 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                 {"k": self._prototype_k,
                  "strategy": self._prototype_strategy.value,
                  "max_expansions": MAX_ENTITY_EXPANSIONS,
-                 "free_slots": "dropped"},
+                 "free_slots": "dropped",
+                 "text": "word_sequence"},
                 raw_samples, entity_values, lang=lang,
             )
         except Exception as exc:
@@ -3015,14 +2999,16 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
 
         OVOS-INTENT-2 §4.3: a phrase occurs when its words appear in the
         utterance as a contiguous sequence of whole words, compared in
-        ``_word_sequence`` form. OVOS-INTENT-2 §4.5: a required keyword occurs
-        by the same rule. A label's phrases come from the registration
+        ``_word_sequence`` form with each character of an unspaced script
+        (Han, kana, Thai and the others ``split_unspaced`` names) as a word
+        of its own. OVOS-INTENT-2 §4.5: a required keyword occurs by the
+        same rule. A label's phrases come from the registration
         language closest to *lang*, chosen as the prototype store chooses a
         label's partition, plus any registration that named no language.
         With no *lang*, the phrases of every language apply. A label with no
         phrase for *lang* is never returned.
         """
-        words = f" {_word_sequence(utterance)} "
+        words = f" {split_unspaced(_word_sequence(utterance))} "
         excluded: List[str] = []
         store = self.required_keywords if required else self.excluded_keywords
         # bus handlers register on other threads while this runs: read copies
@@ -3038,7 +3024,7 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                 closest = closest_lang(lang, tagged)
                 if closest is not None:
                     phrases += by_lang[closest]
-            occurs = any(f" {p} " in words for p in phrases)
+            occurs = any(f" {split_unspaced(p)} " in words for p in phrases)
             if phrases and occurs != required:
                 excluded.append(label)
         return excluded
@@ -3102,9 +3088,9 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             # resumes automatically once the deferred load completes.
             return
         if self.prototype_store is not None:
-            # The prototypes are the templates, authored in the OVOS-INTENT-1
-            # §2 normalized form, and the stock transformer chain does not
-            # lowercase, so a cased transcription is scored in that same form.
+            # Prototypes are embedded in ``word_sequence`` form and the stock
+            # transformer chain does not lowercase, so the query is put in
+            # that same form before it is scored.
             candidates = self._match_prototype(_word_sequence(utterance), message, lang)
         else:
             candidates = self._match_classifier(utterance, message)

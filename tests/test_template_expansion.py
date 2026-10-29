@@ -97,7 +97,7 @@ class TestRegisterPadatious(unittest.TestCase):
         pipeline.prototype_store.add.assert_called_once()
         sentences = pipeline.prototype_store.add.call_args[0][2]
         # the free slot {media} has no entity: only its frame is embedded
-        self.assertEqual(sentences, ["play", "start", "begin", "UNUSED noise", "noise"])
+        self.assertEqual(sentences, ["play", "start", "begin", "unused noise", "noise"])
         self.assertEqual(warn.call_count, len(MALFORMED))
         for call in warn.call_args_list:
             log = call[0][0]
@@ -167,7 +167,7 @@ class TestIntent4Registration(unittest.TestCase):
         pipeline.prototype_store.add.assert_called_once()
         expanded = pipeline.prototype_store.add.call_args[0][2]
         # the free slot {media} has no entity: only its frame is embedded
-        self.assertEqual(expanded, ["play", "start", "begin", "UNUSED noise", "noise"])
+        self.assertEqual(expanded, ["play", "start", "begin", "unused noise", "noise"])
         self.assertEqual(warn.call_count, len(MALFORMED))
         for call in warn.call_args_list:
             log = call[0][0]
