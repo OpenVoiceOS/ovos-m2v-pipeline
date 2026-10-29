@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.38.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.38.0a1) (2026-10-29)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.37.7a1...0.38.0a1)
+
+**Merged pull requests:**
+
+- feat: reject an intent when none of its required keywords occurs [\#308](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/308) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.37.7a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.37.7a1) (2026-10-29)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.37.6a1...0.37.7a1)
