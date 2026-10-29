@@ -1,0 +1,114 @@
+{"label": "ovos-skill-moviemaster.openvoiceos:movie.top.intent", "utterance": "what are the highest rated films out now"}
+{"label": "ovos-skill-weather.openvoiceos:hourly_temperature.intent", "utterance": "what's the temperature at 11 am thursday"}
+{"label": "ovos-skill-dictation.openvoiceos:stop_dictation.intent", "utterance": "disable dictation mode"}
+{"label": "ovos-skill-date-time.openvoiceos:date.future.weekend.intent", "utterance": "what are the exact days of the coming sunday"}
+{"label": "ovos-skill-news.openvoiceos:global_news.intent", "utterance": "tell me about world news"}
+{"label": "ovos-skill-alerts.openvoiceos:missed_alerts.intent", "utterance": "missed a reminder"}
+{"label": "ovos-skill-date-time.openvoiceos:date.future.weekend.intent", "utterance": "when is the coming weekend"}
+{"label": "ovos-skill-date-time.openvoiceos:what.month.is.it.intent", "utterance": "are we currently in february?"}
+{"label": "ovos-skill-date-time.openvoiceos:date.last.weekend.intent", "utterance": "what were the dates for last saturday"}
+{"label": "ovos-skill-iss-location.openvoiceos:when_iss.intent", "utterance": "when is the iss going to be over us"}
+{"label": "ovos-skill-iss-location.openvoiceos:when_iss.intent", "utterance": "when is the space station going to be over us"}
+{"label": "ovos-skill-weather.openvoiceos:current_temperature.intent", "utterance": "do i need a coat"}
+{"label": "ovos-skill-weather.openvoiceos:hourly_forecast.intent", "utterance": "forecast for monday at 9 pm"}
+{"label": "ovos-skill-weather.openvoiceos:daily_forecast.intent", "utterance": "tell me the forecast next tuesday"}
+{"label": "ovos-skill-date-time.openvoiceos:current_date.intent", "utterance": "give me the full date"}
+{"label": "ovos-skill-weather.openvoiceos:low_temperature.intent", "utterance": "how cold will it get thursday"}
+{"label": "ovos-skill-date-time.openvoiceos:what.month.is.it.intent", "utterance": "tell me which month we're in"}
+{"label": "ovos-skill-weather.openvoiceos:hourly_temperature.intent", "utterance": "what is the temperature wednesday morning"}
+{"label": "ovos-skill-moviemaster.openvoiceos:movie.top.intent", "utterance": "what are the highest rated movies playing"}
+{"label": "ovos-skill-date-time.openvoiceos:date.last.weekend.intent", "utterance": "what days were previous weekend"}
+{"label": "ovos-skill-moviemaster.openvoiceos:movie.top.intent", "utterance": "list the highest rated flicks playing now"}
+{"label": "ovos-skill-weather.openvoiceos:current_temperature.intent", "utterance": "what's the temp now"}
+{"label": "ovos-skill-news.openvoiceos:global_news.intent", "utterance": "latest world news"}
+{"label": "ovos-skill-dictation.openvoiceos:start_dictation.intent", "utterance": "begin transcribing text"}
+{"label": "ovos-skill-news.openvoiceos:global_news.intent", "utterance": "give me a international news update"}
+{"label": "ovos-skill-iss-location.openvoiceos:when_iss.intent", "utterance": "when is the iss passing over"}
+{"label": "ovos-skill-date-time.openvoiceos:date.future.weekend.intent", "utterance": "what date is the next weekend"}
+{"label": "ovos-skill-weather.openvoiceos:hourly_temperature.intent", "utterance": "what is the temperature tuesday morning"}
+{"label": "ovos-skill-date-time.openvoiceos:date.last.weekend.intent", "utterance": "do you remember the date of the last weekend"}
+{"label": "ovos-skill-alerts.openvoiceos:missed_alerts.intent", "utterance": "missed an alarm"}
+{"label": "ovos-skill-dictation.openvoiceos:start_dictation.intent", "utterance": "begin note-taking now"}
+{"label": "ovos-skill-news.openvoiceos:global_news.intent", "utterance": "latest worldwide news"}
+{"label": "ovos-skill-alerts.openvoiceos:missed_alerts.intent", "utterance": "miss a reminders"}
+{"label": "ovos-skill-weather.openvoiceos:low_temperature.intent", "utterance": "are freezing temperatures expected tonight"}
+{"label": "ovos-skill-weather.openvoiceos:daily_forecast.intent", "utterance": "forecast next thursday"}
+{"label": "ovos-skill-weather.openvoiceos:hourly_forecast.intent", "utterance": "forecast for friday at night"}
+{"label": "ovos-skill-weather.openvoiceos:daily_forecast.intent", "utterance": "any weather warnings for after tomorrow"}
+{"label": "ovos-skill-alerts.openvoiceos:missed_alerts.intent", "utterance": "have i missed any timers"}
+{"label": "ovos-skill-dictation.openvoiceos:stop_dictation.intent", "utterance": "can you deactivate text transcription"}
+{"label": "ovos-skill-weather.openvoiceos:N_days_forecast.intent", "utterance": "what is the 6 days forecast"}
+{"label": "ovos-skill-weather.openvoiceos:current_temperature.intent", "utterance": "how chilly is it right now"}
+{"label": "ovos-skill-date-time.openvoiceos:what.time.is.it.intent", "utterance": "current time"}
+{"label": "ovos-skill-date-time.openvoiceos:what.time.is.it.intent", "utterance": "give the hour"}
+{"label": "ovos-skill-dictation.openvoiceos:start_dictation.intent", "utterance": "let's begin saving to text"}
+{"label": "ovos-skill-weather.openvoiceos:low_temperature.intent", "utterance": "should i expect frost tonight"}
+{"label": "ovos-skill-dictation.openvoiceos:start_dictation.intent", "utterance": "begin taking notes"}
+{"label": "ovos-skill-moviemaster.openvoiceos:movie.top.intent", "utterance": "what are the most popular movies out now"}
+{"label": "ovos-skill-dictation.openvoiceos:start_dictation.intent", "utterance": "start dictation"}
+{"label": "ovos-skill-weather.openvoiceos:hourly_forecast.intent", "utterance": "what's the forecast for tomorrow at 3 am"}
+{"label": "ovos-skill-date-time.openvoiceos:what.time.is.it.intent", "utterance": "could you give the hours"}
+{"label": "ovos-skill-date-time.openvoiceos:what.time.is.it.intent", "utterance": "share the time"}
+{"label": "ovos-skill-weather.openvoiceos:hourly_temperature.intent", "utterance": "what's the temperature at 4 am thursday"}
+{"label": "ovos-skill-audio-recording.openvoiceos:start_recording.intent", "utterance": "start a new audio recording"}
+{"label": "ovos-skill-weather.openvoiceos:N_days_forecast.intent", "utterance": "show me the weekly forecast"}
+{"label": "ovos-skill-date-time.openvoiceos:what.month.is.it.intent", "utterance": "are we currently in january?"}
+{"label": "ovos-skill-audio-recording.openvoiceos:start_recording.intent", "utterance": "start audio recording please"}
+{"label": "ovos-skill-weather.openvoiceos:current_temperature.intent", "utterance": "tell me the temperature now"}
+{"label": "ovos-skill-weather.openvoiceos:high_temperature.intent", "utterance": "what is the max temperature friday morning"}
+{"label": "ovos-skill-date-time.openvoiceos:date.future.weekend.intent", "utterance": "what are the exact dates of the next saturday"}
+{"label": "ovos-skill-weather.openvoiceos:hourly_temperature.intent", "utterance": "what's the temperature at 2 am tomorrow"}
+{"label": "ovos-skill-date-time.openvoiceos:date.last.weekend.intent", "utterance": "what day was last sunday"}
+{"label": "ovos-skill-weather.openvoiceos:N_days_forecast.intent", "utterance": "show me the 7-day forecast"}
+{"label": "ovos-skill-weather.openvoiceos:low_temperature.intent", "utterance": "what is the min temperature wednesday morning"}
+{"label": "ovos-skill-weather.openvoiceos:high_temperature.intent", "utterance": "peak temperature for monday"}
+{"label": "ovos-skill-weather.openvoiceos:hourly_forecast.intent", "utterance": "how is the weather sunday noon"}
+{"label": "ovos-skill-news.openvoiceos:global_news.intent", "utterance": "latest international news"}
+{"label": "ovos-skill-weather.openvoiceos:N_days_forecast.intent", "utterance": "weather in the coming 6 days"}
+{"label": "ovos-skill-weather.openvoiceos:high_temperature.intent", "utterance": "what is the maximum temperature friday night"}
+{"label": "ovos-skill-date-time.openvoiceos:date.future.weekend.intent", "utterance": "which date is the upcoming sunday"}
+{"label": "ovos-skill-weather.openvoiceos:hourly_forecast.intent", "utterance": "forecast for thursday at 9 am"}
+{"label": "ovos-skill-date-time.openvoiceos:date.last.weekend.intent", "utterance": "what were the dates of last sunday"}
+{"label": "ovos-skill-alerts.openvoiceos:missed_alerts.intent", "utterance": "miss event"}
+{"label": "ovos-skill-alerts.openvoiceos:missed_alerts.intent", "utterance": "which alerts did i miss"}
+{"label": "ovos-skill-weather.openvoiceos:high_temperature.intent", "utterance": "what's the highest temp expected friday"}
+{"label": "ovos-skill-dictation.openvoiceos:stop_dictation.intent", "utterance": "can we end note-taking"}
+{"label": "ovos-skill-weather.openvoiceos:high_temperature.intent", "utterance": "what is the maximum temperature"}
+{"label": "ovos-skill-weather.openvoiceos:low_temperature.intent", "utterance": "what is the min temperature sunday night"}
+{"label": "ovos-skill-date-time.openvoiceos:current_date.intent", "utterance": "what\u2019s the full date today including the year"}
+{"label": "ovos-skill-audio-recording.openvoiceos:start_recording.intent", "utterance": "initiate audio recording"}
+{"label": "ovos-skill-date-time.openvoiceos:current_date.intent", "utterance": "what is today\u2019s full date"}
+{"label": "ovos-skill-dictation.openvoiceos:stop_dictation.intent", "utterance": "let's terminate capturing text"}
+{"label": "ovos-skill-audio-recording.openvoiceos:start_recording.intent", "utterance": "start recording right away"}
+{"label": "ovos-skill-date-time.openvoiceos:what.month.is.it.intent", "utterance": "which month are we in"}
+{"label": "ovos-skill-weather.openvoiceos:daily_forecast.intent", "utterance": "how's the weather going to be sunday"}
+{"label": "ovos-skill-weather.openvoiceos:N_days_forecast.intent", "utterance": "what is the 5 days forecast"}
+{"label": "ovos-skill-date-time.openvoiceos:date.last.weekend.intent", "utterance": "which date was past saturday"}
+{"label": "ovos-skill-date-time.openvoiceos:current_date.intent", "utterance": "what date including year is it today"}
+{"label": "ovos-skill-moviemaster.openvoiceos:movie.top.intent", "utterance": "search for the highest rated films playing now"}
+{"label": "ovos-skill-audio-recording.openvoiceos:start_recording.intent", "utterance": "begin audio recording"}
+{"label": "ovos-skill-weather.openvoiceos:current_temperature.intent", "utterance": "is it hot outside"}
+{"label": "ovos-skill-news.openvoiceos:global_news.intent", "utterance": "tell me what\u2019s happening around the globe"}
+{"label": "ovos-skill-iss-location.openvoiceos:when_iss.intent", "utterance": "when is the space station going to be over"}
+{"label": "ovos-skill-date-time.openvoiceos:current_date.intent", "utterance": "show me the calendar date"}
+{"label": "ovos-skill-weather.openvoiceos:N_days_forecast.intent", "utterance": "weather in the next few days"}
+{"label": "ovos-skill-iss-location.openvoiceos:when_iss.intent", "utterance": "when is the iss passing above"}
+{"label": "ovos-skill-weather.openvoiceos:daily_forecast.intent", "utterance": "any weather warnings for wednesday"}
+{"label": "ovos-skill-moviemaster.openvoiceos:movie.top.intent", "utterance": "what are the most popular flicks out now"}
+{"label": "ovos-skill-weather.openvoiceos:low_temperature.intent", "utterance": "what is the min temperature thursday morning"}
+{"label": "ovos-skill-weather.openvoiceos:current_temperature.intent", "utterance": "what is the current temperature outside"}
+{"label": "ovos-skill-date-time.openvoiceos:date.future.weekend.intent", "utterance": "which date is the forthcoming sunday"}
+{"label": "ovos-skill-weather.openvoiceos:daily_forecast.intent", "utterance": "tell me the weather next saturday"}
+{"label": "ovos-skill-dictation.openvoiceos:start_dictation.intent", "utterance": "start transcribing"}
+{"label": "ovos-skill-weather.openvoiceos:high_temperature.intent", "utterance": "how hot will it get tomorrow"}
+{"label": "ovos-skill-date-time.openvoiceos:what.time.is.it.intent", "utterance": "share the current time"}
+{"label": "ovos-skill-date-time.openvoiceos:what.month.is.it.intent", "utterance": "what month it is"}
+{"label": "ovos-skill-weather.openvoiceos:hourly_forecast.intent", "utterance": "tell me the weather thursday evening"}
+{"label": "ovos-skill-date-time.openvoiceos:what.time.is.it.intent", "utterance": "i'd appreciate it if you could tell the current hours"}
+{"label": "ovos-skill-dictation.openvoiceos:stop_dictation.intent", "utterance": "cancel dictation"}
+{"label": "ovos-skill-date-time.openvoiceos:current_date.intent", "utterance": "what\u2019s present full date"}
+{"label": "ovos-skill-iss-location.openvoiceos:when_iss.intent", "utterance": "when is the i s s going to be over me"}
+{"label": "ovos-skill-weather.openvoiceos:hourly_temperature.intent", "utterance": "what's the temperature at 9 am tomorrow"}
+{"label": "ovos-skill-date-time.openvoiceos:what.month.is.it.intent", "utterance": "do you know the current month"}
+{"label": "ovos-skill-audio-recording.openvoiceos:start_recording.intent", "utterance": "start recording"}
+{"label": "ovos-skill-dictation.openvoiceos:stop_dictation.intent", "utterance": "end transcription"}
