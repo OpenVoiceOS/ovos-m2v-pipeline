@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.38.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.38.1a1) (2026-11-27)
+
+[Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.38.0a1...0.38.1a1)
+
+**Merged pull requests:**
+
+- fix: ovos.intent.deregister with lang removes only that language [\#361](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/361) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.38.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.38.0a1) (2026-10-29)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.37.7a1...0.38.0a1)
@@ -387,10 +395,6 @@
 ## [0.27.1a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.27.1a1) (2026-09-23)
 
 [Full Changelog](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/compare/0.27.0a1...0.27.1a1)
-
-**Merged pull requests:**
-
-- fix: log a prototype label a person can read [\#258](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/pull/258) ([goldyfruit](https://github.com/goldyfruit))
 
 ## [0.27.0a1](https://github.com/OpenVoiceOS/ovos-m2v-pipeline/tree/0.27.0a1) (2026-09-19)
 
