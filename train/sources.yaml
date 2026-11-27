@@ -1,0 +1,326 @@
+# Source list for train/build_from_skills.py and train/build_dataset.py.
+#
+# Every git source names a repository and a branch, never a commit. A build
+# reads each one at its branch head, resolved once when the build starts, and
+# records every commit it resolved in its manifest.json (`source_refs`), so
+# the manifest is what reproduces a build: `build_from_skills.py
+# --from-manifest <manifest.json>` reads each skill at the recorded commit.
+# The branch is `dev` unless an entry names another one. Hugging Face sources
+# keep a dataset revision: they are frozen exports with no branch.
+
+version: 2
+
+# Local clones the git sources are read from. Override with --workspace.
+workspace: "~/AgentWorkspaces"
+
+git_sources:
+
+  - id: ovos-localize
+    kind: localize_jsonl
+    repo: https://github.com/OpenVoiceOS/ovos-localize
+    path: ovos/web/ovos-localize
+    files: "data/datasets/classification/*.jsonl"
+    license: "Apache-2.0 (OVOS skill locale files, community translations)"
+    columns:
+      lang: lang
+      skill_id: skill
+      intent: intent
+      utterance: text
+    notes: >
+      Keyed on intent FILE names, so `intent` carries a `.intent` / `.voc`
+      suffix that the label normaliser strips. `file_type: voc` rows are
+      Adapt keyword lists, not utterances, and are dropped.
+    exclude:
+      file_type: [voc]
+
+  - id: lang-support-tracker
+    kind: tracker_csv
+    repo: https://github.com/OpenVoiceOS/lang-support-tracker
+    path: ovos/tools/lang-support-tracker
+    files: "skills/intents_{lang}.csv"
+    langs: [ca, da, de, en, es, eu, fr, gl, it, nl, pt]
+    license: "Apache-2.0"
+    columns:
+      skill_id: domain
+      intent: intent
+      utterance: utterance
+      lang: "<from filename>"
+
+  # Pipeline-plugin families. Their locale `.intent` templates are expanded in
+  # place; `.voc` files are Adapt keyword lists and are never used as
+  # utterances.
+  - id: ocp-pipeline
+    kind: plugin_intents
+    family: ocp
+    pipeline_id: ocp
+    repo: https://github.com/OpenVoiceOS/ovos-ocp-pipeline-plugin
+    path: ovos/plugins/pipeline/ovos-ocp-pipeline-plugin
+    files: "**/locale/*/*.intent"
+    license: "Apache-2.0"
+
+  - id: common-query-pipeline
+    kind: plugin_intents
+    family: common_query
+    pipeline_id: common_query
+    repo: https://github.com/OpenVoiceOS/ovos-common-query-pipeline-plugin
+    path: ovos/plugins/pipeline/ovos-common-query-pipeline-plugin
+    files: "**/locale/*/*.intent"
+    license: "Apache-2.0"
+    extra_intents: [common_query]
+    notes: >
+      `common_query` is not a resource file: it is the umbrella label the
+      pipeline itself answers under, mapped by the plugin to the
+      `common_query.question` topic. The repo's only `.intent` file belongs
+      to a test-fixture skill and is not a registration; test paths are
+      excluded on read.
+
+  - id: persona-pipeline
+    kind: plugin_intents
+    family: persona
+    pipeline_id: persona
+    repo: https://github.com/OpenVoiceOS/ovos-persona
+    path: ovos/plugins/pipeline/ovos-persona
+    files: "**/locale/*/*.intent"
+    license: "Apache-2.0"
+
+  - id: stop-pipeline
+    kind: plugin_intents
+    family: stop
+    pipeline_id: stop
+    repo: https://github.com/OpenVoiceOS/ovos-core
+    path: ovos/core/ovos-core
+    files: "ovos_core/intent_services/locale/*/*.intent"
+    license: "Apache-2.0"
+    notes: >
+      The stop pipeline ships inside ovos-core rather than a standalone plugin
+      repo; `stop.intent` carries the `stop:stop` umbrella label the plugin
+      already special-cases, `global_stop.intent` becomes `stop:global_stop`.
+
+  - id: common-reading-pipeline
+    kind: plugin_intents
+    family: common_reading
+    pipeline_id: common_reading
+    repo: https://github.com/andlo/ovos-common-reading-pipeline-plugin
+    branch: main
+    path: ovos/plugins/pipeline/ovos-common-reading-pipeline-plugin
+    files: "locale/*/*.intent"
+    license: "GPL-3.0-or-later"
+    notes: >
+      A pipeline plugin in its own right (`opm.pipeline` entry point
+      `ovos-common-reading-pipeline-plugin=ovos_common_reading_pipeline_plugin:CommonReadingPipeline`),
+      not part of `common_query` -- the corpus's own `ReadContent` /
+      `ReadContentByCollection` / `ReadContentByType` labels never belonged
+      to the `common_query` registry they used to be aliased into, which is
+      why they were silently dropped as unresolved.
+
+hf_sources:
+
+  - id: gitlocalize-legacy
+    repo_id: OpenVoiceOS/OVOSGitLocalize-Intents
+    revision: 6f745da797a868b635adffc017f4c9bf5b00674a
+    file: ovos_gitlocalize.csv
+    license: "Apache-2.0 (OVOS community translations, GitLocalize export)"
+    columns:
+      lang: lang
+      skill_id: domain
+      intent: intent
+      utterance: sentence
+    notes: >
+      Legacy export, 95k rows over 17 languages. Every cell is quoted and
+      space-padded; the reader strips quotes and whitespace before mapping.
+
+  - id: music-queries-templates
+    repo_id: OpenVoiceOS/music_queries_templates
+    revision: ea676cef6c1a12c3a8979641ca1e2dccb77bebb5
+    file: music_templates.csv
+    license: "MIT"
+    constant_label: "ocp:play"
+    constant_lang: "en-US"
+    columns:
+      utterance: template
+    notes: >
+      OCP play queries as `{slot}` templates. Mirrored from
+      Jarbas/music_queries_templates at the same revision; the OpenVoiceOS
+      copy is the pinned one.
+
+  - id: common-query-intents
+    repo_id: Jarbas/ovos-common-query-intents
+    revision: 588655fdc7e979d745afa044413874977c91fd2a
+    file: common_query.csv
+    license: "unstated upstream; treated as Apache-2.0 with the rest of the OVOS corpus"
+    columns:
+      lang: lang
+      skill_id: domain
+      intent: intent
+      utterance: sentence
+
+  - id: weather-intents
+    repo_id: OpenVoiceOS/ovos-weather-intents
+    revision: 5c3b9844185af6f7b17852fa9004d6b33f8c1837
+    file: weather_intents_en.csv
+    license: "unstated upstream; treated as Apache-2.0 with the rest of the OVOS corpus"
+    constant_skill_id: "ovos-skill-weather.openvoiceos"
+    constant_lang: "en-US"
+    columns:
+      intent: intent
+      utterance: example
+
+  - id: llm-augmented
+    repo_id: Jarbas/ovos-llm-augmented-intents
+    revision: ee702b4cf27a10090e21c9f76ef2eddd9e935d10
+    file: augmented.csv
+    license: "unstated upstream; synthetic, LLM-generated"
+    columns:
+      lang: lang
+      skill_id: domain
+      intent: intent
+      utterance: sentence
+    notes: >
+      Synthetic balancing data. Resolves under the `Jarbas` namespace only;
+      it is not listed by `list_datasets(author="Jarbas")`, so resolve it by
+      exact id.
+
+# Golden sentences. Per the maintainer these JOIN the train/test split rather
+# than forming a pure holdout: they are stratified alongside every other row
+# and keep their provenance so a golden-only slice can still be scored.
+golden:
+  policy: stratified
+  provenance_column: source
+  per_skill:
+    files: "test/end2end/golden_utterances*.jsonl"
+    lang_from_filename: true
+    default_lang: en-US
+
+# Skill repositories, workspace-relative. These are the GROUND TRUTH for the
+# label vocabulary: the builder reads each repo's entry point and its
+# registered intents at its branch head, and drops any corpus label they do
+# not attest. The game skills and skill-musicassistant have no dev branch,
+# so their entries name the branch they do have.
+skill_refs:
+  branch: dev
+  repos:
+    - ovos/ovos-skill-bandcamp
+    - ovos/ovos-skill-news
+    - ovos/ovos-skill-pyradios
+    - ovos/ovos-skill-somafm
+    - ovos/ovos-skill-soundcloud
+    - ovos/ovos-skill-spotify
+    - ovos/ovos-skill-tunein
+    - ovos/ovos-skill-youtube
+    - ovos/ovos-skill-youtube-music
+    - ovos/plugins/agents/ovos-skill-ddg
+    - ovos/skills/adult/ovos-skill-hello-world
+    - ovos/skills/ovos-skill-alerts
+    - ovos/skills/ovos-skill-application-launcher
+    - ovos/skills/ovos-skill-audio-recording
+    - ovos/skills/ovos-skill-boot-finished
+    - ovos/skills/ovos-skill-camera
+    - {path: ovos/skills/ovos-skill-cave-adventure-game, branch: master}
+    - ovos/skills/ovos-skill-cmd
+    - ovos/skills/ovos-skill-color-picker
+    - ovos/skills/ovos-skill-confucius-quotes
+    - ovos/skills/ovos-skill-count
+    - ovos/skills/ovos-skill-date-time
+    - ovos/skills/ovos-skill-days-in-history
+    - ovos/skills/ovos-skill-diagnostics
+    - ovos/skills/ovos-skill-dictation
+    - ovos/skills/ovos-skill-easter-eggs
+    - ovos/skills/ovos-skill-fallback-unknown
+    - ovos/skills/ovos-skill-fuster-quotes
+    - ovos/skills/ovos-skill-ggwave
+    - {path: ovos/skills/ovos-skill-hhgg-game, branch: master}
+    - ovos/skills/ovos-skill-homescreen
+    - ovos/skills/ovos-skill-icanhazdadjokes
+    - ovos/skills/ovos-skill-ip
+    - ovos/skills/ovos-skill-iss-location
+    - ovos/skills/ovos-skill-laugh
+    - ovos/skills/ovos-skill-mark1-ctrl
+    - ovos/skills/ovos-skill-moon-game
+    - ovos/skills/ovos-skill-moviemaster
+    - ovos/skills/ovos-skill-naptime
+    - ovos/skills/ovos-skill-number-facts
+    - ovos/skills/ovos-skill-parrot
+    - ovos/skills/ovos-skill-personal
+    - {path: ovos/skills/ovos-skill-planet-fall-game, branch: master}
+    - ovos/skills/ovos-skill-pokepedia
+    - ovos/skills/ovos-skill-randomness
+    - ovos/skills/ovos-skill-screenshot
+    - ovos/skills/ovos-skill-speedtest
+    - ovos/skills/ovos-skill-spelling
+    - {path: ovos/skills/ovos-skill-starcross-game, branch: master}
+    - {path: ovos/skills/ovos-skill-station-fall-game, branch: master}
+    - ovos/skills/ovos-skill-volume
+    - ovos/skills/ovos-skill-wallpapers
+    - ovos/skills/ovos-skill-weather
+    - {path: ovos/skills/ovos-skill-white-house-adventure, branch: master}
+    - ovos/skills/ovos-skill-wikihow
+    - ovos/skills/ovos-skill-wikipedia
+    - ovos/skills/ovos-skill-wolfie
+    - ovos/skills/ovos-skill-word-of-the-day
+    - ovos/skills/ovos-skill-wordnet
+    - {path: ovos/skills/ovos-skill-zork0-game, branch: master}
+    - {path: ovos/skills/ovos-skill-zork2-game, branch: master}
+    - {path: ovos/skills/ovos-skill-zork3-game, branch: master}
+    - vendor/skill-meal-plan
+    - {path: vendor/skill-musicassistant, branch: main}
+
+# Skill-id spellings older corpora use for a pipeline. Resolved to the
+# pipeline id before the registry lookup, since folding cannot bridge them.
+skill_id_aliases:
+  ovos-ocp-pipeline-plugin: ocp
+  ovos-common-query-pipeline-plugin: common_query
+  ovos-common-reading-pipeline-plugin: common_reading
+  ovos-persona: persona
+  ovos-core: stop
+  ocp: ocp
+  # The corpus carries these under the OpenVoiceOS author suffix the
+  # skill's own maintainer never used; the registered entry point's real
+  # author cannot be reached by folding, so the mapping is spelled here.
+  ovos-skill-color-picker.openvoiceos: ovos-skill-color-picker.krisgesling
+  ovos-skill-easter-eggs.openvoiceos: skill-easter-eggs.openvoiceos
+  skill-musicassistant.openvoiceos: skill-musicassistant.oscillatelabsllc
+  skill-meal-plan.openvoiceos: skill-meal-plan.oscillatelabsllc
+
+# Skill ids that must never reach the corpus.
+skill_blacklist:
+  - ovos-skill-local-media.openvoiceos
+  - ovos-skill-spotify.openvoiceos
+  # OVOSHatchery/skill-ovos-homeassistant-vui: archived since 2023-05-16,
+  # not a maintained skill_refs entry -- corpus rows under
+  # skill-homeassistant.openvoiceos are dropped as a decision, not left as
+  # a silent unresolved-label gap. Undo this the day the skill is revived
+  # and given a skill_refs pin.
+  - skill-homeassistant.openvoiceos
+
+# Intent file names that are dialog or keyword resources, not intents.
+intent_blacklist:
+  - no_secondary_langs
+
+filters:
+  min_chars: 2
+  max_chars: 160
+  min_words: 1
+  # Word-salad guard: a row whose utterance is a bare unexpanded slot, or is
+  # only punctuation / digits, carries no intent signal.
+  drop_bare_slot: true
+  drop_non_alpha: true
+  # Labels with fewer than this many rows cannot be stratified into a split.
+  min_rows_per_label: 2
+
+# What the published dataset claims, as opposed to what the corpus holds.
+# A language carrying one skill's templates, or a region-less tag the corpus
+# disagrees about, is real data and stays in the corpora; neither is published,
+# because a published language count is read as coverage.
+publish:
+  # The dataset is language-level: every regional variant trains one label
+  # space for its macro language. Skills keep their per-dialect locale
+  # directories; this groups their rows at build time and every row keeps
+  # its dialect in `lang_variant`, so the grouping is reversible.
+  collapse_to_macro_language: true
+  min_rows_per_lang: 0
+  min_skills_per_lang: 0
+
+split:
+  test_size: 0.2
+  seed: 42
+  stratify: label
