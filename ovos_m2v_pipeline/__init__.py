@@ -852,18 +852,20 @@ class PrototypeIntentStore:
             )
         return n_added
 
-    def remove(self, label: str) -> None:
-        """Remove all prototypes for *label*, across every language
-        partition it was registered under (and its on-disk cache entries,
-        if caching is enabled -- otherwise a later restart would resurrect
-        them from the stale cache). A caller that detaches an intent has no
-        reliable way to know which language(s) it was registered in, so
-        removal is unconditional over all of them."""
+    def remove(self, label: str, lang: Optional[str] = None) -> None:
+        """Remove the prototypes for *label* in *lang*, or in every language
+        partition when *lang* is None (and the on-disk cache entries, if
+        caching is enabled -- otherwise a later restart would resurrect
+        them from the stale cache)."""
+        lang = standardize_lang(lang) if lang else None
         if self.cache is not None:
-            self.cache.remove(label)
+            self.cache.remove(label, lang)
         with self._lock:
-            matching = {l for l in self._label_set
-                        if l == label or l.startswith(label + self._LANG_SEP)}
+            if lang:
+                matching = {self._compose(label, lang)} & self._label_set
+            else:
+                matching = {l for l in self._label_set
+                            if l == label or l.startswith(label + self._LANG_SEP)}
             if not matching:
                 return
             self._consolidate()
@@ -2042,13 +2044,21 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
                 del self._applied_registrations[key]
             self._applied_lock.notify_all()
 
-    def _forget_pending(self, label: str) -> None:
-        """Drop any buffered-but-unencoded registration for *label* (mirrors
-        ``prototype_store.remove`` for entries that never reached the store)."""
-        self._forget_applied(lambda name: name == label)
+    def _forget_pending(self, label: str, lang: Optional[str] = None) -> None:
+        """Drop any buffered-but-unencoded registration for *label*, in *lang*
+        only when given (mirrors ``prototype_store.remove`` for entries that
+        never reached the store)."""
+        lang = standardize_lang(lang) if lang else None
+        with self._applied_lock:
+            for key in [k for k in self._applied_registrations
+                        if k[0] == label and (lang is None or k[1] == lang)]:
+                del self._applied_registrations[key]
+            self._applied_lock.notify_all()
         pending = getattr(self, "_pending_additions", None)
         if pending:
-            self._pending_additions = [p for p in pending if p[0] != label]
+            self._pending_additions = [
+                p for p in pending
+                if p[0] != label or (lang and (not p[4] or standardize_lang(p[4]) != lang))]
 
     def _forget_pending_skill(self, skill_id: str) -> None:
         """Drop buffered-but-unencoded registrations owned by *skill_id*
@@ -2855,15 +2865,27 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
         LOG.debug(f"Model2Vec: registered INTENT-4 entity '{name}' ({len(values)} values)")
 
     def _handle_intent4_deregister_intent(self, message: Message) -> None:
-        """Remove one intent (§8.2)."""
+        """Remove one ``(skill_id, intent_name, lang)`` intent, or every
+        language of the pair when ``lang`` is omitted (§8.2)."""
         label = self._intent4_label(message)
         if not label:
             self._intent4_warn(message.msg_type, message,
                                "missing skill_id or intent_name")
             return
+        lang = message.data.get("lang")
+        lang = standardize_lang(lang) if lang else None
         if self.prototype_store is not None:
-            self.prototype_store.remove(label)
-            self._forget_pending(label)
+            self.prototype_store.remove(label, lang)
+            self._forget_pending(label, lang)
+        if lang:
+            for store in (self.excluded_keywords, self.required_keywords):
+                by_lang = store.get(label, {})
+                by_lang.pop(lang, None)
+                if not by_lang:
+                    store.pop(label, None)
+            if self._label_langs(label):
+                LOG.debug(f"Model2Vec: deregistered INTENT-4 intent '{label}' [{lang}]")
+                return
         self.intents.discard(label)
         self._context_gates.pop(label, None)
         self._intent_slots.pop(label, None)
@@ -2938,6 +2960,17 @@ class Model2VecIntentPipeline(ConfidenceMatcherPipeline):
             if not disabled:
                 del self._disabled[session_id]
         LOG.debug(f"Model2Vec: enabled INTENT-4 intent '{label}' for session '{session_id}'")
+
+    def _label_langs(self, label: str) -> set:
+        """Languages that still hold a registration of *label*."""
+        langs = set(self.excluded_keywords.get(label, {}))
+        langs |= set(self.required_keywords.get(label, {}))
+        if self.prototype_store is not None:
+            langs |= self.prototype_store._langs_by_label.get(label, set())
+            langs |= {standardize_lang(p[4]) for p in self._pending_additions
+                      if p[0] == label and p[4]}
+        langs.discard(None)
+        return langs
 
     def _is_registered(self, label: str) -> bool:
         if label in self.intents:
