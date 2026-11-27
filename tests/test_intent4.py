@@ -275,6 +275,64 @@ class TestIntent4Deregistration(unittest.TestCase):
         self.assertNotIn("music.skill:play_music", p.intents)
         self.assertNotIn("music.skill:play_music", p.prototype_store.unique_labels)
 
+    def _register_lang(self, p, lang, sample, blacklist, required):
+        p._handle_intent4_register_template(Message(
+            SpecMessage.INTENT_REGISTER_TEMPLATE.value,
+            data={"skill_id": "music.skill", "intent_name": "play_music",
+                  "lang": lang, "samples": [sample], "blacklist": [blacklist],
+                  "required_keywords": [required]},
+            context={"skill_id": "music.skill"},
+        ))
+
+    def _deregister(self, p, **lang):
+        p._handle_intent4_deregister_intent(Message(
+            SpecMessage.INTENT_DEREGISTER.value,
+            data={"skill_id": "music.skill", "intent_name": "play_music", **lang},
+            context={"skill_id": "music.skill"},
+        ))
+
+    def test_deregister_one_lang_keeps_the_other(self):
+        """§8.2: the target is the (skill_id, intent_name, lang) triple."""
+        p = _make_prototype_pipeline()
+        self._register_lang(p, "en-US", "play music", "stop", "music")
+        self._register_lang(p, "de-DE", "musik spielen", "halt", "musik")
+        self._deregister(p, lang="en-US")
+        self.assertEqual(p.prototype_store._langs_by_label,
+                         {"music.skill:play_music": {"de-DE"}})
+        self.assertIn("music.skill:play_music", p.intents)
+        self.assertEqual(p.excluded_keywords,
+                         {"music.skill:play_music": {"de-DE": ["halt"]}})
+        self.assertEqual(p.required_keywords,
+                         {"music.skill:play_music": {"de-DE": ["musik"]}})
+
+    def test_deregister_last_lang_removes_label(self):
+        p = _make_prototype_pipeline()
+        self._register_lang(p, "en-US", "play music", "stop", "music")
+        self._deregister(p, lang="en-US")
+        self.assertNotIn("music.skill:play_music", p.intents)
+        self.assertEqual(p.prototype_store.unique_labels.tolist(), [])
+        self.assertEqual(p.excluded_keywords, {})
+        self.assertEqual(p.required_keywords, {})
+
+    def test_deregister_without_lang_removes_every_lang(self):
+        p = _make_prototype_pipeline()
+        self._register_lang(p, "en-US", "play music", "stop", "music")
+        self._register_lang(p, "de-DE", "musik spielen", "halt", "musik")
+        self._deregister(p)
+        self.assertNotIn("music.skill:play_music", p.intents)
+        self.assertEqual(p.prototype_store._langs_by_label, {})
+        self.assertEqual(p.excluded_keywords, {})
+        self.assertEqual(p.required_keywords, {})
+
+    def test_classifier_deregister_one_lang_keeps_the_other(self):
+        p = _make_classifier_pipeline()
+        self._register_lang(p, "en-US", "play music", "stop", "music")
+        self._register_lang(p, "de-DE", "musik spielen", "halt", "musik")
+        self._deregister(p, lang="en-US")
+        self.assertIn("music.skill:play_music", p.intents)
+        self.assertEqual(p.excluded_keywords,
+                         {"music.skill:play_music": {"de-DE": ["halt"]}})
+
     def test_deregister_skill_removes_all(self):
         p = _make_prototype_pipeline()
         self._register(p, intent_name="a")
